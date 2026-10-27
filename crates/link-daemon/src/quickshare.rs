@@ -387,7 +387,7 @@ impl Interface {
     }
 
     /// `files` are (descriptor, name); returns the send's id for `SendPin` and `SendFinished`.
-    async fn send(&self, peer: String, files: Vec<(zbus::zvariant::OwnedFd, String)>) -> fdo::Result<u64> {
+    async fn send(&self, peer: String, files: Vec<(zbus::OwnedFd, String)>) -> fdo::Result<u64> {
         let files =
             files.into_iter().map(|(fd, name)| (std::fs::File::from(std::os::fd::OwnedFd::from(fd)), name)).collect();
         self.handle.send(peer, files).await.map_err(fdo::Error::Failed)

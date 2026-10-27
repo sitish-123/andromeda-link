@@ -11,7 +11,7 @@ use link_core::identity::DeviceId;
 use link_core::proto::message::{MediaCommand, MediaCommandKind, MediaPlayer, Message, PlaybackState};
 use ring::digest;
 use zbus::object_server::SignalEmitter;
-use zbus::zvariant::{ObjectPath, Value};
+use zbus::{ObjectPath, Variant};
 
 use crate::hub::HubHandle;
 
@@ -159,24 +159,24 @@ impl Playback {
     }
 
     #[zbus(property)]
-    fn metadata(&self) -> HashMap<String, Value<'static>> {
+    fn metadata(&self) -> HashMap<String, Variant<'static>> {
         let mut metadata = HashMap::new();
         let track = ObjectPath::try_from(self.track_path()).map(ObjectPath::into_owned);
         if let Ok(track) = track {
-            metadata.insert("mpris:trackid".to_owned(), Value::from(track));
+            metadata.insert("mpris:trackid".to_owned(), Variant::from(track));
         }
-        metadata.insert("xesam:title".to_owned(), Value::from(self.player.title.clone()));
+        metadata.insert("xesam:title".to_owned(), Variant::from(self.player.title.clone()));
         if !self.player.artist.is_empty() {
-            metadata.insert("xesam:artist".to_owned(), Value::from(vec![self.player.artist.clone()]));
+            metadata.insert("xesam:artist".to_owned(), Variant::from(vec![self.player.artist.clone()]));
         }
         if !self.player.album.is_empty() {
-            metadata.insert("xesam:album".to_owned(), Value::from(self.player.album.clone()));
+            metadata.insert("xesam:album".to_owned(), Variant::from(self.player.album.clone()));
         }
         if let Some(length) = self.player.length_ms {
-            metadata.insert("mpris:length".to_owned(), Value::from(i64::try_from(length).unwrap_or(0) * 1000));
+            metadata.insert("mpris:length".to_owned(), Variant::from(i64::try_from(length).unwrap_or(0) * 1000));
         }
         if let Some(url) = &self.art_url {
-            metadata.insert("mpris:artUrl".to_owned(), Value::from(url.clone()));
+            metadata.insert("mpris:artUrl".to_owned(), Variant::from(url.clone()));
         }
         metadata
     }
@@ -272,10 +272,10 @@ impl Exported {
         let state =
             Playback { hub, device: device.clone(), player: player.clone(), at: Instant::now(), art_url, track: 0 };
         let name = format!("{NAME_PREFIX}{device}");
-        let connection = zbus::connection::Builder::session()?
-            .name(name.clone())?
-            .serve_at(PATH, Root { identity })?
-            .serve_at(PATH, state)?
+        let connection = zbus::connection::Builder::session()
+            .name(name.clone())
+            .serve_at(PATH, Root { identity })
+            .serve_at(PATH, state)
             .build()
             .await?;
         Ok(Self { connection, name, art_dir: art_dir.to_owned(), art_file })

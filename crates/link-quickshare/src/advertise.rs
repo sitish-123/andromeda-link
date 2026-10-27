@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use ring::rand::{SecureRandom, SystemRandom};
-use zbus::zvariant::{ObjectPath, OwnedValue, Value};
+use zbus::{ObjectPath, OwnedVariant, Variant};
 
 use crate::endpoint::{self, Endpoint, SERVICE_TYPE};
 use crate::error::{Error, Result};
@@ -163,8 +163,8 @@ impl Advertisement {
     }
 
     #[zbus(property)]
-    fn service_data(&self) -> HashMap<String, OwnedValue> {
-        let value = Value::from(self.data.clone()).try_to_owned().ok();
+    fn service_data(&self) -> HashMap<String, OwnedVariant> {
+        let value = Variant::from(self.data.clone()).try_to_owned().ok();
         value.map(|v| HashMap::from([(BLE_SERVICE.to_owned(), v)])).unwrap_or_default()
     }
 }
@@ -187,7 +187,7 @@ impl Ble {
         let manager =
             zbus::Proxy::new(&bus, "org.bluez", adapter, "org.bluez.LEAdvertisingManager1").await.map_err(bus_error)?;
         let path = ObjectPath::try_from(BLE_PATH).map_err(bus_error)?;
-        let options: HashMap<String, OwnedValue> = HashMap::new();
+        let options: HashMap<String, OwnedVariant> = HashMap::new();
         manager.call::<_, _, ()>("RegisterAdvertisement", &(path, options)).await.map_err(bus_error)?;
         Ok(Self { _bus: bus })
     }

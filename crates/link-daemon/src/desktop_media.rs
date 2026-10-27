@@ -11,8 +11,8 @@ use tokio::sync::mpsc;
 use zbus::fdo::{DBusProxy, PropertiesProxy};
 use zbus::message::Type;
 use zbus::names::{BusName, InterfaceName};
-use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 use zbus::{MatchRule, MessageStream, Proxy};
+use zbus::{ObjectPath, OwnedVariant, Variant};
 
 use crate::hub::HubHandle;
 use crate::mpris::NAME_PREFIX;
@@ -66,19 +66,19 @@ struct DesktopMedia {
 pub async fn run(bus: zbus::Connection, hub: HubHandle, mut requests: mpsc::Receiver<Request>) -> anyhow::Result<()> {
     let owners_rule = MatchRule::builder()
         .msg_type(Type::Signal)
-        .sender("org.freedesktop.DBus")?
-        .interface("org.freedesktop.DBus")?
-        .member("NameOwnerChanged")?
-        .arg0ns("org.mpris.MediaPlayer2")?
-        .build();
+        .sender("org.freedesktop.DBus")
+        .interface("org.freedesktop.DBus")
+        .member("NameOwnerChanged")
+        .arg0ns("org.mpris.MediaPlayer2")
+        .build()?;
     let changes_rule = MatchRule::builder()
         .msg_type(Type::Signal)
-        .interface("org.freedesktop.DBus.Properties")?
-        .member("PropertiesChanged")?
-        .path(PATH)?
-        .build();
+        .interface("org.freedesktop.DBus.Properties")
+        .member("PropertiesChanged")
+        .path(PATH)
+        .build()?;
     let seeks_rule =
-        MatchRule::builder().msg_type(Type::Signal).interface(PLAYER)?.member("Seeked")?.path(PATH)?.build();
+        MatchRule::builder().msg_type(Type::Signal).interface(PLAYER).member("Seeked").path(PATH).build()?;
     let mut owners = MessageStream::for_match_rule(owners_rule, &bus, None).await?;
     let mut changes = MessageStream::for_match_rule(changes_rule, &bus, None).await?;
     let mut seeks = MessageStream::for_match_rule(seeks_rule, &bus, None).await?;
@@ -146,7 +146,7 @@ impl DesktopMedia {
     async fn read(&self, name: &str) -> anyhow::Result<Watched> {
         let bus_name = BusName::try_from(name)?;
         let owner = DBusProxy::new(&self.bus).await?.get_name_owner(bus_name.clone()).await?.to_string();
-        let properties = PropertiesProxy::builder(&self.bus).destination(bus_name)?.path(PATH)?.build().await?;
+        let properties = PropertiesProxy::builder(&self.bus).destination(bus_name).path(PATH).build().await?;
         let identity = properties
             .get(InterfaceName::from_static_str_unchecked("org.mpris.MediaPlayer2"), "Identity")
             .await
@@ -236,12 +236,16 @@ impl DesktopMedia {
     }
 }
 
-fn describe(id: String, identity: Option<String>, all: &HashMap<String, OwnedValue>) -> (MediaPlayer, Option<String>) {
+fn describe(
+    id: String,
+    identity: Option<String>,
+    all: &HashMap<String, OwnedVariant>,
+) -> (MediaPlayer, Option<String>) {
     let string = |key: &str| all.get(key).and_then(|value| String::try_from(value.clone()).ok());
     let flag = |key: &str| all.get(key).and_then(|value| bool::try_from(value.clone()).ok()).unwrap_or(false);
-    let metadata: HashMap<String, OwnedValue> = all
+    let metadata: HashMap<String, OwnedVariant> = all
         .get("Metadata")
-        .and_then(|value| HashMap::<String, OwnedValue>::try_from(value.clone()).ok())
+        .and_then(|value| HashMap::<String, OwnedVariant>::try_from(value.clone()).ok())
         .unwrap_or_default();
     let text = |key: &str| metadata.get(key).and_then(|value| String::try_from(value.clone()).ok()).unwrap_or_default();
     let artist = metadata
@@ -251,8 +255,8 @@ fn describe(id: String, identity: Option<String>, all: &HashMap<String, OwnedVal
         .unwrap_or_default();
     let length_us = metadata.get("mpris:length").and_then(micros);
     let track = metadata.get("mpris:trackid").and_then(|value| match &**value {
-        Value::ObjectPath(path) => Some(path.to_string()),
-        Value::Str(path) => Some(path.to_string()),
+        Variant::ObjectPath(path) => Some(path.to_string()),
+        Variant::Str(path) => Some(path.to_string()),
         _ => None,
     });
     let state = match string("PlaybackStatus").as_deref() {
@@ -294,10 +298,10 @@ fn describe(id: String, identity: Option<String>, all: &HashMap<String, OwnedVal
 }
 
 /// MPRIS times are `x` microseconds, though some players send `t`.
-fn micros(value: &OwnedValue) -> Option<u64> {
+fn micros(value: &OwnedVariant) -> Option<u64> {
     match &**value {
-        Value::I64(us) => u64::try_from(*us).ok(),
-        Value::U64(us) => Some(*us),
+        Variant::I64(us) => u64::try_from(*us).ok(),
+        Variant::U64(us) => Some(*us),
         _ => None,
     }
 }

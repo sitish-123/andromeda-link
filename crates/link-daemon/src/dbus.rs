@@ -96,11 +96,7 @@ impl Link {
 
     /// Offers the files behind the descriptors to a connected device and returns the transfer id at once; the
     /// transfer signals report the rest.
-    async fn send_files(
-        &self,
-        device_id: String,
-        files: Vec<(zbus::zvariant::OwnedFd, String)>,
-    ) -> Result<String, LinkError> {
+    async fn send_files(&self, device_id: String, files: Vec<(zbus::OwnedFd, String)>) -> Result<String, LinkError> {
         if device_id.strip_prefix(crate::localsend::PREFIX).is_none() && DeviceId::parse(&device_id).is_err() {
             return Err(LinkError::Rejected("not a device id".to_owned()));
         }
@@ -156,7 +152,7 @@ impl Link {
 
     /// Offers the desktop's new clipboard to connected devices holding the clipboard grant. `data` holds the first
     /// type's bytes; text is sent inline, anything else only when a device pulls it.
-    async fn offer_clipboard(&self, mimes: Vec<String>, data: zbus::zvariant::OwnedFd) -> Result<(), LinkError> {
+    async fn offer_clipboard(&self, mimes: Vec<String>, data: zbus::OwnedFd) -> Result<(), LinkError> {
         let file = File::from(OwnedFd::from(data));
         let size = file.metadata().map_err(|error| LinkError::Rejected(error.to_string()))?.len();
         let text = if mimes.first().is_some_and(|mime| is_text_mime(mime)) && size <= MAX_SHARE_LEN as u64 {
@@ -177,7 +173,7 @@ impl Link {
         device_id: String,
         id: u64,
         mime: String,
-        sink: zbus::zvariant::OwnedFd,
+        sink: zbus::OwnedFd,
     ) -> Result<u64, LinkError> {
         let peer = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
         let sink = File::from(OwnedFd::from(sink));
@@ -334,7 +330,7 @@ impl Link {
 
     /// Asks the phone to mirror its screen and returns the viewer's end of the video, with its size, once the user
     /// allowed it there (up to 60 s). The socket carries the phone's access units in the stream's framing.
-    async fn open_mirror(&self, device_id: String) -> Result<(zbus::zvariant::OwnedFd, u32, u32), LinkError> {
+    async fn open_mirror(&self, device_id: String) -> Result<(zbus::OwnedFd, u32, u32), LinkError> {
         use crate::mirror::Failure;
         let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
         match self.hub.open_mirror(id).await {
@@ -356,7 +352,7 @@ impl Link {
         &self,
         device_id: String,
         action: String,
-        args: HashMap<String, zbus::zvariant::OwnedValue>,
+        args: HashMap<String, zbus::OwnedVariant>,
     ) -> Result<(), LinkError> {
         let action: MirrorAction = serde_json::from_value(serde_json::Value::String(action))
             .map_err(|_| LinkError::Rejected("not a mirror action".to_owned()))?;

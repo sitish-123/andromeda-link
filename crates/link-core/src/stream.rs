@@ -124,6 +124,8 @@ pub struct FdStream {
 impl FdStream {
     pub fn new(fd: OwnedFd) -> io::Result<Self> {
         rustix::io::ioctl_fionbio(&fd, true)?;
+        // Sound for OwnedFd, whose descriptor never changes; `register` would need unsafe, which the workspace forbids.
+        #[allow(deprecated)]
         Ok(Self { fd: AsyncFd::new(fd)? })
     }
 }

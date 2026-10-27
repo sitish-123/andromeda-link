@@ -27,7 +27,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 const BT_PAIRING_WINDOW: Duration = Duration::from_secs(60);
 use tokio::task::JoinSet;
 use tokio::time::Instant;
-use zbus::zvariant::OwnedObjectPath;
+use zbus::OwnedObjectPath;
 
 use crate::browse;
 use crate::desktop_media::{DesktopMediaHandle, Request};

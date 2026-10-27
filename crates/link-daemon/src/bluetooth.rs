@@ -6,7 +6,7 @@ use std::os::fd::OwnedFd;
 
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
 /// The Link service in SDP, which the phone looks up to find the RFCOMM channel.
 pub const SERVICE_UUID: &str = "5c3b1e5a-7d2f-4a8e-9b61-3f0c2d4e8a17";
@@ -79,16 +79,16 @@ async fn register(tx: mpsc::Sender<OwnedFd>) -> zbus::Result<(zbus::Connection, 
     bus.object_server().at(PROFILE_PATH, Profile { incoming: tx }).await?;
     let manager = zbus::Proxy::new(&bus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1").await?;
     // Link's TLS authenticates both ends with the paired keys, so BlueZ is not asked to bond or to prompt.
-    let options: HashMap<&str, Value<'_>> = HashMap::from([
-        ("Name", Value::from("Umbriel Link")),
-        ("Role", Value::from("server")),
-        ("RequireAuthentication", Value::from(false)),
-        ("RequireAuthorization", Value::from(false)),
-        ("AutoConnect", Value::from(false)),
-        ("Channel", Value::from(CHANNEL)),
-        ("ServiceRecord", Value::from(SERVICE_RECORD)),
+    let options: HashMap<&str, Variant<'_>> = HashMap::from([
+        ("Name", Variant::from("Umbriel Link")),
+        ("Role", Variant::from("server")),
+        ("RequireAuthentication", Variant::from(false)),
+        ("RequireAuthorization", Variant::from(false)),
+        ("AutoConnect", Variant::from(false)),
+        ("Channel", Variant::from(CHANNEL)),
+        ("ServiceRecord", Variant::from(SERVICE_RECORD)),
     ]);
-    let path = zbus::zvariant::ObjectPath::try_from(PROFILE_PATH)?;
+    let path = zbus::ObjectPath::try_from(PROFILE_PATH)?;
     manager.call::<_, _, ()>("RegisterProfile", &(path, SERVICE_UUID, options)).await?;
     Ok((bus, address.to_ascii_uppercase()))
 }
@@ -108,8 +108,8 @@ impl Profile {
     fn new_connection(
         &self,
         device: OwnedObjectPath,
-        fd: zbus::zvariant::OwnedFd,
-        properties: HashMap<String, OwnedValue>,
+        fd: zbus::OwnedFd,
+        properties: HashMap<String, OwnedVariant>,
     ) -> zbus::fdo::Result<()> {
         log::info!("Bluetooth connection from {}", device.as_str());
         log::debug!("its RFCOMM properties: {properties:?}");

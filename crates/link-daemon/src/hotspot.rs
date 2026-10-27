@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
 pub const NM: &str = "org.freedesktop.NetworkManager";
 pub const NM_PATH: &str = "/org/freedesktop/NetworkManager";
@@ -28,31 +28,34 @@ pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
     let bus = zbus::Connection::system().await.map_err(text)?;
     let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.map_err(text)?;
     let user = std::env::var("USER").unwrap_or_default();
-    let settings: HashMap<&str, HashMap<&str, Value<'_>>> = HashMap::from([
+    let settings: HashMap<&str, HashMap<&str, Variant<'_>>> = HashMap::from([
         (
             "connection",
             HashMap::from([
-                ("id", Value::from(format!("Umbriel Link: {ssid}"))),
-                ("type", Value::from("802-11-wireless")),
-                ("autoconnect", Value::from(false)),
-                ("permissions", Value::from(vec![format!("user:{user}")])),
+                ("id", Variant::from(format!("Umbriel Link: {ssid}"))),
+                ("type", Variant::from("802-11-wireless")),
+                ("autoconnect", Variant::from(false)),
+                ("permissions", Variant::from(vec![format!("user:{user}")])),
             ]),
         ),
         (
             "802-11-wireless",
-            HashMap::from([("ssid", Value::from(ssid.as_bytes().to_vec())), ("mode", Value::from("infrastructure"))]),
+            HashMap::from([
+                ("ssid", Variant::from(ssid.as_bytes().to_vec())),
+                ("mode", Variant::from("infrastructure")),
+            ]),
         ),
         (
             "802-11-wireless-security",
-            HashMap::from([("key-mgmt", Value::from("wpa-psk")), ("psk", Value::from(passphrase))]),
+            HashMap::from([("key-mgmt", Variant::from("wpa-psk")), ("psk", Variant::from(passphrase))]),
         ),
-        ("ipv4", HashMap::from([("method", Value::from("auto"))])),
-        ("ipv6", HashMap::from([("method", Value::from("ignore"))])),
+        ("ipv4", HashMap::from([("method", Variant::from("auto"))])),
+        ("ipv6", HashMap::from([("method", Variant::from("ignore"))])),
     ]);
     // iwd joins only networks its last scan saw, and the hotspot is seconds old, so it is scanned for first.
     let (device, access_point) = scanned(&bus, &manager, ssid).await?;
-    let options: HashMap<&str, Value<'_>> = HashMap::from([("persist", Value::from("volatile"))]);
-    let (_, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedValue>) =
+    let options: HashMap<&str, Variant<'_>> = HashMap::from([("persist", Variant::from("volatile"))]);
+    let (_, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedVariant>) =
         manager.call("AddAndActivateConnection2", &(settings, &device, &access_point, options)).await.map_err(text)?;
     activated(&bus, active).await
 }
@@ -67,8 +70,8 @@ async fn scanned(
     let wireless = zbus::Proxy::new(bus, NM, device.as_str(), WIRELESS).await.map_err(text)?;
     let find = async {
         loop {
-            let options: HashMap<&str, Value<'_>> =
-                HashMap::from([("ssids", Value::from(vec![ssid.as_bytes().to_vec()]))]);
+            let options: HashMap<&str, Variant<'_>> =
+                HashMap::from([("ssids", Variant::from(vec![ssid.as_bytes().to_vec()]))]);
             // A scan already running answers with an error; the next round asks again.
             if let Err(error) = wireless.call::<_, _, ()>("RequestScan", &(options,)).await {
                 log::debug!("requesting a Wi-Fi scan: {error}");
@@ -126,7 +129,7 @@ pub async fn activated(bus: &zbus::Connection, active: OwnedObjectPath) -> Resul
     let config: OwnedObjectPath = connection.get_property("Ip4Config").await.map_err(text)?;
     let ip4 =
         zbus::Proxy::new(bus, NM, config.as_str(), "org.freedesktop.NetworkManager.IP4Config").await.map_err(text)?;
-    let addresses: Vec<HashMap<String, OwnedValue>> = ip4.get_property("AddressData").await.map_err(text)?;
+    let addresses: Vec<HashMap<String, OwnedVariant>> = ip4.get_property("AddressData").await.map_err(text)?;
     let address = addresses
         .iter()
         .find_map(|entry| String::try_from(entry.get("address")?.clone()).ok()?.parse().ok())

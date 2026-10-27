@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
 use crate::hotspot::{self, Joined, NM, NM_PATH, text};
 
@@ -43,7 +43,7 @@ pub async fn join(peer_name: &str) -> Result<Joined, String> {
     let bus = zbus::Connection::system().await.map_err(text)?;
     let device = p2p_device(&bus).await?.ok_or_else(|| "no Wi-Fi P2P device".to_owned())?;
     let p2p = zbus::Proxy::new(&bus, NM, device.as_str(), P2P_IFACE).await.map_err(text)?;
-    let options: HashMap<&str, Value<'_>> = HashMap::from([("timeout", Value::from(30_i32))]);
+    let options: HashMap<&str, Variant<'_>> = HashMap::from([("timeout", Variant::from(30_i32))]);
     p2p.call::<_, _, ()>("StartFind", &(options,)).await.map_err(text)?;
     let found = find(&bus, &p2p, peer_name).await;
     if let Err(error) = p2p.call::<_, _, ()>("StopFind", &()).await {
@@ -52,23 +52,23 @@ pub async fn join(peer_name: &str) -> Result<Joined, String> {
     let (peer, hwaddr) = found?;
     tokio::time::sleep(PHONE_FIRST).await;
     let user = std::env::var("USER").unwrap_or_default();
-    let settings: HashMap<&str, HashMap<&str, Value<'_>>> = HashMap::from([
+    let settings: HashMap<&str, HashMap<&str, Variant<'_>>> = HashMap::from([
         (
             "connection",
             HashMap::from([
-                ("id", Value::from(format!("Umbriel Link: {peer_name}"))),
-                ("type", Value::from("wifi-p2p")),
-                ("autoconnect", Value::from(false)),
-                ("permissions", Value::from(vec![format!("user:{user}")])),
+                ("id", Variant::from(format!("Umbriel Link: {peer_name}"))),
+                ("type", Variant::from("wifi-p2p")),
+                ("autoconnect", Variant::from(false)),
+                ("permissions", Variant::from(vec![format!("user:{user}")])),
             ]),
         ),
-        ("wifi-p2p", HashMap::from([("peer", Value::from(hwaddr))])),
-        ("ipv4", HashMap::from([("method", Value::from("auto"))])),
-        ("ipv6", HashMap::from([("method", Value::from("ignore"))])),
+        ("wifi-p2p", HashMap::from([("peer", Variant::from(hwaddr))])),
+        ("ipv4", HashMap::from([("method", Variant::from("auto"))])),
+        ("ipv6", HashMap::from([("method", Variant::from("ignore"))])),
     ]);
     let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.map_err(text)?;
-    let options: HashMap<&str, Value<'_>> = HashMap::from([("persist", Value::from("volatile"))]);
-    let (_, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedValue>) =
+    let options: HashMap<&str, Variant<'_>> = HashMap::from([("persist", Variant::from("volatile"))]);
+    let (_, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedVariant>) =
         manager.call("AddAndActivateConnection2", &(settings, &device, &peer, options)).await.map_err(text)?;
     hotspot::activated(&bus, active).await
 }

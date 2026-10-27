@@ -32,8 +32,9 @@ kotlin {
     jvmToolchain(17)
 }
 
-// Release APKs get the LTO release profile; every other build gets android-dev, which skips LTO.
-val rustProfile = if (gradle.startParameter.taskNames.any { "Release" in it }) "release" else "android-dev"
+// Only builds whose every task names debug get android-dev, which skips LTO; `assemble`, `build` and IDE builds get release.
+val debugOnly = gradle.startParameter.taskNames.let { names -> names.isNotEmpty() && names.all { "debug" in it.lowercase() } }
+val rustProfile = if (debugOnly) "android-dev" else "release"
 
 // link-ffi for every ABI through cargo-ndk.
 val cargoNdk by tasks.registering(Exec::class) {

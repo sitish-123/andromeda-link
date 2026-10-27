@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Fast gates on what is staged; `just check` runs the full set. Install with `just hooks`.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+has() { grep -qE "$1" <<< "$staged"; }
+
+if has '\.rs$|(^|/)Cargo\.toml$'; then
+  cargo fmt --check
+  cargo clippy --workspace --all-targets --quiet -- -D warnings
+fi
+if has '(^|/)Cargo\.(lock|toml)$|^deny\.toml$'; then
+  cargo deny check --hide-inclusion-graph
+fi
+if has '^apps/android/.*\.kts?$'; then
+  (cd apps/android && ./gradlew --quiet ktlintCheck)
+fi

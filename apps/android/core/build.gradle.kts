@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-val linkDir: File = rootDir.parentFile
+val linkDir: File = rootDir.parentFile.parentFile
 val rustLibs = layout.buildDirectory.dir("rust/jniLibs")
 val bindings = layout.buildDirectory.dir("generated/uniffi")
 val abis = listOf("arm64-v8a", "x86_64")

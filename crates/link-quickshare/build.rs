@@ -1,5 +1,5 @@
 fn main() -> std::io::Result<()> {
-    let dir = "../../../protocol/quickshare";
+    let dir = "../../api/quickshare";
     let protos = [
         "offline_wire_formats.proto",
         "wire_format.proto",

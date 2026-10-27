@@ -8,7 +8,7 @@ use link_core::Error;
 use link_core::client::{self, Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::inbox::Inbox;
-use link_core::phone::Phone;
+use link_core::phone::{Phone, Session};
 use link_core::proto::message::{Message, NetworkKind, Share, ShareKind, Status};
 use link_core::reach::Via;
 use link_core::transfer::{LocalClip, TransferEvent};
@@ -95,11 +95,21 @@ pub async fn share(phone: Phone, inbox: Inbox, id: DeviceId, share: Share) -> an
     Ok(())
 }
 
+/// The desktop's next message other than the ones it sends by itself on every connect.
+async fn reply(session: &mut Session) -> Result<Message, Error> {
+    loop {
+        match session.control.recv().await? {
+            Message::Commands(_) | Message::MediaPlayer(_) | Message::ContactsList(_) | Message::TextsList(_) => {}
+            message => return Ok(message),
+        }
+    }
+}
+
 /// Sends `share` without checking it first, as a hostile phone would, and prints what the desktop answered.
 pub async fn share_unchecked(mut phone: Phone, id: DeviceId, share: Share) -> anyhow::Result<()> {
     let mut session = phone.connect(&id).await.context("connecting")?;
     session.control.send(Message::Share(share)).await?;
-    let line = match session.control.recv().await {
+    let line = match reply(&mut session).await {
         Ok(Message::ShareAck(_)) => json!({ "accepted": true }),
         Ok(other) => bail!("desktop answered {}", other.kind()),
         Err(error) => json!({ "accepted": false, "error": error.to_string() }),
@@ -188,7 +198,7 @@ async fn pull_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
 pub async fn send_unchecked(mut phone: Phone, id: DeviceId, message: Message) -> anyhow::Result<()> {
     let mut session = phone.connect(&id).await.context("connecting")?;
     session.control.send(message).await?;
-    let line = match session.control.recv().await {
+    let line = match reply(&mut session).await {
         Err(Error::Timeout) => json!({ "accepted": true }),
         Ok(other) => bail!("desktop answered {}", other.kind()),
         Err(error) => json!({ "accepted": false, "error": error.to_string() }),

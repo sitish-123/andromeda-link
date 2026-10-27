@@ -81,7 +81,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="umbriel-link" />
+                <data android:scheme="andromeda-link" />
             </intent-filter>
         </activity>
 
@@ -134,7 +134,7 @@
 
         <provider
             android:name=".clipboard.ClipProvider"
-            android:authorities="org.umbriel.link.clip"
+            android:authorities="org.andromeda.link.clip"
             android:exported="false"
             android:grantUriPermissions="true" />
 

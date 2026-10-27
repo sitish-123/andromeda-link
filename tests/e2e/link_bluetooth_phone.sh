@@ -13,7 +13,7 @@
 #    own Wi-Fi again.
 # 5. A 1 GiB file asks for the hotspot again and arrives over it with a matching SHA-256; join time and throughput
 #    are recorded, and the laptop's Wi-Fi comes back after.
-# Takes the laptop off its Wi-Fi for minutes. Stops the user's umbriel-linkd for the run (it holds Link's Bluetooth
+# Takes the laptop off its Wi-Fi for minutes. Stops the user's andromeda-linkd for the run (it holds Link's Bluetooth
 # profile and port 4717) and starts it again after, re-enables the phone's Wi-Fi, and brings the laptop's Wi-Fi back
 # even on failure. Unpairs the run's desktop from the phone after. Writes results.jsonl, linkd.log, signals.txt, nm.txt,
 # viewer.log, logcat.txt, frames/ to $OUT (default ./artifacts/link-bluetooth-phone).
@@ -21,20 +21,20 @@ set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-bluetooth-phone}
 source "$(dirname "$0")/link_phone_lib.sh"
 
-[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/umbriel-link-phone.lock "$0" "$@"
+[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/andromeda-link-phone.lock "$0" "$@"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /var/tmp/link-bluetooth-phone.XXXX)
 HOME_WIFI=$(nmcli -t -f NAME,TYPE con show --active | grep ':802-11-wireless$' | head -1 | cut -d: -f1)
 [[ -n $HOME_WIFI ]] || fail "the laptop is not on Wi-Fi"
-USER_LINKD=$(systemctl --user is-active umbriel-linkd || true)
+USER_LINKD=$(systemctl --user is-active andromeda-linkd || true)
 restore() {
   forget_phone
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null
   adb shell svc wifi enable || true
   nmcli -t -f NAME con show --active | grep -qxF "$HOME_WIFI" || nmcli con up id "$HOME_WIFI" > /dev/null || true
-  [[ $USER_LINKD != active ]] || systemctl --user start umbriel-linkd
+  [[ $USER_LINKD != active ]] || systemctl --user start andromeda-linkd
   rm -rf "$RUNTIME"
 }
 trap restore EXIT
@@ -42,11 +42,11 @@ trap restore EXIT
 [[ -s $APK && -s $FIXTURE ]] || fail "no APKs at $APK and $FIXTURE"
 [[ $(adb get-devpath) == usb* ]] || fail "adb must run over USB: the phone's Wi-Fi goes off"
 
-systemctl --user stop umbriel-linkd 2>/dev/null || true
+systemctl --user stop andromeda-linkd 2>/dev/null || true
 # The session bus is the run's own; BlueZ and NetworkManager are the real ones on the system bus.
 private_bus
 start_linkd
-[[ $PORT == 4717 ]] || fail "umbriel-linkd is not on Link's port 4717, which the firewall lets in: $PORT"
+[[ $PORT == 4717 ]] || fail "andromeda-linkd is not on Link's port 4717, which the firewall lets in: $PORT"
 wait_for 10 "BlueZ did not take Link's profile: $(grep -i bluetooth "$OUT/linkd.log")" \
   grep -q 'Bluetooth: listening on' "$OUT/linkd.log"
 ( nmcli monitor | stamp > "$OUT/nm.txt" ) &
@@ -97,18 +97,18 @@ wait_for 120 "the 512 KiB file did not arrive intact" delivered bt-small.bin "$R
 SMALL_MS=$(( $(now_ms) - T0 ))
 on_bluetooth || fail "a 512 KiB send left Bluetooth"
 
-adb shell am start -W -n org.umbriel.link.fixture/.PlayerActivity --ei art 512 > /dev/null
-ART_DIR=$RUNTIME/desktop/umbriel-link/art
+adb shell am start -W -n org.andromeda.link.fixture/.PlayerActivity --ei art 512 > /dev/null
+ART_DIR=$RUNTIME/desktop/andromeda-link/art
 wait_for 30 "no artwork from the phone's player" eval 'ls "$ART_DIR"/* > /dev/null 2>&1'
 ART=$(magick identify -format '%wx%h' "$(ls "$ART_DIR"/* | head -1)")
 [[ $ART == 128x128 ]] || fail "artwork over Bluetooth is $ART"
-adb shell am force-stop org.umbriel.link.fixture
+adb shell am force-stop org.andromeda.link.fixture
 record "{\"step\":\"over-bluetooth\",\"share_ms\":$SHARE_MS,\"file_512k_ms\":$SMALL_MS,\"artwork\":\"$ART\"}"
 adb shell rm -f /sdcard/Download/bt-small.bin
 
 # Mirroring on Bluetooth: the request waits for the hotspot.
 T0=$(now_ms)
-"$BIN/umbriel-link-mirror" "$ID" --frames "$OUT/frames" --count 120 > "$OUT/viewer.log" 2>&1 &
+"$BIN/andromeda-link-mirror" "$ID" --frames "$OUT/frames" --count 120 > "$OUT/viewer.log" 2>&1 &
 VIEWER=$!
 wait_for 90 "the session did not move to the hotspot for mirroring" on_ip
 JOINED=$(line_ms 'connected over IP')

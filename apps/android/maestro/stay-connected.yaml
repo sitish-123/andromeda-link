@@ -1,5 +1,5 @@
 # Toggles "Stay connected" in Settings and returns to Home.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false

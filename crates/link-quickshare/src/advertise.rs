@@ -13,7 +13,7 @@ use crate::endpoint::{self, Endpoint, SERVICE_TYPE};
 use crate::error::{Error, Result};
 
 const BLE_SERVICE: &str = "fe2c";
-const BLE_PATH: &str = "/org/umbriel/QuickShare/advertisement";
+const BLE_PATH: &str = "/org/andromeda/QuickShare/advertisement";
 /// Android's "a Quick Share receiver is nearby" marker; the random tail makes each advertisement distinct.
 const BLE_PREFIX: [u8; 5] = [0xFC, 0x12, 0x8E, 0x01, 0x42];
 

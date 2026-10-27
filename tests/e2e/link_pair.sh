@@ -52,26 +52,26 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 start_linkd() {
-  XDG_STATE_HOME=$RUNTIME/desktop "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+  XDG_STATE_HOME=$RUNTIME/desktop "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
   LINKD=$!
   for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && return; sleep 0.05; done
-  fail "umbriel-linkd did not come up"
+  fail "andromeda-linkd did not come up"
 }
 pairing() { link StartPairing | sed -E "s/^\('([0-9]+)', '([^']+)'\)$/\\$1/"; }
-port() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json"; }
+port() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json"; }
 phone() {
   local state=$1; shift
-  in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/$state" --name "$state" --transcript "$OUT/transcript.jsonl" "$@"
+  in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/$state" --name "$state" --transcript "$OUT/transcript.jsonl" "$@"
 }
-pairing_open() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Pairing | grep -o 'true\|false'; }
+pairing_open() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Pairing | grep -o 'true\|false'; }
 count_devices() { devices | grep -o "'[0-9a-f]\{32\}'" | wc -l; }
 
 start_linkd
 PORT=$(port)
-[[ $(in_phone "$BIN/umbriel-link-phone" discover --seconds 2 | wc -l) == 0 ]] || fail "an unpaired desktop advertises"
+[[ $(in_phone "$BIN/andromeda-link-phone" discover --seconds 2 | wc -l) == 0 ]] || fail "an unpaired desktop advertises"
 record '{"step":"silent-when-unpaired"}'
 
 CODE=$(pairing 1)
@@ -80,7 +80,7 @@ record "$(echo "$OUTPUT" | sed 's/^{/{"step":"code-pair-mdns",/')"
 [[ $(count_devices) == 1 ]] || fail "desktop does not list phone1: $(devices)"
 
 CODE=$(pairing 1)
-in_phone "$BIN/umbriel-link-phone" relay --listen 10.77.0.2:40000 --target "10.77.0.1:$PORT" > "$OUT/relay.jsonl" 2>&1 &
+in_phone "$BIN/andromeda-link-phone" relay --listen 10.77.0.2:40000 --target "10.77.0.1:$PORT" > "$OUT/relay.jsonl" 2>&1 &
 RELAY=$!
 for _ in $(seq 50); do grep -q relay "$OUT/relay.jsonl" && break; sleep 0.05; done
 if phone phone2 pair --code "$CODE" --addr 10.77.0.2:40000 2> "$RUNTIME/relay-pair.err"; then fail "relayed pairing succeeded"; fi
@@ -118,7 +118,7 @@ table inet no_mdns {
   chain in { type filter hook input priority 0; udp sport 5353 drop; }
 }
 NFT
-FOUND=$(in_phone "$BIN/umbriel-link-phone" discover --seconds 2 | wc -l)
+FOUND=$(in_phone "$BIN/andromeda-link-phone" discover --seconds 2 | wc -l)
 [[ $FOUND == 0 ]] || fail "mDNS still works with multicast dropped"
 
 kill "$LINKD"; wait "$LINKD" || true
@@ -152,7 +152,7 @@ record "$(echo "$OUTPUT" | sed 's/^{/{"step":"phone-unpair",/')"
 for _ in $(seq 40); do [[ $(count_devices) == 0 ]] && break; sleep 0.05; done
 [[ $(count_devices) == 0 ]] || fail "desktop kept phone1 after it unpaired: $(devices)"
 
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 record "$(echo "$CHECK" | sed 's/^{/{"step":"transcript-schema",/')"
 cat "$OUT/results.jsonl"

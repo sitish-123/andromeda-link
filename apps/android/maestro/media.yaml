@@ -1,5 +1,5 @@
 # Opens the Media screen, where the desktop's test player shows, and pauses it.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false

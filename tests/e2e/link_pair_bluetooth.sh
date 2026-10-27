@@ -64,16 +64,16 @@ RFCOMM=$RUNTIME/rfcomm.sock
 DOWNLOADS=$RUNTIME/downloads
 PHONE_DL=$RUNTIME/phone-downloads
 mkdir -p "$DOWNLOADS" "$PHONE_DL" "$RUNTIME/src"
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "'phone', true"; }
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
-  "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
+  "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 phone() {
-  in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
+  in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
     --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" "$@"
 }
 events() { grep -c "\"event\":\"$1\"" "$OUT/hold.jsonl" || true; }
@@ -102,13 +102,13 @@ record '{"step":"qr-pairs-over-bluetooth","unknown_parameter":true}'
 OUTPUT=$(phone connect) || fail "connect after pairing: $OUTPUT"
 echo "$OUTPUT" | grep -q '"via":"bluetooth"' || fail "the session did not use Bluetooth: $OUTPUT"
 ID=$(devices | grep -o "'[0-9a-f]\{32\}', 'phone'" | cut -d"'" -f2)
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$RUNTIME/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$RUNTIME/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$RUNTIME/signals.txt"
 phone share --kind text --text "hello over bluetooth" > /dev/null || fail "share over Bluetooth"
 wait_for 10 "no Received for the share" grep -q 'string "hello over bluetooth"' "$RUNTIME/signals.txt"
 record '{"step":"first-session-over-bluetooth"}'
 
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 record "$(echo "$CHECK" | sed 's/^{/{"step":"transcript-schema",/')"
 cat "$OUT/results.jsonl"

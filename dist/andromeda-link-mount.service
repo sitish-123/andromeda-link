@@ -1,0 +1,15 @@
+[Unit]
+Description=Andromeda Link, connected phones' files at ~/Phone
+PartOf=andromeda-session.target
+After=andromeda-session.target andromeda-linkd.service
+Wants=andromeda-linkd.service
+
+[Service]
+Slice=background.slice
+ExecStart=/usr/bin/andromeda-link-mount
+Restart=on-failure
+# No sandboxing: in a user unit it implies NoNewPrivileges and a private mount namespace, so the setuid fusermount3
+# could not mount and nothing it mounted would be seen. It parses no network input, only the daemon's D-Bus answers.
+
+[Install]
+WantedBy=andromeda-session.target

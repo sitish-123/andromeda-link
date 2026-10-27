@@ -1,4 +1,4 @@
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false

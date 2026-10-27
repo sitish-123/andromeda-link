@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The shell's two clipboard calls on org.umbriel.Link1, for E2E tests without a shell.
+"""The shell's two clipboard calls on org.andromeda.Link1, for E2E tests without a shell.
 
 Usage: link_clipboard_dbus.py offer MIME TEXT      offers TEXT as the desktop clipboard (through a memfd)
        link_clipboard_dbus.py pull DEVICE ID MIME  pulls a device's clip through a pipe and prints it
@@ -14,7 +14,7 @@ from gi.repository import Gio, GLib
 def call(method, signature, args, fds, reply):
     bus = Gio.bus_get_sync(Gio.BusType.SESSION)
     result, _ = bus.call_with_unix_fd_list_sync(
-        "org.umbriel.Link1", "/org/umbriel/Link1", "org.umbriel.Link1", method, GLib.Variant(signature, args),
+        "org.andromeda.Link1", "/org/andromeda/Link1", "org.andromeda.Link1", method, GLib.Variant(signature, args),
         GLib.VariantType(reply), Gio.DBusCallFlags.NONE, 20000, fds, None)
     return result.unpack()
 

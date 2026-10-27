@@ -64,18 +64,18 @@ export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=u
 DOWNLOADS=$RUNTIME/downloads
 PHONE_DL=$RUNTIME/phone-downloads
 mkdir -p "$DOWNLOADS" "$PHONE_DL" "$RUNTIME/src"
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "'phone', true"; }
 start_linkd() {
-  XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+  XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
   LINKD=$!
   for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && return; sleep 0.05; done
-  fail "umbriel-linkd did not come up"
+  fail "andromeda-linkd did not come up"
 }
-port() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json"; }
+port() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json"; }
 phone() {
-  in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
+  in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
     --transcript "$OUT/transcript.jsonl" "$@"
 }
 say() { printf '%s\n' "$*" >&3; }
@@ -92,13 +92,13 @@ start_linkd
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
 phone pair --code "$CODE" --addr "10.78.0.1:$(port)" > /dev/null || fail "pairing"
 ID=$(devices | grep -o "'[0-9a-f]\{32\}', 'phone'" | cut -d"'" -f2)
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
 start_hold() {
-  RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
+  RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone \
     --downloads "$PHONE_DL" --transcript "$OUT/transcript.jsonl" hold < "$RUNTIME/phone.in" \
     >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
   HOLD=$!
@@ -229,7 +229,7 @@ echo "$OUTPUT" | grep -q '"ok":false' || fail "the oversized file was not failed
 ls -A "$DOWNLOADS" | grep -q linkpart && fail "an oversized file left its part"
 record "$(echo "$OUTPUT" | sed 's/^{/{"step":"oversize-stopped",/')"
 
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 for kind in offer offer-reply resume resume-at cancel file-done file-data; do
   python3 - "$OUT/transcript.jsonl" "$kind" <<'PY' || fail "the transcript has no $kind"

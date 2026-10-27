@@ -1,4 +1,4 @@
-//! A phone's player exported as an MPRIS player, `org.mpris.MediaPlayer2.umbriel_link_<device id>`, on its own
+//! A phone's player exported as an MPRIS player, `org.mpris.MediaPlayer2.andromeda_link_<device id>`, on its own
 //! session-bus connection: the shell's media widget and lock screen see it like any other player.
 
 #![expect(clippy::unused_self, reason = "MPRIS requires these members, and zbus serves only methods")]
@@ -17,7 +17,7 @@ use crate::hub::HubHandle;
 
 const PATH: &str = "/org/mpris/MediaPlayer2";
 /// The prefix of every name this daemon exports, which its own MPRIS client skips.
-pub const NAME_PREFIX: &str = "org.mpris.MediaPlayer2.umbriel_link_";
+pub const NAME_PREFIX: &str = "org.mpris.MediaPlayer2.andromeda_link_";
 
 struct Root {
     identity: String,
@@ -247,7 +247,7 @@ impl Playback {
 
 impl Playback {
     fn track_path(&self) -> String {
-        format!("/org/umbriel/Link1/track/{}", self.track)
+        format!("/org/andromeda/Link1/track/{}", self.track)
     }
 }
 

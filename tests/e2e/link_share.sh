@@ -60,18 +60,18 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "'phone', true"; }
 disconnected() { devices | grep -q "'phone', false"; }
 start_linkd() {
-  XDG_STATE_HOME=$RUNTIME/desktop "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+  XDG_STATE_HOME=$RUNTIME/desktop "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
   LINKD=$!
   for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && return; sleep 0.05; done
-  fail "umbriel-linkd did not come up"
+  fail "andromeda-linkd did not come up"
 }
-port() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json"; }
-phone() { in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone "$@"; }
+port() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json"; }
+phone() { in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone "$@"; }
 events() { grep -c "\"event\":\"$1\"" "$OUT/hold.jsonl" || true; }
 signal_count() { grep -cF "string \"$1\"" "$OUT/signals.txt" || true; }
 exited() { ! kill -0 "$1" 2> /dev/null || grep -q '^State:.*Z' "/proc/$1/status"; }
@@ -90,16 +90,16 @@ ID=$(devices | grep -o "'[0-9a-f]\{32\}', 'phone'" | cut -d"'" -f2)
 [[ -n $ID ]] || fail "desktop does not list the phone: $(devices)"
 
 OUTPUT=$(link Share "$ID" text "'nobody is there'" 2>&1) && fail "Share to a disconnected phone succeeded"
-[[ $OUTPUT == *org.umbriel.Link1.Error.NotConnected* ]] || fail "Share while disconnected: $OUTPUT"
+[[ $OUTPUT == *org.andromeda.Link1.Error.NotConnected* ]] || fail "Share while disconnected: $OUTPUT"
 record '{"step":"share-needs-a-session","error":"NotConnected"}'
 
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1',member='Received'" > "$OUT/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1',member='Received'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
 # Not through phone(): $! must be the phone itself (nsenter execs it), so that kill reaches it.
-RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
+RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone \
   --transcript "$OUT/transcript.jsonl" hold < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2> "$OUT/hold.log" &
 HOLD=$!
 wait_for 10 "present phone never shown connected: $(devices)" connected
@@ -168,7 +168,7 @@ OUTPUT=$(phone --transcript "$OUT/hostile.jsonl" share --unchecked --kind text -
 echo "$OUTPUT" | grep -q '"accepted":false.*protocol error' || fail "desktop accepted an oversized text: $OUTPUT"
 [[ $(signal_count "$ID") == "$RECEIVED" ]] || fail "a hostile share reached D-Bus"
 grep -q "share message violates the schema" "$OUT/linkd.log" || fail "desktop did not log the violation"
-if "$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/hostile.jsonl" 2> /dev/null; then
+if "$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/hostile.jsonl" 2> /dev/null; then
   fail "the schema accepts the hostile shares"
 fi
 record '{"step":"hostile-phone-closed","code":"protocol-error","schema_rejects":true}'
@@ -176,7 +176,7 @@ record '{"step":"hostile-phone-closed","code":"protocol-error","schema_rejects":
 OUTPUT=$(phone --transcript "$OUT/transcript.jsonl" share --kind text --text "on demand") || fail "on-demand share"
 record "$(echo "$OUTPUT" | sed 's/^{/{"step":"on-demand-share",/')"
 
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 record "$(echo "$CHECK" | sed 's/^{/{"step":"transcript-schema",/')"
 cat "$OUT/results.jsonl"

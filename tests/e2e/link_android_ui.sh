@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Screenshots of every screen of the Android app, in the light and the dark theme, on the emulator against a private
-# umbriel-linkd (own dbus-daemon, own XDG_STATE_HOME) and a desktop MPRIS test player: Home empty and paired (scrolled,
+# andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME) and a desktop MPRIS test player: Home empty and paired (scrolled,
 # and with a photo picked), the picker's Photos, Videos, and Files tabs, code entry, the QR link confirmation and its working orb, the desktop's page, the
 # per-app filter, Media, and the five onboarding pages. Proves the screens render and are reachable by their labels;
 # the images are the artifact to judge them by. Writes <theme>-<screen>.png, results.json, linkd.log, maestro.log to
@@ -14,7 +14,7 @@ MAESTRO=${MAESTRO:-$HOME/.maestro/bin/maestro}
 SERIAL=${ANDROID_SERIAL:-emulator-5554}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
 FLOWS=$ROOT/apps/android/maestro
-PACKAGE=org.umbriel.link
+PACKAGE=org.andromeda.link
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -44,11 +44,11 @@ CONF
 dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
 
-XDG_STATE_HOME=$RUNTIME/desktop "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
 python3 "$ROOT/tests/e2e/mpris_test_player.py" "$RUNTIME/player-calls.txt" &
 
 adb shell cmd statusbar collapse

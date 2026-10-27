@@ -1,4 +1,4 @@
-//! `umbriel-link-apps`: the paired phone's apps, each opened in its own desktop window through scrcpy over wireless
+//! `andromeda-link-apps`: the paired phone's apps, each opened in its own desktop window through scrcpy over wireless
 //! debugging, the only way a phone app runs on a second display. `--list` and `--launch` work without a window.
 
 mod adb;
@@ -39,14 +39,14 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> anyhow::Result<()> {
     if !cli.list && cli.launch.is_none() {
-        let app = gtk4::Application::builder().application_id("org.umbriel.LinkApps").build();
+        let app = gtk4::Application::builder().application_id("org.andromeda.LinkApps").build();
         let name = cli.name;
         app.connect_activate(move |app| window(app, &name));
         app.run_with_args::<&str>(&[]);
         return Ok(());
     }
     let Found::Serial(serial) = adb::find(&cli.name)? else {
-        bail!("the phone is not paired for wireless debugging; run umbriel-link-apps without options to pair it");
+        bail!("the phone is not paired for wireless debugging; run andromeda-link-apps without options to pair it");
     };
     let apps = adb::apps(&serial)?;
     if cli.list {

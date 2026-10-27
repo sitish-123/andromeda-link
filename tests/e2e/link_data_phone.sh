@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The phone's data on a real phone, paired with a private umbriel-linkd that it reaches through a UDP relay on a port
+# The phone's data on a real phone, paired with a private andromeda-linkd that it reaches through a UDP relay on a port
 # the firewall lets in. Proves:
 # 1. DeviceStatus carries the cellular signal level, 0 to 4, while the phone has a SIM in service.
 # 2. With the browse and messages switches off (as after pairing), browsing refuses and Contacts stays empty.
@@ -8,7 +8,7 @@
 # 4. Photos lists the media store by album with only the media permissions (no All files access): a PNG pushed into
 #    Pictures/LinkE2E shows in the album, StatFile finds it, ReadFile returns it byte for byte, and Thumbnail is a PNG.
 # Needs ANDROID_SERIAL, the debug APK, and the phone on the same network as this machine. Clears Link's data on the
-# phone first, so the phone forgets its desktops. Holds /tmp/umbriel-link-phone.lock, as other phone runs do. Writes
+# phone first, so the phone forgets its desktops. Holds /tmp/andromeda-link-phone.lock, as other phone runs do. Writes
 # steps.txt, signals.txt, phone.log, linkd.log, and the pulled files to $OUT (default ./artifacts/link-data/phone).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -16,10 +16,10 @@ OUT=${OUT:-$(pwd)/artifacts/link-data/phone}
 BIN=${LINK_BIN:-$ROOT/target/debug}
 SERIAL=${ANDROID_SERIAL:?set ANDROID_SERIAL to the phone}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
-PACKAGE=org.umbriel.link
+PACKAGE=org.andromeda.link
 RELAY_PORT=${RELAY_PORT:-57051}
 
-[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/umbriel-link-phone.lock "$0" "$@"
+[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/andromeda-link-phone.lock "$0" "$@"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-data-phone.XXXX)
@@ -52,15 +52,15 @@ CONF
 dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "', true)"; }
 
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads RUST_LOG=info,zbus=warn "$BIN/umbriel-linkd" \
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads RUST_LOG=info,zbus=warn "$BIN/andromeda-linkd" \
   > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 PORT=$(grep -o 'listening on port [0-9]*' "$OUT/linkd.log" | grep -o '[0-9]*$')
 HOST=$(ip -4 route get 1.1.1.1 | grep -o 'src [0-9.]*' | cut -d' ' -f2)
 # The daemon's own port is random and firewalled; the phone dials the relay, which the daemon sees as 127.0.0.1.
@@ -132,7 +132,7 @@ wait_for 20 "D-Bus does not show the phone connected: $(devices)" connected
 ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
 T0=$(date +%s)
 adb logcat -c
-prop() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 "$1"; }
+prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
 dbus() { python3 - "$@" <<'PY'
 import sys
 from gi.repository import Gio, GLib
@@ -140,7 +140,7 @@ method, signature, reply, out, *args = sys.argv[1:]
 args = [int(a) if c in "qut" else a for a, c in zip(args, signature.strip("()"))]
 bus = Gio.bus_get_sync(Gio.BusType.SESSION)
 try:
-    result = bus.call_sync("org.umbriel.Link1", "/org/umbriel/Link1", "org.umbriel.Link1", method,
+    result = bus.call_sync("org.andromeda.Link1", "/org/andromeda/Link1", "org.andromeda.Link1", method,
                            GLib.Variant(signature, tuple(args)), GLib.VariantType(reply), Gio.DBusCallFlags.NONE,
                            30000, None).unpack()
 except GLib.Error as error:

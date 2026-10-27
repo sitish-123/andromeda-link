@@ -10,7 +10,7 @@ use zbus::{OwnedObjectPath, OwnedVariant, Variant};
 
 /// The Link service in SDP, which the phone looks up to find the RFCOMM channel.
 pub const SERVICE_UUID: &str = "5c3b1e5a-7d2f-4a8e-9b61-3f0c2d4e8a17";
-const PROFILE_PATH: &str = "/org/umbriel/Link1/Bluetooth";
+const PROFILE_PATH: &str = "/org/andromeda/Link1/Bluetooth";
 /// The RFCOMM channel the service record names; fixed, since the record must name the channel it listens on.
 const CHANNEL: u16 = 22;
 /// The SDP record: `BlueZ`'s own for a custom UUID lacks what Android needs to accept it ("Bad Service Class ID list
@@ -25,11 +25,11 @@ const SERVICE_RECORD: &str = r#"<?xml version="1.0" encoding="UTF-8" ?>
     </sequence>
   </attribute>
   <attribute id="0x0005"><sequence><uuid value="0x1002" /></sequence></attribute>
-  <attribute id="0x0100"><text value="Umbriel Link" /></attribute>
+  <attribute id="0x0100"><text value="Andromeda Link" /></attribute>
 </record>"#;
 const ADAPTER: &str = "/org/bluez/hci0";
 /// E2E only: a Unix socket stands in for RFCOMM, so the stream path runs without radios.
-const TEST_SOCKET: &str = "UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET";
+const TEST_SOCKET: &str = "ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET";
 const TEST_ADDRESS: &str = "00:00:00:00:00:01";
 /// Connections waiting for the listener; more are refused.
 const BACKLOG: usize = 4;
@@ -80,7 +80,7 @@ async fn register(tx: mpsc::Sender<OwnedFd>) -> zbus::Result<(zbus::Connection, 
     let manager = zbus::Proxy::new(&bus, "org.bluez", "/org/bluez", "org.bluez.ProfileManager1").await?;
     // Link's TLS authenticates both ends with the paired keys, so BlueZ is not asked to bond or to prompt.
     let options: HashMap<&str, Variant<'_>> = HashMap::from([
-        ("Name", Variant::from("Umbriel Link")),
+        ("Name", Variant::from("Andromeda Link")),
         ("Role", Variant::from("server")),
         ("RequireAuthentication", Variant::from(false)),
         ("RequireAuthorization", Variant::from(false)),

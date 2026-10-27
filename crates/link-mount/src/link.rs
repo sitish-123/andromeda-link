@@ -1,10 +1,10 @@
-//! What the mount asks `umbriel-linkd` over D-Bus: the paired phones, their folders, and bytes of their files.
+//! What the mount asks `andromeda-linkd` over D-Bus: the paired phones, their folders, and bytes of their files.
 
 use fuser::Errno;
 
-const SERVICE: &str = "org.umbriel.Link1";
-const PATH: &str = "/org/umbriel/Link1";
-const INTERFACE: &str = "org.umbriel.Link1";
+const SERVICE: &str = "org.andromeda.Link1";
+const PATH: &str = "/org/andromeda/Link1";
+const INTERFACE: &str = "org.andromeda.Link1";
 
 pub struct Device {
     pub id: String,
@@ -61,19 +61,19 @@ impl Link {
 /// The errno a failed call means to a program reading the mount.
 fn errno(error: &zbus::Error) -> Errno {
     let zbus::Error::MethodError(name, message, _) = error else {
-        log::warn!("umbriel-linkd: {error}");
+        log::warn!("andromeda-linkd: {error}");
         return Errno::EIO;
     };
     match (name.as_str(), message.as_deref()) {
-        ("org.umbriel.Link1.Error.Refused", Some("not-found")) | ("org.umbriel.Link1.Error.NotConnected", _) => {
+        ("org.andromeda.Link1.Error.Refused", Some("not-found")) | ("org.andromeda.Link1.Error.NotConnected", _) => {
             Errno::ENOENT
         }
-        ("org.umbriel.Link1.Error.Refused", Some("not-allowed" | "denied")) => Errno::EACCES,
-        ("org.umbriel.Link1.Error.Refused", Some("not-a-folder")) => Errno::ENOTDIR,
-        ("org.umbriel.Link1.Error.Refused", Some("not-a-file")) => Errno::EISDIR,
-        ("org.umbriel.Link1.Error.Refused", Some("busy")) => Errno::EAGAIN,
+        ("org.andromeda.Link1.Error.Refused", Some("not-allowed" | "denied")) => Errno::EACCES,
+        ("org.andromeda.Link1.Error.Refused", Some("not-a-folder")) => Errno::ENOTDIR,
+        ("org.andromeda.Link1.Error.Refused", Some("not-a-file")) => Errno::EISDIR,
+        ("org.andromeda.Link1.Error.Refused", Some("busy")) => Errno::EAGAIN,
         _ => {
-            log::info!("umbriel-linkd: {error}");
+            log::info!("andromeda-linkd: {error}");
             Errno::EIO
         }
     }

@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-    namespace = "org.umbriel.link"
+    namespace = "org.andromeda.link"
     compileSdk = 36
     defaultConfig {
-        applicationId = "org.umbriel.link"
+        applicationId = "org.andromeda.link"
         minSdk = 29
         targetSdk = 36
         // The release workflow sets these from the tag and run number.

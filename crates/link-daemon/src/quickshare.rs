@@ -1,5 +1,5 @@
 //! Quick Share as a backend of the daemon: findable only while the user makes it visible, and every offer accepted or
-//! declined by the user through the shell. D-Bus `org.umbriel.Link1.QuickShare` on the Link object.
+//! declined by the user through the shell. D-Bus `org.andromeda.Link1.QuickShare` on the Link object.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ use zbus::object_server::SignalEmitter;
 
 use crate::dbus::PATH;
 
-/// Unassigned at IANA, next to Link's 4717/udp; the ufw profile `Umbriel Link` opens it.
+/// Unassigned at IANA, next to Link's 4717/udp; the ufw profile `Andromeda Link` opens it.
 const PORT: u16 = 4718;
 /// Android gives up on an unanswered offer after about a minute.
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -367,7 +367,7 @@ struct Interface {
     name: String,
 }
 
-#[zbus::interface(name = "org.umbriel.Link1.QuickShare")]
+#[zbus::interface(name = "org.andromeda.Link1.QuickShare")]
 impl Interface {
     async fn accept(&self, id: u64) {
         self.handle.decide(id, true).await;

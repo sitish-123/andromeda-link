@@ -1,4 +1,4 @@
-//! `umbriel-linkd`: the desktop side of Link. No UI; the shell drives it over D-Bus `org.umbriel.Link1`.
+//! `andromeda-linkd`: the desktop side of Link. No UI; the shell drives it over D-Bus `org.andromeda.Link1`.
 
 mod bluetooth;
 mod browse;
@@ -88,7 +88,7 @@ async fn run() -> anyhow::Result<()> {
     result
 }
 
-/// Unassigned at IANA; the ufw profile `Umbriel Link` opens it.
+/// Unassigned at IANA; the ufw profile `Andromeda Link` opens it.
 const DEFAULT_PORT: u16 = 4717;
 
 /// Binds [`DEFAULT_PORT`], the one the firewall opens; a taken port falls back to a random one for this run only, so

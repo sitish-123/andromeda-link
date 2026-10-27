@@ -14,18 +14,19 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// `$STATE_DIRECTORY` under systemd, else `$XDG_STATE_HOME/umbriel-link`, else `~/.local/state/umbriel-link`.
+    /// `$STATE_DIRECTORY` under systemd, else `$XDG_STATE_HOME/andromeda-link`, else `~/.local/state/andromeda-link`.
     pub fn create() -> anyhow::Result<Self> {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let dir = std::env::var_os("STATE_DIRECTORY")
             .map(PathBuf::from)
-            .or_else(|| std::env::var_os("XDG_STATE_HOME").map(|state| PathBuf::from(state).join("umbriel-link")))
-            .or_else(|| home.as_ref().map(|home| home.join(".local/state/umbriel-link")))
+            .or_else(|| std::env::var_os("XDG_STATE_HOME").map(|state| PathBuf::from(state).join("andromeda-link")))
+            .or_else(|| home.as_ref().map(|home| home.join(".local/state/andromeda-link")))
             .context("no state directory: set XDG_STATE_HOME or HOME")?;
         if !dir.exists() {
             DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
         }
         fs::metadata(&dir).with_context(|| format!("state directory {}", dir.display()))?;
+        adopt_umbriel_state(&dir)?;
         let downloads = download_dir(home.as_deref()).context("no download directory: set HOME")?;
         Ok(Self {
             identity: dir.join("identity.pk8"),
@@ -35,6 +36,22 @@ impl Paths {
             downloads,
         })
     }
+}
+
+/// Copies the identity and paired devices from `umbriel-link`, the state directory's old name, once.
+/// It copies and does not move, because the sandbox mounts home read-only.
+fn adopt_umbriel_state(dir: &Path) -> anyhow::Result<()> {
+    let Some(old) = dir.parent().map(|parent| parent.join("umbriel-link")) else { return Ok(()) };
+    if dir.join("identity.pk8").exists() || !old.join("identity.pk8").exists() {
+        return Ok(());
+    }
+    for name in ["devices.json", "identity.pk8"] {
+        if old.join(name).exists() {
+            fs::copy(old.join(name), dir.join(name)).with_context(|| format!("copy {name} from {}", old.display()))?;
+        }
+    }
+    log::info!("copied state from {}", old.display());
+    Ok(())
 }
 
 /// `$XDG_DOWNLOAD_DIR`, else the one in `user-dirs.dirs`, else `~/Downloads`.

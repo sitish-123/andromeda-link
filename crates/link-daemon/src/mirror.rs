@@ -1,4 +1,4 @@
-//! Mirroring a phone's screen for `umbriel-link-mirror`: the request, the wait for the user's consent on the phone,
+//! Mirroring a phone's screen for `andromeda-link-mirror`: the request, the wait for the user's consent on the phone,
 //! and the pump from the phone's video stream into the viewer's socket, in the stream's own framing.
 
 use std::collections::HashMap;

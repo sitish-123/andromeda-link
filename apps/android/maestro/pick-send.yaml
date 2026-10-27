@@ -1,5 +1,5 @@
 # Picks the two fixture photos in the in-app picker and sends them to the desktop.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false

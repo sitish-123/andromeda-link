@@ -7,7 +7,7 @@
         errorLine1="        runCatching { context.getSystemService(TelecomManager::class.java).endCall() }"
         errorLine2="                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/calls/Calls.kt"
+            file="src/main/kotlin/org/andromeda/link/calls/Calls.kt"
             line="65"
             column="23"/>
     </issue>
@@ -18,7 +18,7 @@
         errorLine1="        runCatching { NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification) }"
         errorLine2="                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/ring/Ringer.kt"
+            file="src/main/kotlin/org/andromeda/link/ring/Ringer.kt"
             line="131"
             column="23"/>
     </issue>
@@ -29,7 +29,7 @@
         errorLine1="        NotificationManagerCompat.from(context).notify(TAG, id, notification)"
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/ShareNotifier.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/ShareNotifier.kt"
             line="38"
             column="9"/>
     </issue>
@@ -40,7 +40,7 @@
         errorLine1="        NotificationManagerCompat.from(context).notify(TAG, nextId.incrementAndGet(), notification)"
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/ShareNotifier.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/ShareNotifier.kt"
             line="49"
             column="9"/>
     </issue>
@@ -51,7 +51,7 @@
         errorLine1="        NotificationManagerCompat.from(context).notify(TAG, id, builder.build())"
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/TransferNotifier.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/TransferNotifier.kt"
             line="42"
             column="9"/>
     </issue>
@@ -73,7 +73,7 @@
         errorLine1="        val override = ranking?.lockscreenVisibilityOverride ?: NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE"
         errorLine2="                                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/NotificationMirror.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/NotificationMirror.kt"
             line="161"
             column="65"/>
     </issue>
@@ -84,7 +84,7 @@
         errorLine1="        val override = ranking?.lockscreenVisibilityOverride ?: NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE"
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/NotificationMirror.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/NotificationMirror.kt"
             line="161"
             column="33"/>
     </issue>
@@ -95,7 +95,7 @@
         errorLine1="        return Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles)"
         errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/NotificationMirror.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/NotificationMirror.kt"
             line="171"
             column="52"/>
     </issue>
@@ -106,7 +106,7 @@
         errorLine1="            startActivityAndCollapse(intent)"
         errorLine2="                                     ~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/clipboard/ClipboardTileService.kt"
+            file="src/main/kotlin/org/andromeda/link/clipboard/ClipboardTileService.kt"
             line="16"
             column="38"/>
     </issue>
@@ -315,7 +315,7 @@
         errorLine1="fun SectionHeader(title: String, note: String? = null, modifier: Modifier = Modifier) {"
         errorLine2="                                                       ~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/ui/components/Surfaces.kt"
+            file="src/main/kotlin/org/andromeda/link/ui/components/Surfaces.kt"
             line="195"
             column="56"/>
     </issue>
@@ -414,7 +414,7 @@
         errorLine1="        val showsHint = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &amp;&amp; field.isShowingHintText"
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/screen/ScreenInput.kt"
+            file="src/main/kotlin/org/andromeda/link/screen/ScreenInput.kt"
             line="84"
             column="25"/>
     </issue>
@@ -432,11 +432,11 @@
         errorLine1="            .setContentIntent(stop)"
         errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/ring/Ringer.kt"
+            file="src/main/kotlin/org/andromeda/link/ring/Ringer.kt"
             line="128"
             column="14"/>
         <location
-            file="src/main/kotlin/org/umbriel/link/ring/Ringer.kt"
+            file="src/main/kotlin/org/andromeda/link/ring/Ringer.kt"
             line="115"
             column="20"
             message="This `BroadcastReceiver` intent is launched from a notification; this is discouraged except as notification actions"/>
@@ -833,7 +833,7 @@
         errorLine1="            Modifier.offset(x = x).width(segment).fillMaxHeight()"
         errorLine2="                     ~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/ui/components/Controls.kt"
+            file="src/main/kotlin/org/andromeda/link/ui/components/Controls.kt"
             line="108"
             column="22"/>
     </issue>
@@ -844,7 +844,7 @@
         errorLine1="            Modifier.offset(x = knob).size(20.dp)"
         errorLine2="                     ~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/ui/components/Controls.kt"
+            file="src/main/kotlin/org/andromeda/link/ui/components/Controls.kt"
             line="137"
             column="22"/>
     </issue>
@@ -855,7 +855,7 @@
         errorLine1="    val parsed = Uri.parse(uri)"
         errorLine2="                 ~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/transfer/FileAccess.kt"
+            file="src/main/kotlin/org/andromeda/link/transfer/FileAccess.kt"
             line="28"
             column="18"/>
     </issue>
@@ -866,7 +866,7 @@
         errorLine1="                val parsed = Uri.parse(uri)"
         errorLine2="                             ~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/transfer/FileAccess.kt"
+            file="src/main/kotlin/org/andromeda/link/transfer/FileAccess.kt"
             line="56"
             column="30"/>
     </issue>
@@ -877,7 +877,7 @@
         errorLine1="            val bitmap = Bitmap.createBitmap(ICON_PX, ICON_PX, Bitmap.Config.ARGB_8888)"
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/NotificationMirror.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/NotificationMirror.kt"
             line="235"
             column="26"/>
     </issue>
@@ -888,7 +888,7 @@
         errorLine1="                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse(&quot;package:${context.packageName}&quot;))"
         errorLine2="                                                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/onboarding/OnboardingScreen.kt"
+            file="src/main/kotlin/org/andromeda/link/onboarding/OnboardingScreen.kt"
             line="205"
             column="74"/>
     </issue>
@@ -899,7 +899,7 @@
         errorLine1="        Grant.Battery -> Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse(&quot;package:${application.packageName}&quot;))"
         errorLine2="                                                                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/onboarding/OnboardingViewModel.kt"
+            file="src/main/kotlin/org/andromeda/link/onboarding/OnboardingViewModel.kt"
             line="85"
             column="87"/>
     </issue>
@@ -910,7 +910,7 @@
         errorLine1="        Grant.AutoClipboard -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse(&quot;package:${application.packageName}&quot;))"
         errorLine2="                                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/onboarding/OnboardingViewModel.kt"
+            file="src/main/kotlin/org/andromeda/link/onboarding/OnboardingViewModel.kt"
             line="86"
             column="82"/>
     </issue>
@@ -921,7 +921,7 @@
         errorLine1="            Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).roundToInt(), (bitmap.height * scale).roundToInt(), true)"
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/media/PhoneMedia.kt"
+            file="src/main/kotlin/org/andromeda/link/media/PhoneMedia.kt"
             line="179"
             column="13"/>
     </issue>
@@ -932,7 +932,7 @@
         errorLine1="                    Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse(&quot;package:${context.packageName}&quot;)),"
         errorLine2="                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/files/PickerSheet.kt"
+            file="src/main/kotlin/org/andromeda/link/files/PickerSheet.kt"
             line="172"
             column="84"/>
     </issue>
@@ -943,7 +943,7 @@
         errorLine1="        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),"
         errorLine2="                                   ~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/ShareNotifier.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/ShareNotifier.kt"
             line="59"
             column="36"/>
     </issue>
@@ -954,7 +954,7 @@
         errorLine1="            val view = Intent(Intent.ACTION_VIEW, Uri.parse(saved.uri))"
         errorLine2="                                                  ~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/kotlin/org/umbriel/link/notifications/TransferNotifier.kt"
+            file="src/main/kotlin/org/andromeda/link/notifications/TransferNotifier.kt"
             line="77"
             column="51"/>
     </issue>

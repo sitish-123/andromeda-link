@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "umbriel-quickshare"
+name = "andromeda-quickshare"
 path = "src/main.rs"
 
 [dependencies]

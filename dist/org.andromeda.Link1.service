@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.andromeda.Link1
+Exec=/bin/false
+SystemdService=andromeda-linkd.service

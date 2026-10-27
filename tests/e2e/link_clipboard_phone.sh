@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phone-to-PC clipboard through the real watcher on a real phone, paired with a private umbriel-linkd that it reaches
+# Phone-to-PC clipboard through the real watcher on a real phone, paired with a private andromeda-linkd that it reaches
 # through a UDP relay on a port the firewall lets in. Proves:
 # 1. Started in the background (as after a boot or an update), the watcher starts no logcat: Android would refuse it
 #    without a prompt and keep refusing for a minute, which also refused the foreground start that followed.
@@ -12,7 +12,7 @@
 #    OxygenOS screenshots do not touch the clipboard, so Share (or Copy in the screenshot editor) is how they cross.
 # The desktop half (the shell taking the selection, wl-paste) is link_clipboard.sh. Needs ANDROID_SERIAL, the debug
 # APKs, and the phone on the same network as this machine. Clears Link's data on the phone first, so the phone forgets
-# its desktops. Holds /tmp/umbriel-link-phone.lock, as other phone runs do. Writes steps.txt, signals.txt, phone.log,
+# its desktops. Holds /tmp/andromeda-link-phone.lock, as other phone runs do. Writes steps.txt, signals.txt, phone.log,
 # linkd.log, and screenshots to $OUT (default ./artifacts/link-clipboard/phone).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -21,11 +21,11 @@ BIN=${LINK_BIN:-$ROOT/target/debug}
 SERIAL=${ANDROID_SERIAL:?set ANDROID_SERIAL to the phone}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
 FIXTURE_APK=${FIXTURE_APK:-$ROOT/apps/android/fixture/build/outputs/apk/debug/fixture-debug.apk}
-PACKAGE=org.umbriel.link
-FIXTURE=org.umbriel.link.fixture
+PACKAGE=org.andromeda.link
+FIXTURE=org.andromeda.link.fixture
 RELAY_PORT=${RELAY_PORT:-57051}
 
-[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/umbriel-link-phone.lock "$0" "$@"
+[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/andromeda-link-phone.lock "$0" "$@"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-clipboard-phone.XXXX)
@@ -58,18 +58,18 @@ CONF
 dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "', true)"; }
 offers() { grep -c "member=ClipboardOffered" "$OUT/signals.txt" || true; }
 last_clip() { grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2; }
 pull() { python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$(last_clip)" "$1"; }
 
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads RUST_LOG=info,zbus=warn "$BIN/umbriel-linkd" \
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads RUST_LOG=info,zbus=warn "$BIN/andromeda-linkd" \
   > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 PORT=$(grep -o 'listening on port [0-9]*' "$OUT/linkd.log" | grep -o '[0-9]*$')
 HOST=$(ip -4 route get 1.1.1.1 | grep -o 'src [0-9.]*' | cut -d' ' -f2)
 # The daemon's own port is random and firewalled; the phone dials the relay, which the daemon sees as 127.0.0.1.

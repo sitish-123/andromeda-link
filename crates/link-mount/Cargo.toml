@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "umbriel-link-mount"
+name = "andromeda-link-mount"
 path = "src/main.rs"
 
 [dependencies]

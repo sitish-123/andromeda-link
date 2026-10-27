@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Slice C on the Android emulator against a private umbriel-linkd (own dbus-daemon, own XDG_STATE_HOME). Proves:
+# Slice C on the Android emulator against a private andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME). Proves:
 # with notification access granted, a notification posted with `cmd notification post` reaches D-Bus
 # NotificationPosted with its app name and icon, and a D-Bus dismissal cancels it on the phone and comes back as
 # NotificationRemoved; a chat notification (the fixture app) is mirrored with its RemoteInput reply action, a reply sent
 # with D-Bus NotificationAction reaches the RemoteInput, and the updated conversation comes back to D-Bus. A media
-# session on the phone (the fixture app) becomes the MPRIS player umbriel_link_<device> with its title and artwork,
+# session on the phone (the fixture app) becomes the MPRIS player andromeda_link_<device> with its title and artwork,
 # and playerctl's pause, next, and seek reach that session; a desktop MPRIS test player shows on the app's Media
 # screen, and its Pause button reaches it as PlayPause. D-Bus Ring rings the phone on the alarm stream at full volume
 # while Do Not Disturb (priority, which lets alarms through) stays as the user set it, and a stop puts the volume back; the app's Ring desktop reaches D-Bus as
@@ -25,7 +25,7 @@ SERIAL=${ANDROID_SERIAL:-emulator-5554}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
 FIXTURE_APK=${FIXTURE_APK:-$ROOT/apps/android/fixture/build/outputs/apk/debug/fixture-debug.apk}
 FLOWS=$ROOT/apps/android/maestro
-PACKAGE=org.umbriel.link
+PACKAGE=org.andromeda.link
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -64,11 +64,11 @@ CONF
 dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "', true)"; }
 # One line per signal: gdbus monitor prints each with all its arguments.
-signal() { grep -F "org.umbriel.Link1.$1 " "$OUT/signals.txt" | grep -F -- "$2" | tail -1; }
+signal() { grep -F "org.andromeda.Link1.$1 " "$OUT/signals.txt" | grep -F -- "$2" | tail -1; }
 heard() { [[ -n $(signal "$1" "$2") ]]; }
 posted() { notifications | grep -qF "$1"; }
 gone() { ! notifications | grep -qF "$1"; }
@@ -82,10 +82,10 @@ replies = re.findall(r"\('"'"'([^'"'"']*)'"'"', '"'"'[^'"'"']*'"'"', true\)", li
 print({"key": args[1], "app": args[2], "reply": replies[0] if replies else ""}[sys.argv[1]])' "$2"
 }
 
-XDG_STATE_HOME=$RUNTIME/desktop "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-gdbus monitor --session -d org.umbriel.Link1 -o /org/umbriel/Link1 > "$OUT/signals.txt" 2>&1 &
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+gdbus monitor --session -d org.andromeda.Link1 -o /org/andromeda/Link1 > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "gdbus monitor did not start" test -s "$OUT/signals.txt"
 
 adb shell cmd statusbar collapse
@@ -115,13 +115,13 @@ wait_for 10 "no NotificationRemoved after the dismissal" heard NotificationRemov
 record '{"step":"dismissed-from-desktop","phone":"cancelled","dbus":"NotificationRemoved"}'
 
 # A fresh install: replacing the package cancels its notifications late, racing the reply below.
-adb uninstall org.umbriel.link.fixture > /dev/null 2>&1 || true
+adb uninstall org.andromeda.link.fixture > /dev/null 2>&1 || true
 adb install "$FIXTURE_APK" > /dev/null || fail "installing $FIXTURE_APK"
-adb shell pm grant org.umbriel.link.fixture android.permission.POST_NOTIFICATIONS
+adb shell pm grant org.andromeda.link.fixture android.permission.POST_NOTIFICATIONS
 adb logcat -c
-adb shell am start -W -n org.umbriel.link.fixture/.MessageActivity > /dev/null
+adb shell am start -W -n org.andromeda.link.fixture/.MessageActivity > /dev/null
 # The key names the fresh install's uid, so a notification a previous run left behind cannot stand in for it.
-FIXTURE_KEY="0|org.umbriel.link.fixture|7|null|$(adb shell pm list packages -U org.umbriel.link.fixture | sed 's/.*uid://' | tr -d '\r')"
+FIXTURE_KEY="0|org.andromeda.link.fixture|7|null|$(adb shell pm list packages -U org.andromeda.link.fixture | sed 's/.*uid://' | tr -d '\r')"
 wait_for 30 "no NotificationPosted for the chat message" heard NotificationPosted "$FIXTURE_KEY"
 CHAT_KEY=$(posted_field "$FIXTURE_KEY" key)
 REPLY=$(posted_field "$FIXTURE_KEY" reply)
@@ -136,8 +136,8 @@ screenshot 1-reply-on-phone
 adb shell cmd statusbar collapse
 record "{\"step\":\"reply-through-remote-input\",\"action\":\"$REPLY\",\"text\":\"Yes, leaving now\"}"
 
-adb shell am start -W -n org.umbriel.link.fixture/.PlayerActivity > /dev/null
-PLAYER=umbriel_link_$ID
+adb shell am start -W -n org.andromeda.link.fixture/.PlayerActivity > /dev/null
+PLAYER=andromeda_link_$ID
 pc() { playerctl -p "$PLAYER" "$@" 2> /dev/null || true; }
 fixture() { adb logcat -d -s LinkFixture | grep -q "$1"; }
 wait_for 30 "the phone's media session never reached MPRIS: $(playerctl -l 2>&1)" eval '[[ $(pc metadata title) == "Emulator Song" ]]'
@@ -228,7 +228,7 @@ record '{"step":"call-from-contact","name":"Ada Lovelace","mute":"STREAM_RING mu
 adb emu gsm call 5550000 > /dev/null
 wait_for 30 "no Call for an unknown number" heard Call "'5550000', ''"
 adb emu gsm cancel 5550000 > /dev/null
-wait_for 20 "no idle Call after the caller hung up" eval '[[ $(grep -c "org.umbriel.Link1.Call (.*idle" "$OUT/signals.txt") -ge 2 ]]'
+wait_for 20 "no idle Call after the caller hung up" eval '[[ $(grep -c "org.andromeda.Link1.Call (.*idle" "$OUT/signals.txt") -ge 2 ]]'
 record '{"step":"call-from-number","name":"","cancel":"idle"}'
 
 python3 - "$OUT" <<'PY'

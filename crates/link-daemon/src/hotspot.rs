@@ -32,7 +32,7 @@ pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
         (
             "connection",
             HashMap::from([
-                ("id", Variant::from(format!("Umbriel Link: {ssid}"))),
+                ("id", Variant::from(format!("Andromeda Link: {ssid}"))),
                 ("type", Variant::from("802-11-wireless")),
                 ("autoconnect", Variant::from(false)),
                 ("permissions", Variant::from(vec![format!("user:{user}")])),

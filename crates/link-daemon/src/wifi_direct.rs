@@ -56,7 +56,7 @@ pub async fn join(peer_name: &str) -> Result<Joined, String> {
         (
             "connection",
             HashMap::from([
-                ("id", Variant::from(format!("Umbriel Link: {peer_name}"))),
+                ("id", Variant::from(format!("Andromeda Link: {peer_name}"))),
                 ("type", Variant::from("wifi-p2p")),
                 ("autoconnect", Variant::from(false)),
                 ("permissions", Variant::from(vec![format!("user:{user}")])),

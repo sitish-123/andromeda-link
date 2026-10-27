@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Link over Bluetooth without radios: the daemon's RFCOMM side is replaced by a Unix socket
-# (UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET) and the phone reaches it with --bluetooth-socket, so everything after the
+# (ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET) and the phone reaches it with --bluetooth-socket, so everything after the
 # descriptor handover (TLS over the byte stream, the stream multiplexer, the session, transfers) is the real code.
 # The phone sits in its own network namespace behind a veth pair; 100% loss on it cuts every IP path.
 #
@@ -70,16 +70,16 @@ RFCOMM=$RUNTIME/rfcomm.sock
 DOWNLOADS=$RUNTIME/downloads
 PHONE_DL=$RUNTIME/phone-downloads
 mkdir -p "$DOWNLOADS" "$PHONE_DL" "$RUNTIME/src"
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "'phone', true"; }
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
-  "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
+  "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 phone() {
-  in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
+  in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
     --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" "$@"
 }
 events() { grep -c "\"event\":\"$1\"" "$OUT/hold.jsonl" || true; }
@@ -102,11 +102,11 @@ echo "$OUTPUT" | grep -q '"via":"bluetooth"' || fail "connect did not use Blueto
 echo "$OUTPUT" | grep -q '"addr":null' || fail "a Bluetooth session reported an address: $OUTPUT"
 record '{"step":"connect-falls-back-to-bluetooth"}'
 
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
-RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
+RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone \
   --downloads "$PHONE_DL" --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" \
   hold --on-offer accept < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2> "$OUT/hold.log" &
 wait_for 30 "the held phone never connected over Bluetooth" eval '[[ $(events connected) == 1 ]]'
@@ -152,7 +152,7 @@ blackhole
 mkdir -p "$RUNTIME/stranger"
 cp "$RUNTIME/phone/devices.json" "$RUNTIME/stranger/devices.json"
 RECEIVED=$(grep -c 'member=Received' "$OUT/signals.txt" || true)
-OUTPUT=$(in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/stranger" --name stranger --bluetooth-socket "$RFCOMM" \
+OUTPUT=$(in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/stranger" --name stranger --bluetooth-socket "$RFCOMM" \
   share --kind text --text "from a stranger" 2>&1) && fail "an unpaired phone shared over Bluetooth: $OUTPUT"
 [[ $(grep -c 'member=Received' "$OUT/signals.txt" || true) == "$RECEIVED" ]] || fail "the stranger's share reached D-Bus"
 devices | grep -q stranger && fail "the desktop lists the stranger"
@@ -170,7 +170,7 @@ link CancelPairing > /dev/null || fail "the daemon stopped answering after garba
 grep -q "Bluetooth: handshake failed" "$OUT/linkd.log" || fail "the daemon did not log the failed handshake"
 record '{"step":"garbage-handshake-survived"}'
 
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 record "$(echo "$CHECK" | sed 's/^{/{"step":"transcript-schema",/')"
 cat "$OUT/results.jsonl"

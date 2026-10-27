@@ -1,5 +1,5 @@
 //! The pairing URI the desktop shows as a QR code:
-//! `umbriel-link:pair?v=1&k=<sha256(spki)>&c=<secret>&a=<host:port>...&b=<bluetooth address>`, binary fields
+//! `andromeda-link:pair?v=1&k=<sha256(spki)>&c=<secret>&a=<host:port>...&b=<bluetooth address>`, binary fields
 //! base64url without padding. Unknown parameters are skipped, so later fields do not break this reader.
 
 use std::fmt;
@@ -12,7 +12,7 @@ use link_proto::message::{BLUETOOTH_SCHEME, bluetooth_address};
 
 use crate::Error;
 
-const PREFIX: &str = "umbriel-link:pair?";
+const PREFIX: &str = "andromeda-link:pair?";
 pub const QR_SECRET_LEN: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

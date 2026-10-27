@@ -68,12 +68,12 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-XDG_STATE_HOME=$RUNTIME/desktop RUST_LOG=info "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+XDG_STATE_HOME=$RUNTIME/desktop RUST_LOG=info "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
-phone() { in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone "$@" 2>> "$OUT/phone.log"; }
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
+phone() { in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone "$@" 2>> "$OUT/phone.log"; }
 addresses() { python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["peers"][0]["addresses"]))' "$RUNTIME/phone/devices.json"; }
 
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")

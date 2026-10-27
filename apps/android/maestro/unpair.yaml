@@ -1,5 +1,5 @@
 # Unpairs the only desktop from its page, opened from the gear beside its name on Home.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false

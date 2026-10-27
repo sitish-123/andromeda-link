@@ -62,7 +62,7 @@ fn self_signed(pkcs8: &[u8], rng: &SystemRandom) -> anyhow::Result<Vec<u8>> {
     rng.fill(&mut serial).map_err(|_| anyhow::anyhow!("system randomness unavailable"))?;
     // Positive and minimal: the first byte is below 0x80 and not zero.
     serial[0] = (serial[0] & 0x7f) | 0x10;
-    let name = seq(&[&set(&[&seq(&[COMMON_NAME, &tlv(0x0c, b"umbriel-linkd")])])]);
+    let name = seq(&[&set(&[&seq(&[COMMON_NAME, &tlv(0x0c, b"andromeda-linkd")])])]);
     let validity = seq(&[&tlv(0x17, b"250101000000Z"), &tlv(0x18, b"99991231235959Z")]);
     let public_key = [&[0][..], pair.public_key().as_ref()].concat();
     let spki = seq(&[&seq(&[EC_PUBLIC_KEY, PRIME256V1]), &tlv(0x03, &public_key)]);

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Browsing a phone's storage from the desktop through the real mount: umbriel-link-mount serves a private mount point
-# inside user, network, and mount namespaces, umbriel-linkd answers it over D-Bus, and the headless phone serves a
+# Browsing a phone's storage from the desktop through the real mount: andromeda-link-mount serves a private mount point
+# inside user, network, and mount namespaces, andromeda-linkd answers it over D-Bus, and the headless phone serves a
 # fixture tree through --browse-root.
 #
 # Proves:
@@ -57,13 +57,13 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "'phone', true"; }
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 
 STORAGE=$RUNTIME/storage
 mkdir -p "$STORAGE/DCIM/Camera" "$STORAGE/Download" "$STORAGE/Many" "$RUNTIME/outside"
@@ -90,16 +90,16 @@ png(os.path.join(sys.argv[1], "Screenshot_2.png"), 5)
 PY
 
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
-"$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone pair --code "$CODE" --addr "127.0.0.1:$PORT" > /dev/null \
+"$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone pair --code "$CODE" --addr "127.0.0.1:$PORT" > /dev/null \
   || fail "pairing"
 hold() {
-  RUST_LOG=info "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone --transcript "$OUT/transcript.jsonl" \
+  RUST_LOG=info "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone --transcript "$OUT/transcript.jsonl" \
     --browse-root "Storage=$STORAGE" --photos "$LIBRARY" hold >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
   HOLD=$!
   wait_for 20 "the phone never connected" connected
 }
 hold
-XDG_CACHE_HOME=$RUNTIME/cache "$BIN/umbriel-link-mount" "$MNT" > "$OUT/mount.log" 2>&1 &
+XDG_CACHE_HOME=$RUNTIME/cache "$BIN/andromeda-link-mount" "$MNT" > "$OUT/mount.log" 2>&1 &
 wait_for 10 "the mount did not come up" mountpoint -q "$MNT"
 
 wait_for 10 "the mount does not list the phone" test -d "$MNT/phone"
@@ -206,7 +206,7 @@ kill "$HOLD"; wait "$HOLD" 2>/dev/null || true
 wait_for 15 "the disconnected phone stayed in the mount" eval '[[ ! -e "$MNT/phone" ]]'
 record '{"step":"disconnected-phone-leaves"}'
 
-"$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl" > "$OUT/schema.txt" \
+"$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl" > "$OUT/schema.txt" \
   || fail "transcript violates the schema: $(cat "$OUT/schema.txt")"
 record "{\"step\":\"schema\",\"result\":$(cat "$OUT/schema.txt")}"
 

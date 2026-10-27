@@ -10,9 +10,9 @@ pub mod pairing;
 pub mod session;
 pub mod transfer;
 
-pub const ALPN: &[u8] = b"umbriel-link/1";
+pub const ALPN: &[u8] = b"andromeda-link/1";
 /// ALPN of the TLS session over a byte stream, which carries [`mux`] frames.
-pub const STREAM_ALPN: &[u8] = b"umbriel-link-stream/1";
+pub const STREAM_ALPN: &[u8] = b"andromeda-link-stream/1";
 pub const VERSION: u32 = 1;
 
 /// QUIC application close codes; see `ARCHITECTURE.md`.

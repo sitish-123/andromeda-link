@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Umbriel Link</string>
+    <string name="app_name">Andromeda Link</string>
     <string name="home_title">Home</string>
     <string name="settings_title">Settings</string>
     <string name="activity_title">Activity</string>
@@ -67,7 +67,7 @@
     <string name="unpaired_from">Unpaired from %1$s</string>
     <string name="failure_wrong_code">The code didn\'t match. Start pairing again on the desktop.</string>
     <string name="failure_unpaired">The desktop removed this phone. Pair again to reconnect.</string>
-    <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network and the desktop\'s firewall allows Umbriel Link (on the desktop: sudo ufw allow \"Umbriel Link\").</string>
+    <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network and the desktop\'s firewall allows Andromeda Link (on the desktop: sudo ufw allow \"Andromeda Link\").</string>
     <string name="failure_rejected">Can\'t send this: %1$s</string>
     <string name="failure_other">Something went wrong: %1$s</string>
     <string name="back">Back</string>
@@ -184,7 +184,7 @@
     <string name="onboarding_post_title">Shares and alerts</string>
     <string name="onboarding_post_body">Links and text your desktop sends, and the ringing alert, arrive as notifications.</string>
     <string name="onboarding_battery_title">Stay connected all day</string>
-    <string name="onboarding_battery_body">Android stops background apps to save battery. Exempting Umbriel Link keeps Stay connected running, so your desktop can reach this phone at any time. It uses little power: the connection is idle between messages.</string>
+    <string name="onboarding_battery_body">Android stops background apps to save battery. Exempting Andromeda Link keeps Stay connected running, so your desktop can reach this phone at any time. It uses little power: the connection is idle between messages.</string>
     <string name="onboarding_calls_title">Calls on your desktop</string>
     <string name="onboarding_calls_body">See who is calling on your desktop and mute or decline from there. The caller\'s name needs contacts, and declining needs call control.</string>
     <string name="picker_title">Send to %1$s</string>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The real phone as the desktop's remote, driven through the app's own screens, against a private umbriel-linkd over
+# The real phone as the desktop's remote, driven through the app's own screens, against a private andromeda-linkd over
 # Wi-Fi through a relay on a port the firewall lets in. Proves, from the D-Bus signals the shell would inject:
 # 1. The touchpad: a drag moves the pointer right and down, a tap clicks left, a two-finger tap clicks right.
 # 2. The typing field sends what is typed as text, and Send as Enter.
@@ -7,14 +7,14 @@
 # 4. A desktop command shows on the device page by name, and a tap runs its line here.
 # 5. The phone's Ping reaches the desktop; the desktop's ping shows on the phone.
 # Needs the debug APKs and the phone on USB debugging, on the same Wi-Fi as this machine; see link_phone_lib.sh.
-# Updates Link on the phone and unpairs its desktop after. Holds /tmp/umbriel-link-phone.lock. Writes results.jsonl,
+# Updates Link on the phone and unpairs its desktop after. Holds /tmp/andromeda-link-phone.lock. Writes results.jsonl,
 # signals.txt, linkd.log, ui-*.xml, and screen-*.png to $OUT (default ./artifacts/link-control-phone).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-control-phone}
 source "$(dirname "$0")/link_phone_lib.sh"
 RELAY_PORT=${RELAY_PORT:-48307}
 
-[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/umbriel-link-phone.lock "$0" "$@"
+[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/andromeda-link-phone.lock "$0" "$@"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-control-phone.XXXX)

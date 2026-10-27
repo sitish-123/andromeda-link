@@ -1,4 +1,4 @@
-//! `umbriel-link-mirror`: a phone's screen in a window, from `umbriel-linkd`'s `OpenMirror`, with taps, swipes,
+//! `andromeda-link-mirror`: a phone's screen in a window, from `andromeda-linkd`'s `OpenMirror`, with taps, swipes,
 //! scrolls, keys, and Back/Home/Recents going back as `MirrorInput`, and its sound on the speakers. `--frames` decodes
 //! to PNG files and a WAV file instead, `--luma` to each frame's brightness and time, for tests.
 
@@ -13,8 +13,8 @@ use clap::Parser;
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
 
-const LINK: &str = "org.umbriel.Link1";
-const LINK_PATH: &str = "/org/umbriel/Link1";
+const LINK: &str = "org.andromeda.Link1";
+const LINK_PATH: &str = "/org/andromeda/Link1";
 /// The phone asks the user first; the daemon gives up after 60 s.
 const OPEN_TIMEOUT_MS: i32 = 90_000;
 
@@ -63,7 +63,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     gtk4::init()?;
     let display = std::rc::Rc::new(stream::Display::new(socket)?);
     input::keyframe(&bus, &cli.device);
-    let app = gtk4::Application::builder().application_id("org.umbriel.LinkMirror").build();
+    let app = gtk4::Application::builder().application_id("org.andromeda.LinkMirror").build();
     let (device, name) = (cli.device, cli.name);
     app.connect_activate(move |app| input::window(app, &bus, &device, &name, &display, width, height));
     let status = app.run_with_args::<&str>(&[]);

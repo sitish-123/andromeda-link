@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Android app on an emulator against a private umbriel-linkd (own dbus-daemon, own XDG_STATE_HOME), reached through
+# The Android app on an emulator against a private andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME), reached through
 # the emulator's NAT at the host's LAN addresses in the pairing URI. Proves: QR pairing from the opened URI (Maestro
 # taps Pair and grants notifications), the app shows Connected and D-Bus Devices agrees; text and a link shared from
 # Android through the share target arrive as D-Bus Received; text and a link sent with D-Bus Share post Android
@@ -26,7 +26,7 @@ SERIAL=${ANDROID_SERIAL:-emulator-5554}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
 FIXTURE_APK=${FIXTURE_APK:-$ROOT/apps/android/fixture/build/outputs/apk/debug/fixture-debug.apk}
 FLOWS=$ROOT/apps/android/maestro
-PACKAGE=org.umbriel.link
+PACKAGE=org.andromeda.link
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -65,8 +65,8 @@ CONF
 dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "', true)"; }
 disconnected() { devices | grep -q "', false)"; }
 received() { grep -qF "string \"$1\"" "$OUT/signals.txt"; }
@@ -75,10 +75,10 @@ gone() { ! notifications | grep -qF "$1"; }
 
 DOWNLOADS=$RUNTIME/downloads
 mkdir -p "$DOWNLOADS"
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
 adb shell cmd statusbar collapse
@@ -89,7 +89,7 @@ adb shell pm revoke "$PACKAGE" android.permission.READ_LOGS
 record '{"step":"installed"}'
 
 URI=$(link StartPairing | sed -E "s/^\('[0-9]+', '([^']+)'\)$/\1/")
-[[ $URI == umbriel-link:pair\?* ]] || fail "no pairing URI"
+[[ $URI == andromeda-link:pair\?* ]] || fail "no pairing URI"
 adb shell am start -W -a android.intent.action.VIEW -d "'$URI'" "$PACKAGE" > /dev/null
 maestro "$FLOWS/pair.yaml"
 wait_for 20 "D-Bus does not show the emulator connected: $(devices)" connected
@@ -97,7 +97,7 @@ ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
 NAME=$(devices | sed -E "s/.*'[0-9a-f]{32}', '([^']*)'.*/\1/")
 record "{\"step\":\"paired-and-connected\",\"device\":\"$ID\",\"name\":\"$NAME\"}"
 
-status() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 DeviceStatus; }
+status() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 DeviceStatus; }
 wait_for 20 "the app never reported its status: $(status)" eval 'status | grep -q "$ID"'
 adb shell dumpsys battery unplug
 adb shell dumpsys battery set level 42
@@ -277,11 +277,11 @@ fixture_photos
 # source is deleted before the desktop pastes, so the phone must have kept a seekable snapshot while focused.
 adb install -r "$FIXTURE_APK" > /dev/null || fail "installing the clipboard fixture"
 BEFORE=$(clip_offers)
-adb shell am start -W -n org.umbriel.link.fixture/.ImageClipboardActivity > /dev/null
+adb shell am start -W -n org.andromeda.link.fixture/.ImageClipboardActivity > /dev/null
 wait_for 20 "the copied PNG never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
 CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
-adb exec-out run-as org.umbriel.link.fixture cat files/clipboard.png > "$RUNTIME/clipboard-source.png"
-adb shell run-as org.umbriel.link.fixture rm files/clipboard.png
+adb exec-out run-as org.andromeda.link.fixture cat files/clipboard.png > "$RUNTIME/clipboard-source.png"
+adb shell run-as org.andromeda.link.fixture rm files/clipboard.png
 python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" image/png > "$RUNTIME/clipboard-pasted.png" \
   || fail "PullClipboard for the screenshot"
 cmp -s "$RUNTIME/clipboard-source.png" "$RUNTIME/clipboard-pasted.png" || fail "the clipboard PNG differs"

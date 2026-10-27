@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# umbriel-linkd's LocalSend v2 backend across two network namespaces, against LocalSend peers written from the
+# andromeda-linkd's LocalSend v2 backend across two network namespaces, against LocalSend peers written from the
 # protocol spec: curl for the sending side, and tests/e2e/localsend_peer.py (Python standard library) for discovery and
 # the receiving side. Proves: the backend is off until SetLocalSendVisible (nothing listens on 53317); once on, the
 # HTTPS certificate's SHA-256 is the fingerprint /info reports and the one multicast announcements carry; a peer's
@@ -62,13 +62,13 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-prop() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 "$1"; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
 DOWNLOADS=$RUNTIME/downloads
 mkdir -p "$DOWNLOADS" "$RUNTIME/peer-in" "$RUNTIME/src"
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
 API=https://10.78.0.1:53317/api/localsend/v2

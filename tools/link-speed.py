@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Times a desktop-to-phone Link transfer on the running umbriel-linkd and appends the result to
+"""Times a desktop-to-phone Link transfer on the running andromeda-linkd and appends the result to
 artifacts/link-speed/results.jsonl: size, seconds, MiB/s, and the path the session was on (from the daemon's
 "connected over" journal line).
 
@@ -15,7 +15,7 @@ import time
 
 from gi.repository import Gio, GLib
 
-NAME, PATH, IFACE = "org.umbriel.Link1", "/org/umbriel/Link1", "org.umbriel.Link1"
+NAME, PATH, IFACE = "org.andromeda.Link1", "/org/andromeda/Link1", "org.andromeda.Link1"
 OUT = pathlib.Path(__file__).resolve().parent.parent / "artifacts" / "link-speed"
 
 
@@ -29,7 +29,7 @@ def connected_device(bus):
 
 
 def session_path(device_id):
-    log = subprocess.run(["journalctl", "--user", "-u", "umbriel-linkd", "-b", "--no-pager", "-o", "cat"],
+    log = subprocess.run(["journalctl", "--user", "-u", "andromeda-linkd", "-b", "--no-pager", "-o", "cat"],
                          capture_output=True, text=True).stdout
     lines = [line for line in log.splitlines() if f"{device_id}: connected over" in line]
     return lines[-1].split("connected over ", 1)[1] if lines else "unknown"

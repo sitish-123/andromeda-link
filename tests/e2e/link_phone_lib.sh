@@ -1,4 +1,4 @@
-# Shared by the real-phone E2E scripts (link_*_phone.sh): the phone lock, a private bus, a private umbriel-linkd, the
+# Shared by the real-phone E2E scripts (link_*_phone.sh): the phone lock, a private bus, a private andromeda-linkd, the
 # debug app paired with it, and taps on Android's own UI through uiautomator. Source it after setting OUT.
 # Needs ANDROID_SERIAL, the debug APKs, and the phone on USB debugging.
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -7,7 +7,7 @@ ADB=${ADB:-$HOME/Android/Sdk/platform-tools/adb}
 SERIAL=${ANDROID_SERIAL:?set ANDROID_SERIAL to the phone}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
 FIXTURE=${FIXTURE:-$ROOT/apps/android/fixture/build/outputs/apk/debug/fixture-debug.apk}
-PACKAGE=org.umbriel.link
+PACKAGE=org.andromeda.link
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 record() { printf '%s\n' "$1" >> "$OUT/results.jsonl"; }
@@ -20,8 +20,8 @@ adb() { "$ADB" -s "$SERIAL" "$@"; }
 now_ms() { date +%s%3N; }
 # stamp: each line of stdin with the Unix time in ms in front.
 stamp() { while IFS= read -r line; do printf '%s %s\n' "$(date +%s%3N)" "$line"; done; }
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-prop() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 "$1"; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
 devices() { prop Devices; }
 connected() { devices | grep -q "', true)"; }
 
@@ -50,11 +50,11 @@ CONF
 start_linkd() {
   mkdir -p "$RUNTIME/downloads"
   XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads RUST_LOG=info,zbus=warn,tracing=warn \
-    "$BIN/umbriel-linkd" 2>&1 | stamp > "$OUT/linkd.log" &
+    "$BIN/andromeda-linkd" 2>&1 | stamp > "$OUT/linkd.log" &
   for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-  link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-  wait_for 5 "umbriel-linkd logged no port" grep -q 'listening on port' "$OUT/linkd.log"
-  dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+  link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+  wait_for 5 "andromeda-linkd logged no port" grep -q 'listening on port' "$OUT/linkd.log"
+  dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
   PORT=$(grep -o 'listening on port [0-9]*' "$OUT/linkd.log" | grep -o '[0-9]*$')
 }
 

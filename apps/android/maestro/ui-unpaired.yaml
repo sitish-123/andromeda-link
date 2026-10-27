@@ -1,5 +1,5 @@
 # Screenshots of the screens before pairing, in ${THEME}: the empty Home, the scanner, and the code entry with three digits typed.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: true

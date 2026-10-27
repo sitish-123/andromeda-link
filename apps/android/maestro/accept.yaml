@@ -1,5 +1,5 @@
 # A desktop's file offer is in the notification shade; tapping it opens Accept and Decline, and Accept accepts it.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - swipe:
     start: 50%, 0%

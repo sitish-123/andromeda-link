@@ -80,13 +80,13 @@ RFCOMM=$RUNTIME/rfcomm.sock
 DOWNLOADS=$RUNTIME/downloads
 PHONE_DL=$RUNTIME/phone-downloads
 mkdir -p "$DOWNLOADS" "$PHONE_DL" "$RUNTIME/src"
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
-  RUST_LOG=info "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
+  RUST_LOG=info "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 events() { grep -c "\"event\":\"$1\"" "$OUT/hold.jsonl" || true; }
 last_via() { grep '"event":"connected"' "$OUT/hold.jsonl" | tail -1 | grep -o '"via":"[a-z-]*"' | cut -d'"' -f4; }
 nm_calls() { grep -c "\"call\": \"$1\"" "$OUT/nm.jsonl" 2>/dev/null || true; }
@@ -94,20 +94,20 @@ say() { printf '%s\n' "$*" >&3; }
 sha() { sha256sum < "$1" | cut -d' ' -f1; }
 
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
-in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone pair --code "$CODE" --addr "10.81.0.1:$PORT" \
+in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone pair --code "$CODE" --addr "10.81.0.1:$PORT" \
   > /dev/null || fail "pairing"
 ID=$(devices | grep -o "'[0-9a-f]\{32\}', 'phone'" | cut -d"'" -f2)
 [[ -n $ID ]] || fail "desktop does not list the phone: $(devices)"
 link SetAutoAccept "'$ID'" true > /dev/null || fail "SetAutoAccept"
 in_phone tc qdisc add dev p0 root netem loss 100%
 
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1',member='Hotspot'" > "$OUT/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1',member='Hotspot'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
-RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
+RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone \
   --downloads "$PHONE_DL" --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" \
-  --hotspot "UmbrielTest:secret pass 1" hold --on-offer accept < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" \
+  --hotspot "AndromedaTest:secret pass 1" hold --on-offer accept < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" \
   2> "$OUT/hold.log" &
 wait_for 30 "the held phone never connected over Bluetooth" eval '[[ $(last_via) == bluetooth ]]'
 
@@ -121,16 +121,16 @@ calls = [json.loads(line) for line in open(sys.argv[1])]
 for call in calls:
     del call["t"]
 # iwd joins only what its last scan saw, so the desktop scans for the hotspot first and joins that access point.
-assert calls[0] == {"call": "request-scan", "ssid": "UmbrielTest"}, calls[0]
+assert calls[0] == {"call": "request-scan", "ssid": "AndromedaTest"}, calls[0]
 join = next(call for call in calls if call["call"] == "add-and-activate")
 assert join == {"call": "add-and-activate", "device": "/org/freedesktop/NetworkManager/Devices/2",
-                "specific": "/org/freedesktop/NetworkManager/AccessPoint/1", "ssid": "UmbrielTest",
+                "specific": "/org/freedesktop/NetworkManager/AccessPoint/1", "ssid": "AndromedaTest",
                 "psk": "secret pass 1", "key_mgmt": "wpa-psk", "autoconnect": False, "persist": "volatile",
                 "fails": False}, join
 PY
 wait_for 60 "the phone's 32 MiB never reached the desktop" test -f "$DOWNLOADS/up.bin"
 [[ $(sha "$RUNTIME/src/up.bin") == $(sha "$DOWNLOADS/up.bin") ]] || fail "the phone's file differs on the desktop"
-grep -A2 'member=Hotspot' "$OUT/signals.txt" | grep -q 'string "UmbrielTest"' || fail "no Hotspot signal with the SSID"
+grep -A2 'member=Hotspot' "$OUT/signals.txt" | grep -q 'string "AndromedaTest"' || fail "no Hotspot signal with the SSID"
 record '{"step":"phone-send-moves-to-hotspot","bytes":33554432,"sha256_match":true}'
 
 wait_for 90 "the phone never ended the idle hotspot" grep -q "hotspot stopped" "$OUT/hold.log"
@@ -187,7 +187,7 @@ STORED=$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1])
 [[ $STORED != *10.80.0.* ]] || fail "the hotspot's address was stored: $STORED"
 record '{"step":"hotspot-address-not-stored"}'
 
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 record "$(echo "$CHECK" | sed 's/^{/{"step":"transcript-schema",/')"
 cat "$OUT/results.jsonl"

@@ -1,5 +1,5 @@
 # Taps "Ring" on the Devices screen, leaving the Media screen the previous flow opened.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false

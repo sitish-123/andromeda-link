@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Mirroring a real phone's screen and sound to a private umbriel-linkd over Wi-Fi, through a relay that can impair
+# Mirroring a real phone's screen and sound to a private andromeda-linkd over Wi-Fi, through a relay that can impair
 # the phone-to-desktop direction (tests/e2e/udp_impair.py), so loss is real without root.
 #
 # Proves:
 # 1. Latency: the fixture flips the whole screen black or white at each touch; the desktop taps it through
-#    MirrorInput 30 times and times each flip's arrival in the viewer's decoded frames (umbriel-link-mirror --luma).
+#    MirrorInput 30 times and times each flip's arrival in the viewer's decoded frames (andromeda-link-mirror --luma).
 #    The input path, capture, encode, network, and decode are all in the measure. Median under 250 ms.
 # 2. Bitrate under loss: while the fixture draws noise, 3 Mbit/s and 2 % loss on the relay make the phone step its
 #    encoder down from 8 Mbit/s; after the link is clean again it steps back up. Frames keep arriving throughout.
 # 3. Sound: the fixture's 440 Hz tone arrives as Opus and decodes to audio.wav with that pitch.
 # Needs the debug APKs and the phone on USB debugging, on the same Wi-Fi as this machine; see link_phone_lib.sh.
 # Updates Link on the phone, keeps its other pairings, and unpairs the run's desktop after. Holds
-# /tmp/umbriel-link-phone.lock, which other phone runs take too. Writes results.jsonl, latency.tsv, luma.tsv, relay.tsv,
+# /tmp/andromeda-link-phone.lock, which other phone runs take too. Writes results.jsonl, latency.tsv, luma.tsv, relay.tsv,
 # bitrate.log, audio.wav, linkd.log, viewer.log, logcat.txt to $OUT (default ./artifacts/link-mirror-phone).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/link-mirror-phone}
@@ -21,7 +21,7 @@ RELAY_PORT=${RELAY_PORT:-48307}
 TAPS=30
 
 # The lock stays with flock itself, so a helper left running cannot keep it.
-[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/umbriel-link-phone.lock "$0" "$@"
+[[ -n ${LINK_PHONE_LOCKED:-} ]] || exec env LINK_PHONE_LOCKED=1 flock --close /tmp/andromeda-link-phone.lock "$0" "$@"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-mirror-phone.XXXX)
@@ -49,7 +49,7 @@ grep "connected over IP" "$OUT/linkd.log" | tail -1 | grep -q 127.0.0.1 || fail 
 
 # start_mirror ARGS...: a viewer with ARGS, through the request notification and Android's capture prompt.
 start_mirror() {
-  "$BIN/umbriel-link-mirror" "$ID" "$@" >> "$OUT/viewer.log" 2>&1 &
+  "$BIN/andromeda-link-mirror" "$ID" "$@" >> "$OUT/viewer.log" 2>&1 &
   VIEWER=$!
   allow_mirror "${1#--}"
   wait_for 20 "the mirror did not start" eval 'grep -q "mirroring at" "$OUT/linkd.log"'
@@ -57,10 +57,10 @@ start_mirror() {
 
 adb logcat -c
 adb logcat -v epoch ScreenCapture:I ScreenInput:I MirrorAudio:I LinkFixture:I '*:S' > "$OUT/logcat.txt" &
-adb shell am start -W -n org.umbriel.link.fixture/.MirrorProbeActivity > /dev/null
+adb shell am start -W -n org.andromeda.link.fixture/.MirrorProbeActivity > /dev/null
 sleep 1
 start_mirror --luma "$OUT/luma.tsv" --count 1000000
-adb shell am start -W -n org.umbriel.link.fixture/.MirrorProbeActivity > /dev/null
+adb shell am start -W -n org.andromeda.link.fixture/.MirrorProbeActivity > /dev/null
 wait_for 15 "no frames decoded" test -s "$OUT/luma.tsv"
 sleep 3
 
@@ -104,7 +104,7 @@ MEASURED=$(jq .measured <<< "$LATENCY")
 frames_since() { awk -v since="$1" '$1 > since' "$OUT/luma.tsv" | wc -l; }
 bitrates() { grep -o 'bitrate [0-9]* kbit/s' "$OUT/logcat.txt" | grep -o '[0-9]*' || true; }
 # Random blocks every frame keep the encoder at its full rate, so the loss bites.
-adb shell am start -n org.umbriel.link.fixture/.MirrorProbeActivity --ez noise true > /dev/null
+adb shell am start -n org.andromeda.link.fixture/.MirrorProbeActivity --ez noise true > /dev/null
 sleep 3
 START=$(now_ms)
 STEPS=$(bitrates | wc -l)
@@ -127,13 +127,13 @@ wait "$VIEWER" 2> /dev/null || true
 wait_for 10 "the capture kept running" eval '! adb shell dumpsys activity services "$PACKAGE" | grep -q ScreenCapture'
 
 # A still screen again: uiautomator cannot read the screen while the noise animates.
-adb shell am force-stop org.umbriel.link.fixture
-adb shell am start -W -n org.umbriel.link.fixture/.MirrorProbeActivity > /dev/null
-"$BIN/umbriel-link-mirror" "$ID" --frames "$OUT/frames" --count 300 >> "$OUT/viewer.log" 2>&1 &
+adb shell am force-stop org.andromeda.link.fixture
+adb shell am start -W -n org.andromeda.link.fixture/.MirrorProbeActivity > /dev/null
+"$BIN/andromeda-link-mirror" "$ID" --frames "$OUT/frames" --count 300 >> "$OUT/viewer.log" 2>&1 &
 VIEWER=$!
 allow_mirror sound
 # Noise again, now that the prompt is done: a still screen sends too few frames to finish the viewer's count.
-adb shell am start -W -n org.umbriel.link.fixture/.MirrorProbeActivity --ez noise true > /dev/null
+adb shell am start -W -n org.andromeda.link.fixture/.MirrorProbeActivity --ez noise true > /dev/null
 wait "$VIEWER" || fail "the viewer failed: $(tail -3 "$OUT/viewer.log")"
 [[ -s $OUT/frames/frame-010.png ]] || fail "no frames in the sound run"
 [[ -s $OUT/frames/audio.wav ]] || fail "no sound arrived: $(grep -i 'MirrorAudio\|sound' "$OUT/logcat.txt" "$OUT/viewer.log" | tail -3)"
@@ -156,6 +156,6 @@ PITCH=$(jq .pitch_hz <<< "$SOUND")
 RMS=$(jq .rms <<< "$SOUND")
 (( PITCH > 420 && PITCH < 460 && RMS > 1000 )) || fail "the sound is not the fixture's tone: $SOUND"
 record "{\"step\":\"sound\",\"audio\":$SOUND}"
-adb shell am force-stop org.umbriel.link.fixture
+adb shell am force-stop org.andromeda.link.fixture
 cat "$OUT/results.jsonl"
 echo "PASS; artifacts: $OUT"

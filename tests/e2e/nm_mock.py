@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A stand-in for NetworkManager on the test's system bus: the calls umbriel-linkd makes to join and leave a phone's
+"""A stand-in for NetworkManager on the test's system bus: the calls andromeda-linkd makes to join and leave a phone's
 hotspot or Wi-Fi Direct group, recorded as JSON lines. Joining runs JOIN_CMD (the E2E brings up the link there);
 leaving runs LEAVE_CMD. While the file FAIL_FLAG exists, a hotspot join ends deactivated, as a wrong passphrase would;
 FAIL_FLAG-p2p does the same for a group. While FAIL_FLAG-p2p-stuck exists, a group join stays activating. A Wi-Fi

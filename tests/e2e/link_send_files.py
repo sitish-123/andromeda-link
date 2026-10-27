@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calls org.umbriel.Link1.SendFiles with open descriptors, as the shell does, and prints the transfer id.
+"""Calls org.andromeda.Link1.SendFiles with open descriptors, as the shell does, and prints the transfer id.
 
 Usage: link_send_files.py DEVICE_ID PATH[=NAME]...
 """
@@ -19,7 +19,7 @@ def main() -> int:
     bus = Gio.bus_get_sync(Gio.BusType.SESSION)
     try:
         reply, _ = bus.call_with_unix_fd_list_sync(
-            "org.umbriel.Link1", "/org/umbriel/Link1", "org.umbriel.Link1", "SendFiles",
+            "org.andromeda.Link1", "/org/andromeda/Link1", "org.andromeda.Link1", "SendFiles",
             GLib.Variant("(sa(hs))", (device, files)), GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, -1, fds,
             None)
     except GLib.Error as error:

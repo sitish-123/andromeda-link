@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mirroring the emulator's screen with the real app: MediaProjection into the hardware (here software) H.264 encoder,
-# streamed to a private umbriel-linkd and decoded by umbriel-link-mirror --frames; input through the app's
+# streamed to a private andromeda-linkd and decoded by andromeda-link-mirror --frames; input through the app's
 # accessibility service. Android's own prompts are answered through uiautomator, as a user taps them.
 #
 # Proves:
@@ -22,7 +22,7 @@ MAESTRO=${MAESTRO:-$HOME/.maestro/bin/maestro}
 SERIAL=${ANDROID_SERIAL:-emulator-5554}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
 FLOWS=$ROOT/apps/android/maestro
-PACKAGE=org.umbriel.link
+PACKAGE=org.andromeda.link
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
@@ -60,8 +60,8 @@ CONF
 dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "', true)"; }
 disconnected() { devices | grep -q "', false)"; }
 received() { grep -qF "string \"$1\"" "$OUT/signals.txt"; }
@@ -70,10 +70,10 @@ gone() { ! notifications | grep -qF "$1"; }
 
 DOWNLOADS=$RUNTIME/downloads
 mkdir -p "$DOWNLOADS"
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
 adb shell cmd statusbar collapse
@@ -83,7 +83,7 @@ adb install "$APK" > /dev/null || fail "installing $APK"
 record '{"step":"installed"}'
 
 URI=$(link StartPairing | sed -E "s/^\('[0-9]+', '([^']+)'\)$/\1/")
-[[ $URI == umbriel-link:pair\?* ]] || fail "no pairing URI"
+[[ $URI == andromeda-link:pair\?* ]] || fail "no pairing URI"
 adb shell am start -W -a android.intent.action.VIEW -d "'$URI'" "$PACKAGE" > /dev/null
 maestro "$FLOWS/pair.yaml"
 wait_for 20 "D-Bus does not show the emulator connected: $(devices)" connected
@@ -150,7 +150,7 @@ adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 wait_for 30 "the app did not reconnect" eval '(( $(grep -c "connected over IP" "$OUT/linkd.log") > SESSIONS ))'
 record '{"step":"screen-switch-and-control-on"}'
 
-"$BIN/umbriel-link-mirror" "$ID" --frames "$OUT/frames" --count 90 > "$OUT/viewer.log" 2>&1 &
+"$BIN/andromeda-link-mirror" "$ID" --frames "$OUT/frames" --count 90 > "$OUT/viewer.log" 2>&1 &
 VIEWER=$!
 wait_for 15 "no mirror request notification" eval 'adb shell dumpsys notification --noredact | grep -q "wants to show your screen"'
 adb shell cmd statusbar expand-notifications
@@ -166,7 +166,7 @@ COLOURS=$(magick "$OUT/frames/frame-060.png" -format '%k' info:)
 (( COLOURS > 100 )) || fail "the frames are blank ($COLOURS colours)"
 record "{\"step\":\"streams-the-screen\",\"frames\":$FRAMES,\"size\":\"$SIZE\",\"screen\":\"$(screen_size)\",\"colours\":$COLOURS}"
 
-"$BIN/umbriel-link-mirror" "$ID" --frames "$OUT/frames-input" --count 100000 >> "$OUT/viewer.log" 2>&1 &
+"$BIN/andromeda-link-mirror" "$ID" --frames "$OUT/frames-input" --count 100000 >> "$OUT/viewer.log" 2>&1 &
 VIEWER=$!
 wait_for 15 "no second request" eval 'adb shell dumpsys notification --noredact | grep -q "wants to show your screen"'
 adb shell cmd statusbar expand-notifications

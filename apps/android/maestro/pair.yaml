@@ -1,5 +1,5 @@
 # The pairing link is already open (the E2E script started it with adb): confirm, allow notifications, see Connected.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - extendedWaitUntil:
     visible: "Pair with this desktop\\?"

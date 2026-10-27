@@ -1,4 +1,4 @@
-//! mDNS/DNS-SD: the desktop advertises `_umbriel-link._udp`, the phone browses for it.
+//! mDNS/DNS-SD: the desktop advertises `_andromeda-link._udp`, the phone browses for it.
 
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -8,7 +8,7 @@ use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use crate::Error;
 use crate::identity::DeviceId;
 
-pub const SERVICE_TYPE: &str = "_umbriel-link._udp.local.";
+pub const SERVICE_TYPE: &str = "_andromeda-link._udp.local.";
 
 /// A registered advertisement; dropping it sends the goodbye and stops the responder thread.
 pub struct Advertiser {

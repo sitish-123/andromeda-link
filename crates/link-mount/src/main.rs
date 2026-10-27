@@ -1,5 +1,5 @@
-//! `umbriel-link-mount`: connected phones' storage at `~/Phone` (or the path given), read-only, for phones whose
-//! browse switch for this desktop is on. Outside `umbriel-linkd`'s sandbox, which can neither open `/dev/fuse` nor
+//! `andromeda-link-mount`: connected phones' storage at `~/Phone` (or the path given), read-only, for phones whose
+//! browse switch for this desktop is on. Outside `andromeda-linkd`'s sandbox, which can neither open `/dev/fuse` nor
 //! mount where the user sees it; it reaches the daemon over D-Bus. See "Browsing" in `ARCHITECTURE.md`.
 
 mod fs;
@@ -30,8 +30,8 @@ fn main() -> anyhow::Result<()> {
     let link = runtime.block_on(link::Link::connect()).context("connecting to the session bus")?;
     let mut config = Config::default();
     config.mount_options = vec![
-        MountOption::FSName("umbriel-link".to_owned()),
-        MountOption::Subtype("umbriel-link".to_owned()),
+        MountOption::FSName("andromeda-link".to_owned()),
+        MountOption::Subtype("andromeda-link".to_owned()),
         MountOption::RO,
         MountOption::NoExec,
         MountOption::NoSuid,

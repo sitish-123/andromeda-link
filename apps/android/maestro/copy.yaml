@@ -1,6 +1,6 @@
 # A text the desktop shared is in the notification shade; tapping it copies it. Android bundles the app's two
 # notifications and hides their buttons; the tap runs the content intent, the same PendingIntent as the Copy button.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - swipe:
     start: 50%, 0%

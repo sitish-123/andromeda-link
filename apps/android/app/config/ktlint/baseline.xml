@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <baseline version="1.0">
-    <file name="src/main/kotlin/org/umbriel/link/LinkApplication.kt">
+    <file name="src/main/kotlin/org/andromeda/link/LinkApplication.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="52" column="20" source="standard:class-signature" />
         <error line="52" column="48" source="standard:class-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/MainActivity.kt">
+    <file name="src/main/kotlin/org/andromeda/link/MainActivity.kt">
         <error line="34" column="43" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/calls/Calls.kt">
+    <file name="src/main/kotlin/org/andromeda/link/calls/Calls.kt">
         <error line="28" column="13" source="standard:class-signature" />
         <error line="28" column="43" source="standard:class-signature" />
         <error line="28" column="83" source="standard:class-signature" />
@@ -23,7 +23,7 @@
         <error line="92" column="60" source="standard:function-signature" />
         <error line="94" column="21" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/clipboard/ClipProvider.kt">
+    <file name="src/main/kotlin/org/andromeda/link/clipboard/ClipProvider.kt">
         <error line="25" column="27" source="standard:function-signature" />
         <error line="25" column="37" source="standard:function-signature" />
         <error line="25" column="49" source="standard:function-signature" />
@@ -57,7 +57,7 @@
         <error line="48" column="87" source="standard:chain-method-continuation" />
         <error line="49" column="34" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/clipboard/ClipboardOverlay.kt">
+    <file name="src/main/kotlin/org/andromeda/link/clipboard/ClipboardOverlay.kt">
         <error line="21" column="24" source="standard:class-signature" />
         <error line="21" column="54" source="standard:class-signature" />
         <error line="21" column="87" source="standard:class-signature" />
@@ -66,19 +66,19 @@
         <error line="39" column="22" source="standard:multiline-expression-wrapping" />
         <error line="39" column="35" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/clipboard/ClipboardReadActivity.kt">
+    <file name="src/main/kotlin/org/andromeda/link/clipboard/ClipboardReadActivity.kt">
         <error line="33" column="20" source="standard:multiline-expression-wrapping" />
         <error line="33" column="26" source="standard:chain-method-continuation" />
         <error line="34" column="62" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/clipboard/ClipboardSync.kt">
+    <file name="src/main/kotlin/org/andromeda/link/clipboard/ClipboardSync.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="45" column="24" source="standard:multiline-expression-wrapping" />
         <error line="46" column="58" source="standard:chain-method-continuation" />
         <error line="61" column="20" source="standard:multiline-expression-wrapping" />
         <error line="70" column="17" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/clipboard/ClipboardWatcher.kt">
+    <file name="src/main/kotlin/org/andromeda/link/clipboard/ClipboardWatcher.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="66" column="37" source="standard:multiline-expression-wrapping" />
         <error line="66" column="37" source="standard:function-signature" />
@@ -86,7 +86,7 @@
         <error line="67" column="36" source="standard:chain-method-continuation" />
         <error line="67" column="59" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/control/RemoteScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/control/RemoteScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="63" column="5" source="standard:function-naming" />
         <error line="63" column="5" source="compose:modifier-missing-check" />
@@ -143,7 +143,7 @@
         <error line="209" column="98" source="standard:argument-list-wrapping" />
         <error line="209" column="119" source="standard:argument-list-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/control/RemoteViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/control/RemoteViewModel.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="21" column="23" source="standard:class-signature" />
         <error line="21" column="63" source="standard:class-signature" />
@@ -158,7 +158,7 @@
         <error line="67" column="31" source="standard:function-signature" />
         <error line="67" column="44" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/devices/DeviceScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/devices/DeviceScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="63" column="5" source="standard:function-naming" />
         <error line="63" column="5" source="compose:modifier-missing-check" />
@@ -222,7 +222,7 @@
         <error line="188" column="139" source="standard:parameter-list-wrapping" />
         <error line="188" column="139" source="standard:class-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/devices/DeviceViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/devices/DeviceViewModel.kt">
         <error line="26" column="23" source="standard:class-signature" />
         <error line="26" column="63" source="standard:class-signature" />
         <error line="26" column="92" source="standard:class-signature" />
@@ -242,7 +242,7 @@
         <error line="38" column="38" source="standard:function-signature" />
         <error line="38" column="49" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/devices/HomeScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/devices/HomeScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="19" column="1" source="standard:no-unused-imports" />
         <error line="37" column="1" source="standard:no-unused-imports" />
@@ -376,7 +376,7 @@
         <error line="317" column="79" source="standard:chain-method-continuation" />
         <error line="318" column="71" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/devices/HomeViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/devices/HomeViewModel.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="32" column="35" source="standard:multiline-expression-wrapping" />
         <error line="37" column="23" source="standard:class-signature" />
@@ -413,7 +413,7 @@
         <error line="127" column="53" source="standard:function-signature" />
         <error line="127" column="83" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/devices/SettingsScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/devices/SettingsScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="33" column="1" source="standard:no-unused-imports" />
         <error line="35" column="1" source="standard:no-unused-imports" />
@@ -428,7 +428,7 @@
         <error line="95" column="40" source="standard:argument-list-wrapping" />
         <error line="100" column="49" source="standard:argument-list-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/files/PhoneFiles.kt">
+    <file name="src/main/kotlin/org/andromeda/link/files/PhoneFiles.kt">
         <error line="41" column="18" source="standard:class-signature" />
         <error line="41" column="46" source="standard:class-signature" />
         <error line="46" column="38" source="standard:multiline-expression-wrapping" />
@@ -460,7 +460,7 @@
         <error line="137" column="47" source="standard:multiline-expression-wrapping" />
         <error line="138" column="44" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/files/PickerSheet.kt">
+    <file name="src/main/kotlin/org/andromeda/link/files/PickerSheet.kt">
         <error line="80" column="14" source="standard:function-naming" />
         <error line="80" column="14" source="compose:modifier-missing-check" />
         <error line="80" column="26" source="standard:function-signature" />
@@ -615,7 +615,7 @@
         <error line="317" column="49" source="standard:function-signature" />
         <error line="317" column="60" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/files/PickerViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/files/PickerViewModel.kt">
         <error line="31" column="23" source="standard:class-signature" />
         <error line="31" column="52" source="standard:class-signature" />
         <error line="57" column="35" source="standard:multiline-expression-wrapping" />
@@ -629,7 +629,7 @@
         <error line="80" column="44" source="standard:function-signature" />
         <error line="80" column="51" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/media/MediaScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/media/MediaScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="60" column="5" source="standard:function-naming" />
         <error line="60" column="5" source="compose:modifier-missing-check" />
@@ -677,7 +677,7 @@
         <error line="161" column="34" source="standard:chain-method-continuation" />
         <error line="161" column="52" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/media/MediaViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/media/MediaViewModel.kt">
         <error line="19" column="24" source="standard:class-signature" />
         <error line="19" column="47" source="standard:class-signature" />
         <error line="19" column="72" source="standard:class-signature" />
@@ -691,7 +691,7 @@
         <error line="33" column="83" source="standard:function-signature" />
         <error line="35" column="23" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/media/PhoneMedia.kt">
+    <file name="src/main/kotlin/org/andromeda/link/media/PhoneMedia.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="42" column="5" source="standard:spacing-between-declarations-with-comments" />
         <error line="44" column="5" source="standard:spacing-between-declarations-with-comments" />
@@ -722,7 +722,7 @@
         <error line="183" column="52" source="standard:chain-method-continuation" />
         <error line="183" column="73" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/AppFilterScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/AppFilterScreen.kt">
         <error line="8" column="1" source="standard:no-unused-imports" />
         <error line="24" column="5" source="standard:function-naming" />
         <error line="24" column="5" source="compose:modifier-missing-check" />
@@ -730,7 +730,7 @@
         <error line="24" column="52" source="standard:function-signature" />
         <error line="24" column="70" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/AppFilterViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/AppFilterViewModel.kt">
         <error line="16" column="24" source="standard:class-signature" />
         <error line="16" column="49" source="standard:class-signature" />
         <error line="16" column="68" source="standard:class-signature" />
@@ -745,18 +745,18 @@
         <error line="38" column="42" source="standard:function-signature" />
         <error line="38" column="59" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/CopyReceiver.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/CopyReceiver.kt">
         <error line="15" column="28" source="standard:function-signature" />
         <error line="15" column="46" source="standard:function-signature" />
         <error line="15" column="60" source="standard:function-signature" />
         <error line="17" column="16" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/MirrorService.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/MirrorService.kt">
         <error line="24" column="39" source="standard:function-signature" />
         <error line="24" column="67" source="standard:function-signature" />
         <error line="24" column="89" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/NotificationMirror.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/NotificationMirror.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="49" column="5" source="standard:spacing-between-declarations-with-comments" />
         <error line="77" column="16" source="standard:function-signature" />
@@ -803,7 +803,7 @@
         <error line="243" column="51" source="standard:function-signature" />
         <error line="251" column="9" source="standard:spacing-between-declarations-with-comments" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/ShareNotifier.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/ShareNotifier.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="20" column="21" source="standard:class-signature" />
         <error line="20" column="49" source="standard:class-signature" />
@@ -824,7 +824,7 @@
         <error line="63" column="62" source="standard:multiline-expression-wrapping" />
         <error line="63" column="62" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/TransferNotifier.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/TransferNotifier.kt">
         <error line="22" column="24" source="standard:class-signature" />
         <error line="22" column="52" source="standard:class-signature" />
         <error line="23" column="1" source="standard:no-empty-first-line-in-class-body" />
@@ -857,12 +857,12 @@
         <error line="97" column="38" source="standard:function-signature" />
         <error line="104" column="9" source="standard:spacing-between-declarations-with-comments" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/notifications/TransferReceiver.kt">
+    <file name="src/main/kotlin/org/andromeda/link/notifications/TransferReceiver.kt">
         <error line="14" column="28" source="standard:function-signature" />
         <error line="14" column="46" source="standard:function-signature" />
         <error line="14" column="60" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/onboarding/OnboardingScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/onboarding/OnboardingScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="56" column="1" source="standard:no-unused-imports" />
         <error line="74" column="25" source="standard:class-signature" />
@@ -926,7 +926,7 @@
         <error line="227" column="48" source="standard:function-signature" />
         <error line="227" column="78" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/onboarding/OnboardingViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/onboarding/OnboardingViewModel.kt">
         <error line="30" column="28" source="standard:class-signature" />
         <error line="30" column="64" source="standard:class-signature" />
         <error line="42" column="45" source="standard:multiline-expression-wrapping" />
@@ -944,7 +944,7 @@
         <error line="102" column="43" source="standard:function-signature" />
         <error line="106" column="32" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/pairing/PairingScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/pairing/PairingScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="65" column="5" source="standard:function-naming" />
         <error line="65" column="5" source="compose:modifier-missing-check" />
@@ -1014,14 +1014,14 @@
         <error line="186" column="48" source="standard:chain-method-continuation" />
         <error line="186" column="67" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/pairing/PairingViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/pairing/PairingViewModel.kt">
         <error line="30" column="24" source="standard:class-signature" />
         <error line="30" column="62" source="standard:class-signature" />
         <error line="47" column="37" source="standard:multiline-expression-wrapping" />
         <error line="47" column="37" source="standard:function-signature" />
         <error line="66" column="17" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/pairing/QrScanner.kt">
+    <file name="src/main/kotlin/org/andromeda/link/pairing/QrScanner.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="37" column="5" source="standard:function-naming" />
         <error line="37" column="15" source="standard:function-signature" />
@@ -1037,7 +1037,7 @@
         <error line="45" column="7" source="standard:function-literal" />
         <error line="75" column="41" source="standard:multiline-loop" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/presence/BluetoothBonding.kt">
+    <file name="src/main/kotlin/org/andromeda/link/presence/BluetoothBonding.kt">
         <error line="59" column="24" source="standard:function-signature" />
         <error line="59" column="43" source="standard:function-signature" />
         <error line="59" column="58" source="standard:function-signature" />
@@ -1050,15 +1050,15 @@
         <error line="95" column="53" source="standard:function-signature" />
         <error line="104" column="9" source="standard:spacing-between-declarations-with-comments" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/presence/BootReceiver.kt">
+    <file name="src/main/kotlin/org/andromeda/link/presence/BootReceiver.kt">
         <error line="10" column="28" source="standard:function-signature" />
         <error line="10" column="46" source="standard:function-signature" />
         <error line="10" column="60" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/presence/Presence.kt">
+    <file name="src/main/kotlin/org/andromeda/link/presence/Presence.kt">
         <error line="40" column="59" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/presence/PresenceService.kt">
+    <file name="src/main/kotlin/org/andromeda/link/presence/PresenceService.kt">
         <error line="22" column="33" source="standard:function-signature" />
         <error line="22" column="50" source="standard:function-signature" />
         <error line="22" column="62" source="standard:function-signature" />
@@ -1067,7 +1067,7 @@
         <error line="29" column="28" source="standard:multiline-expression-wrapping" />
         <error line="29" column="46" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/presence/StatusReporter.kt">
+    <file name="src/main/kotlin/org/andromeda/link/presence/StatusReporter.kt">
         <error line="27" column="22" source="standard:class-signature" />
         <error line="27" column="52" source="standard:class-signature" />
         <error line="27" column="92" source="standard:class-signature" />
@@ -1090,7 +1090,7 @@
         <error line="76" column="69" source="standard:multiline-expression-wrapping" />
         <error line="76" column="69" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ring/Ringer.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ring/Ringer.kt">
         <error line="34" column="14" source="standard:class-signature" />
         <error line="34" column="44" source="standard:class-signature" />
         <error line="34" column="84" source="standard:class-signature" />
@@ -1105,11 +1105,11 @@
         <error line="143" column="46" source="standard:function-signature" />
         <error line="143" column="60" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/screen/CaptureConsentActivity.kt">
+    <file name="src/main/kotlin/org/andromeda/link/screen/CaptureConsentActivity.kt">
         <error line="22" column="27" source="standard:multiline-expression-wrapping" />
         <error line="46" column="22" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/screen/MirrorAudio.kt">
+    <file name="src/main/kotlin/org/andromeda/link/screen/MirrorAudio.kt">
         <error line="22" column="19" source="standard:class-signature" />
         <error line="22" column="49" source="standard:class-signature" />
         <error line="22" column="88" source="standard:class-signature" />
@@ -1125,7 +1125,7 @@
         <error line="85" column="92" source="standard:function-signature" />
         <error line="114" column="9" source="standard:spacing-between-declarations-with-comments" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/screen/MirrorRate.kt">
+    <file name="src/main/kotlin/org/andromeda/link/screen/MirrorRate.kt">
         <error line="8" column="18" source="standard:class-signature" />
         <error line="8" column="40" source="standard:class-signature" />
         <error line="8" column="60" source="standard:class-signature" />
@@ -1135,7 +1135,7 @@
         <error line="26" column="57" source="standard:function-signature" />
         <error line="42" column="20" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/screen/ScreenCapture.kt">
+    <file name="src/main/kotlin/org/andromeda/link/screen/ScreenCapture.kt">
         <error line="56" column="33" source="standard:function-signature" />
         <error line="56" column="50" source="standard:function-signature" />
         <error line="56" column="62" source="standard:function-signature" />
@@ -1188,7 +1188,7 @@
         <error line="269" column="36" source="standard:function-signature" />
         <error line="269" column="51" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/screen/ScreenInput.kt">
+    <file name="src/main/kotlin/org/andromeda/link/screen/ScreenInput.kt">
         <error line="40" column="9" source="standard:blank-line-before-declaration" />
         <error line="40" column="16" source="standard:function-signature" />
         <error line="40" column="29" source="standard:function-signature" />
@@ -1207,7 +1207,7 @@
         <error line="70" column="45" source="standard:function-signature" />
         <error line="87" column="25" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/screen/ScreenMirror.kt">
+    <file name="src/main/kotlin/org/andromeda/link/screen/ScreenMirror.kt">
         <error line="52" column="45" source="standard:chain-method-continuation" />
         <error line="52" column="80" source="standard:chain-method-continuation" />
         <error line="53" column="21" source="standard:multiline-expression-wrapping" />
@@ -1222,7 +1222,7 @@
         <error line="90" column="64" source="standard:function-signature" />
         <error line="99" column="9" source="standard:spacing-between-declarations-with-comments" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/share/ShareActivity.kt">
+    <file name="src/main/kotlin/org/andromeda/link/share/ShareActivity.kt">
         <error line="66" column="16" source="standard:multiline-expression-wrapping" />
         <error line="78" column="13" source="standard:function-naming" />
         <error line="78" column="25" source="standard:function-signature" />
@@ -1238,7 +1238,7 @@
         <error line="104" column="84" source="standard:chain-method-continuation" />
         <error line="123" column="13" source="standard:function-naming" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/share/ShareViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/share/ShareViewModel.kt">
         <error line="21" column="5" source="standard:blank-line-before-declaration" />
         <error line="21" column="23" source="standard:class-signature" />
         <error line="21" column="50" source="standard:class-signature" />
@@ -1264,7 +1264,7 @@
         <error line="61" column="26" source="standard:multiline-expression-wrapping" />
         <error line="68" column="27" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/transfer/ActivityScreen.kt">
+    <file name="src/main/kotlin/org/andromeda/link/transfer/ActivityScreen.kt">
         <error line="66" column="5" source="standard:function-naming" />
         <error line="66" column="5" source="compose:modifier-missing-check" />
         <error line="82" column="17" source="standard:multiline-expression-wrapping" />
@@ -1327,7 +1327,7 @@
         <error line="287" column="37" source="standard:multiline-expression-wrapping" />
         <error line="287" column="37" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/transfer/ActivityViewModel.kt">
+    <file name="src/main/kotlin/org/andromeda/link/transfer/ActivityViewModel.kt">
         <error line="15" column="23" source="standard:class-signature" />
         <error line="15" column="47" source="standard:class-signature" />
         <error line="16" column="5" source="standard:blank-line-before-declaration" />
@@ -1342,7 +1342,7 @@
         <error line="31" column="33" source="standard:function-signature" />
         <error line="31" column="69" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/transfer/FileAccess.kt">
+    <file name="src/main/kotlin/org/andromeda/link/transfer/FileAccess.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="27" column="16" source="standard:function-signature" />
         <error line="27" column="34" source="standard:function-signature" />
@@ -1361,7 +1361,7 @@
         <error line="54" column="17" source="standard:multiline-expression-wrapping" />
         <error line="58" column="30" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/transfer/OfferActivity.kt">
+    <file name="src/main/kotlin/org/andromeda/link/transfer/OfferActivity.kt">
         <error line="53" column="29" source="standard:chain-method-continuation" />
         <error line="53" column="43" source="standard:chain-method-continuation" />
         <error line="59" column="33" source="standard:chain-method-continuation" />
@@ -1369,7 +1369,7 @@
         <error line="59" column="72" source="standard:chain-method-continuation" />
         <error line="59" column="91" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/transfer/TransferService.kt">
+    <file name="src/main/kotlin/org/andromeda/link/transfer/TransferService.kt">
         <error line="19" column="33" source="standard:function-signature" />
         <error line="19" column="50" source="standard:function-signature" />
         <error line="19" column="62" source="standard:function-signature" />
@@ -1377,11 +1377,11 @@
         <error line="20" column="28" source="standard:multiline-expression-wrapping" />
         <error line="20" column="46" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/FailureText.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/FailureText.kt">
         <error line="7" column="54" source="standard:multiline-expression-wrapping" />
         <error line="7" column="54" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/LinkApp.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/LinkApp.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="57" column="1" source="standard:blank-line-before-declaration" />
         <error line="61" column="5" source="standard:function-naming" />
@@ -1457,7 +1457,7 @@
         <error line="189" column="54" source="standard:statement-wrapping" />
         <error line="189" column="72" source="standard:statement-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/components/Controls.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/components/Controls.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="61" column="5" source="standard:function-naming" />
         <error line="73" column="27" source="standard:multiline-expression-wrapping" />
@@ -1585,7 +1585,7 @@
         <error line="230" column="47" source="standard:function-signature" />
         <error line="230" column="76" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/components/Dashboard.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/components/Dashboard.kt">
         <error line="25" column="5" source="standard:function-naming" />
         <error line="31" column="17" source="standard:chain-method-continuation" />
         <error line="31" column="39" source="standard:chain-method-continuation" />
@@ -1604,7 +1604,7 @@
         <error line="57" column="77" source="standard:function-signature" />
         <error line="60" column="17" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/components/LinkIcons.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/components/LinkIcons.kt">
         <error line="11" column="19" source="standard:property-wrapping" />
         <error line="11" column="26" source="standard:argument-list-wrapping" />
         <error line="11" column="38" source="standard:argument-list-wrapping" />
@@ -1627,7 +1627,7 @@
         <error line="20" column="49" source="standard:function-signature" />
         <error line="20" column="60" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/components/PullRefresh.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/components/PullRefresh.kt">
         <error line="35" column="5" source="standard:function-naming" />
         <error line="35" column="17" source="standard:function-signature" />
         <error line="35" column="38" source="standard:function-signature" />
@@ -1645,7 +1645,7 @@
         <error line="66" column="21" source="standard:chain-method-continuation" />
         <error line="66" column="36" source="standard:chain-method-continuation" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/components/Surfaces.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/components/Surfaces.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="39" column="1" source="standard:no-unused-imports" />
         <error line="42" column="1" source="standard:no-unused-imports" />
@@ -1709,7 +1709,7 @@
         <error line="196" column="141" source="standard:argument-list-wrapping" />
         <error line="196" column="141" source="standard:max-line-length" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/components/Tether.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/components/Tether.kt">
         <error line="3" column="1" source="standard:import-ordering" />
         <error line="41" column="1" source="standard:no-unused-imports" />
         <error line="65" column="18" source="standard:class-signature" />
@@ -1777,7 +1777,7 @@
         <error line="256" column="74" source="standard:function-signature" />
         <error line="256" column="103" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/theme/Appearance.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/theme/Appearance.kt">
         <error line="22" column="24" source="standard:multiline-expression-wrapping" />
         <error line="31" column="17" source="standard:function-signature" />
         <error line="31" column="35" source="standard:function-signature" />
@@ -1787,11 +1787,11 @@
         <error line="43" column="1" source="standard:blank-line-before-declaration" />
         <error line="45" column="1" source="standard:blank-line-before-declaration" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/theme/Colors.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/theme/Colors.kt">
         <error line="43" column="19" source="standard:multiline-expression-wrapping" />
         <error line="69" column="18" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/theme/Indication.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/theme/Indication.kt">
         <error line="1" column="1" source="standard:filename" />
         <error line="22" column="24" source="standard:class-signature" />
         <error line="22" column="61" source="standard:class-signature" />
@@ -1799,7 +1799,7 @@
         <error line="22" column="82" source="standard:class-signature" />
         <error line="28" column="31" source="standard:multiline-expression-wrapping" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/theme/Theme.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/theme/Theme.kt">
         <error line="15" column="13" source="compose:compositionlocal-allowlist" />
         <error line="16" column="13" source="compose:compositionlocal-allowlist" />
         <error line="25" column="5" source="standard:function-naming" />
@@ -1807,7 +1807,7 @@
         <error line="25" column="53" source="standard:function-signature" />
         <error line="25" column="84" source="standard:function-signature" />
     </file>
-    <file name="src/main/kotlin/org/umbriel/link/ui/theme/Type.kt">
+    <file name="src/main/kotlin/org/andromeda/link/ui/theme/Type.kt">
         <error line="13" column="18" source="standard:multiline-expression-wrapping" />
         <error line="45" column="18" source="standard:function-signature" />
         <error line="45" column="29" source="standard:function-signature" />

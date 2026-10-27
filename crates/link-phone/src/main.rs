@@ -1,4 +1,4 @@
-//! `umbriel-link-phone`: a headless phone built on link-core, standing in for the Android app in E2E tests.
+//! `andromeda-link-phone`: a headless phone built on link-core, standing in for the Android app in E2E tests.
 //! Every command prints one JSON object per result on stdout.
 
 mod files;
@@ -41,7 +41,7 @@ struct Cli {
     #[arg(long)]
     downloads: Option<PathBuf>,
     /// Stands in for RFCOMM: when no IP path answers, reach the desktop's Bluetooth side through this Unix socket
-    /// (the daemon's `UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET`).
+    /// (the daemon's `ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET`).
     #[arg(long)]
     bluetooth_socket: Option<PathBuf>,
     /// Stands in for the phone's local-only hotspot: `<ssid>:<passphrase>` is what starting it returns.

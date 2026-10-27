@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "umbriel-link"
+rootProject.name = "andromeda-link"
 include(":app", ":core", ":fixture")

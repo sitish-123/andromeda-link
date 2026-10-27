@@ -1,5 +1,5 @@
 # The desktop reported ringing, so the button reads "Stop ringing"; tapping it stops the desktop.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - extendedWaitUntil:
     visible: "Stop ringing"

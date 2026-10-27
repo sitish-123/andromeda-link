@@ -1,4 +1,4 @@
-//! `umbriel-quickshare`: receive from or send to Quick Share devices on this network, one JSON object per line.
+//! `andromeda-quickshare`: receive from or send to Quick Share devices on this network, one JSON object per line.
 
 use std::io::BufRead as _;
 use std::net::SocketAddr;
@@ -16,7 +16,7 @@ use tokio::net::TcpListener;
 
 #[derive(Parser)]
 struct Cli {
-    #[arg(long, default_value = "Umbriel")]
+    #[arg(long, default_value = "Andromeda")]
     name: String,
     #[command(subcommand)]
     command: Command,

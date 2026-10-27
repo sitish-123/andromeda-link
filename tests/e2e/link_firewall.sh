@@ -65,16 +65,16 @@ RFCOMM=$RUNTIME/rfcomm.sock
 DOWNLOADS=$RUNTIME/downloads
 PHONE_DL=$RUNTIME/phone-downloads
 mkdir -p "$DOWNLOADS" "$PHONE_DL" "$RUNTIME/src"
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 Devices; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
 connected() { devices | grep -q "'phone', true"; }
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS UMBRIEL_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
-  RUST_LOG=info "$BIN/umbriel-linkd" >> "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET=$RFCOMM \
+  RUST_LOG=info "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "umbriel-linkd did not come up"
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
+link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 phone() {
-  in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
+  in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone --downloads "$PHONE_DL" \
     --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" "$@"
 }
 events() { grep -c "\"event\":\"$1\"" "$OUT/hold.jsonl" || true; }
@@ -109,7 +109,7 @@ record "{\"step\":\"firewall-drops-the-dial\",\"dropped_packets\":$(dropped)}"
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
 START=$(date +%s)
-RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
+RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone \
   --downloads "$PHONE_DL" --transcript "$OUT/transcript.jsonl" --bluetooth-socket "$RFCOMM" \
   hold --on-offer accept < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" 2> "$OUT/hold.log" &
 wait_for 30 "the held phone never connected over Bluetooth" eval '[[ $(events connected) -ge 1 ]]'
@@ -132,7 +132,7 @@ wait_for 30 "the phone's file never reached the desktop" test -f "$DOWNLOADS/up.
 record '{"step":"shares-and-files-over-quic","bytes":4194304,"sha256_match":true}'
 
 nft list ruleset > "$OUT/nft.txt"
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 # 6570756e6368: the CBOR text "punch".
 grep -q 6570756e6368 "$OUT/transcript.jsonl" || fail "no punch in the transcript"

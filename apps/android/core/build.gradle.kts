@@ -9,7 +9,7 @@ val bindings = layout.buildDirectory.dir("generated/uniffi")
 val abis = listOf("arm64-v8a", "x86_64")
 
 android {
-    namespace = "org.umbriel.link.core"
+    namespace = "org.andromeda.link.core"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
     defaultConfig {

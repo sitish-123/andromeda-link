@@ -1,6 +1,6 @@
 # Screenshots of every screen of a paired phone, in ${THEME}: Home, Activity, Settings, the picker's three tabs, the desktop's page, the
 # app filter, Media with the desktop's test player, and each page of the permission onboarding.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false

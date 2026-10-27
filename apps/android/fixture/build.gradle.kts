@@ -7,10 +7,10 @@ plugins {
 }
 
 android {
-    namespace = "org.umbriel.link.fixture"
+    namespace = "org.andromeda.link.fixture"
     compileSdk = 36
     defaultConfig {
-        applicationId = "org.umbriel.link.fixture"
+        applicationId = "org.andromeda.link.fixture"
         minSdk = 29
         targetSdk = 36
         versionCode = 1

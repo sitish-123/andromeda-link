@@ -56,23 +56,23 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 
-link() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m "org.umbriel.Link1.$1" "${@:2}"; }
-prop() { gdbus call --session -d org.umbriel.Link1 -o /org/umbriel/Link1 -m org.freedesktop.DBus.Properties.Get org.umbriel.Link1 "$1"; }
+link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
 devices() { prop Devices; }
 connected() { devices | grep -q "'phone', true"; }
 disconnected() { devices | grep -q "'phone', false"; }
-phone() { in_phone "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone --transcript "$OUT/transcript.jsonl" "$@"; }
+phone() { in_phone "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone --transcript "$OUT/transcript.jsonl" "$@"; }
 say() { printf '%s\n' "$*" >&3; }
 signals() { grep -c "member=$1" "$OUT/signals.txt" || true; }
 dropped() { grep -c "dropping a $1 over its rate limit" "$OUT/linkd.log" || true; }
 
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/umbriel-linkd" > "$OUT/linkd.log" 2>&1 &
+XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/umbriel-link/devices.json")
+PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
 phone pair --code "$CODE" --addr "10.78.0.1:$PORT" > /dev/null || fail "pairing"
 ID=$(devices | grep -o "'[0-9a-f]\{32\}', 'phone'" | cut -d"'" -f2)
-dbus-monitor --session "type='signal',interface='org.umbriel.Link1'" > "$OUT/signals.txt" 2>&1 &
+dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
 
@@ -90,8 +90,8 @@ texts() {
 import json, sys
 from gi.repository import Gio
 bus = Gio.bus_get_sync(Gio.BusType.SESSION)
-value = bus.call_sync("org.umbriel.Link1", "/org/umbriel/Link1", "org.freedesktop.DBus.Properties", "Get",
-                      __import__("gi.repository.GLib", fromlist=["GLib"]).Variant("(ss)", ("org.umbriel.Link1", "Texts")),
+value = bus.call_sync("org.andromeda.Link1", "/org/andromeda/Link1", "org.freedesktop.DBus.Properties", "Get",
+                      __import__("gi.repository.GLib", fromlist=["GLib"]).Variant("(ss)", ("org.andromeda.Link1", "Texts")),
                       None, Gio.DBusCallFlags.NONE, 5000, None).unpack()[0]
 print(json.dumps(value.get(sys.argv[1], [])))
 PY
@@ -112,7 +112,7 @@ import sys
 from gi.repository import Gio, GLib
 bus = Gio.bus_get_sync(Gio.BusType.SESSION)
 try:
-    bus.call_sync("org.umbriel.Link1", "/org/umbriel/Link1", "org.umbriel.Link1", "SendText",
+    bus.call_sync("org.andromeda.Link1", "/org/andromeda/Link1", "org.andromeda.Link1", "SendText",
                   GLib.Variant("(sss)", tuple(sys.argv[1:4])), None, Gio.DBusCallFlags.NONE, 90000, None)
     print("sent")
 except GLib.Error as error:
@@ -123,7 +123,7 @@ PY
 mkfifo "$RUNTIME/phone.in"
 hold() {
   exec 3<> "$RUNTIME/phone.in"
-  nsenter -t "$PHONE_NS" -n -- "$BIN/umbriel-link-phone" --state "$RUNTIME/phone" --name phone \
+  nsenter -t "$PHONE_NS" -n -- "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone \
     --transcript "$OUT/transcript.jsonl" --texts "$RUNTIME/texts.json" hold < "$RUNTIME/phone.in" >> "$OUT/hold.jsonl" \
     2>> "$OUT/hold.log" &
   HOLD=$!
@@ -186,7 +186,7 @@ link Unpair "$ID" > /dev/null
 wait_for 5 "texts outlived Unpair: $(texts | head -c 200)" eval '[[ $(texts) == "[]" ]]'
 record '{"step":"forgotten-on-unpair"}'
 
-CHECK=$("$BIN/umbriel-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
+CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"
 record "$(echo "$CHECK" | sed 's/^{/{"step":"transcript-schema",/')"
 cat "$OUT/results.jsonl"

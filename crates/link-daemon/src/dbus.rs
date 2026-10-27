@@ -1,4 +1,4 @@
-//! `org.umbriel.Link1` on the session bus; contract in `api/org.umbriel.Link1.xml`.
+//! `org.andromeda.Link1` on the session bus; contract in `api/org.andromeda.Link1.xml`.
 #![expect(clippy::too_many_arguments, reason = "the NotificationPosted signal's arguments are the D-Bus contract")]
 
 use std::collections::HashMap;
@@ -23,8 +23,8 @@ use crate::browse;
 use crate::hub::{Event, HubHandle, Signal, Snapshot};
 use crate::messages::SendFailure;
 
-pub const PATH: &str = "/org/umbriel/Link1";
-const NAME: &str = "org.umbriel.Link1";
+pub const PATH: &str = "/org/andromeda/Link1";
+const NAME: &str = "org.andromeda.Link1";
 /// The shell passes descriptors, not types; the receiver's platform types files by name.
 const OCTET_STREAM: &str = "application/octet-stream";
 
@@ -35,7 +35,7 @@ struct Link {
 }
 
 #[derive(Debug, zbus::DBusError)]
-#[zbus(prefix = "org.umbriel.Link1.Error")]
+#[zbus(prefix = "org.andromeda.Link1.Error")]
 enum LinkError {
     #[zbus(error)]
     ZBus(zbus::Error),
@@ -49,7 +49,7 @@ enum LinkError {
 /// How long the pairing agent's question waits for the phone's report of the same code.
 const BT_REPORT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
-#[zbus::interface(name = "org.umbriel.Link1")]
+#[zbus::interface(name = "org.andromeda.Link1")]
 impl Link {
     async fn start_pairing(&self) -> fdo::Result<(String, String)> {
         self.hub.start_pairing().await.map_err(|error| fdo::Error::Failed(error.to_string()))

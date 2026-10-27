@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "umbriel-linkd"
+name = "andromeda-linkd"
 path = "src/main.rs"
 
 [dependencies]

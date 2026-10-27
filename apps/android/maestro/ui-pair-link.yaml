@@ -1,5 +1,5 @@
 # The pairing link is open: screenshots of its confirmation and of the attempt's working orb, in ${THEME}, then pairs.
-appId: org.umbriel.link
+appId: org.andromeda.link
 ---
 - extendedWaitUntil:
     visible: "Pair with this desktop\\?"

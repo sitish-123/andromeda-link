@@ -15,7 +15,7 @@ anyhow.workspace = true
 env_logger.workspace = true
 fuser.workspace = true
 log.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 zbus.workspace = true
 
 [lints]

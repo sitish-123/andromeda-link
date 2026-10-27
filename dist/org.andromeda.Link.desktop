@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Link
+Comment=Your phone on this desk: notifications, calls, files, and clipboard
+Exec=andromeda-link
+Icon=phone-symbolic
+Terminal=false
+Categories=GTK;Utility;
+Keywords=phone;android;notifications;sms;files;
+StartupNotify=true

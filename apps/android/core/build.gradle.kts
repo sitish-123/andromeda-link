@@ -20,6 +20,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    lint {
+        warningsAsErrors = true
+        baseline = file("lint-baseline.xml")
+    }
     sourceSets["main"].jniLibs.srcDir(rustLibs)
     sourceSets["main"].kotlin.srcDir(bindings)
 }
@@ -28,17 +32,21 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Release APKs get the LTO release profile; every other build gets android-dev, which skips LTO.
+val rustProfile = if (gradle.startParameter.taskNames.any { "Release" in it }) "release" else "android-dev"
+
 // link-ffi for every ABI through cargo-ndk.
 val cargoNdk by tasks.registering(Exec::class) {
     workingDir = linkDir
     inputs.dir(linkDir.resolve("crates"))
     inputs.file(linkDir.resolve("Cargo.lock"))
+    inputs.property("rustProfile", rustProfile)
     outputs.dir(rustLibs)
     environment("ANDROID_NDK_HOME", android.ndkDirectory.absolutePath)
     val targets = abis.flatMap { listOf("-t", it) }
     commandLine(
         listOf("cargo", "ndk") + targets +
-            listOf("-P", "29", "-o", rustLibs.get().asFile.absolutePath, "build", "--release", "-p", "link-ffi"),
+            listOf("-P", "29", "-o", rustLibs.get().asFile.absolutePath, "build", "--profile", rustProfile, "-p", "link-ffi"),
     )
 }
 
@@ -66,6 +74,9 @@ val uniffiBindings by tasks.registering(Exec::class) {
 }
 
 tasks.named("preBuild") { dependsOn(uniffiBindings) }
+
+// ktlint skips the generated bindings but sees their directory in the source set.
+tasks.matching { it.name.startsWith("runKtlint") }.configureEach { mustRunAfter(uniffiBindings) }
 
 dependencies {
     api(libs.kotlinx.coroutines.android)

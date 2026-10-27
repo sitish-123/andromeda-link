@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 8.11.1" type="baseline" client="gradle" dependencies="false" name="AGP (8.11.1)" variant="all" version="8.11.1">
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        val bonded = device.bondState == BluetoothDevice.BOND_BONDED"
+        errorLine2="                     ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="61"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.getBondState: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        val bonded = device.bondState == BluetoothDevice.BOND_BONDED"
+        errorLine2="                     ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="61"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        device.fetchUuidsWithSdp()"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="77"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.fetchUuidsWithSdp: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        device.fetchUuidsWithSdp()"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="77"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        if (device.bondState == BluetoothDevice.BOND_BONDED) return true"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="86"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.getBondState: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        if (device.bondState == BluetoothDevice.BOND_BONDED) return true"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="86"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        if (device.bondState == BluetoothDevice.BOND_NONE &amp;&amp; !device.createBond()) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="87"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        if (device.bondState == BluetoothDevice.BOND_NONE &amp;&amp; !device.createBond()) {"
+        errorLine2="                                                              ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="87"
+            column="63"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.createBond: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        if (device.bondState == BluetoothDevice.BOND_NONE &amp;&amp; !device.createBond()) {"
+        errorLine2="                                                              ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="87"
+            column="63"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.getBondState: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        if (device.bondState == BluetoothDevice.BOND_NONE &amp;&amp; !device.createBond()) {"
+        errorLine2="            ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="87"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        while (device.bondState == BluetoothDevice.BOND_BONDING &amp;&amp; SystemClock.elapsedRealtime() &lt; deadline) {"
+        errorLine2="               ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="92"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.getBondState: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        while (device.bondState == BluetoothDevice.BOND_BONDING &amp;&amp; SystemClock.elapsedRealtime() &lt; deadline) {"
+        errorLine2="               ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="92"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        Log.i(TAG, &quot;pairing with ${device.address}: ${if (device.bondState == BluetoothDevice.BOND_BONDED) &quot;paired&quot; else &quot;not paired&quot;}&quot;)"
+        errorLine2="                                                          ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="95"
+            column="59"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.getBondState: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        Log.i(TAG, &quot;pairing with ${device.address}: ${if (device.bondState == BluetoothDevice.BOND_BONDED) &quot;paired&quot; else &quot;not paired&quot;}&quot;)"
+        errorLine2="                                                          ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="95"
+            column="59"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        return device.bondState == BluetoothDevice.BOND_BONDED"
+        errorLine2="               ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="96"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothDevice.getBondState: android.permission.BLUETOOTH_CONNECT"
+        errorLine1="        return device.bondState == BluetoothDevice.BOND_BONDED"
+        errorLine2="               ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/RfcommLink.kt"
+            line="96"
+            column="16"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `java.lang.ref.Cleaner#create`"
+        errorLine1="    val cleaner = java.lang.ref.Cleaner.create()"
+        errorLine2="                                        ~~~~~~">
+        <location
+            file="build/generated/uniffi/org/umbriel/link/ffi/link_ffi.kt"
+            line="1772"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `java.lang.ref.Cleaner#register`"
+        errorLine1="        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))"
+        errorLine2="                                     ~~~~~~~~">
+        <location
+            file="build/generated/uniffi/org/umbriel/link/ffi/link_ffi.kt"
+            line="1775"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 33 (current min is 29): `java.lang.ref.Cleaner.Cleanable#clean`"
+        errorLine1="    override fun clean() = cleanable.clean()"
+        errorLine2="                                     ~~~~~">
+        <location
+            file="build/generated/uniffi/org/umbriel/link/ffi/link_ffi.kt"
+            line="1781"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="ObsoleteSdkInt"
+        message="Unnecessary; `SDK_INT` is never &lt; 29"
+        errorLine1="        if (Build.VERSION.SDK_INT &lt; Build.VERSION_CODES.Q) return null"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/kotlin/org/umbriel/link/core/data/WifiDirectGroup.kt"
+            line="31"
+            column="13"/>
+    </issue>
+
+</issues>

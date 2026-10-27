@@ -61,3 +61,10 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Debug APKs: optimized, but without LTO, so rebuilding link-ffi for two ABIs does not redo whole-program LTO.
+[profile.android-dev]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

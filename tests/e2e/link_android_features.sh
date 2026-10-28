@@ -92,6 +92,9 @@ adb shell cmd statusbar collapse
 adb shell input keyevent KEYCODE_HOME
 adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
 adb install "$APK" > /dev/null || fail "installing $APK"
+# As link_android_ui.sh: the scanner gets the camera, and no READ_LOGS kept from an earlier run asks to read logs.
+adb shell pm grant "$PACKAGE" android.permission.CAMERA
+adb shell pm revoke "$PACKAGE" android.permission.READ_LOGS
 adb shell cmd notification allow_listener "$PACKAGE/$PACKAGE.notifications.MirrorService"
 record '{"step":"installed","notification_access":true}'
 

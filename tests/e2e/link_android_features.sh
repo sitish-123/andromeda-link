@@ -175,6 +175,21 @@ wait_for 10 "the desktop session is not paused: $(session | grep state=)" eval '
 session | grep -E "state=|description=" | head -2 > "$OUT/desktop-session.txt"
 record '{"step":"desktop-media-session","session":"link-desktop","state":"paused"}'
 
+# The system media card in the shade drives the same session: its Play reaches the desktop player.
+adb shell cmd statusbar expand-notifications
+maestro "$FLOWS/media-card.yaml"
+wait_for 10 "the media card's Play did not reach the desktop player: $(tr "\n" " " < "$OUT/player-calls.txt")" \
+  grep -qx Play "$OUT/player-calls.txt"
+adb shell cmd statusbar collapse
+# The emulator has no lock screen until the swipe lock is on.
+adb shell locksettings set-disabled false > /dev/null
+adb shell input keyevent KEYCODE_SLEEP
+adb shell input keyevent KEYCODE_WAKEUP
+sleep 2 # real time: the lock screen draws its media card
+adb exec-out screencap -p > "$OUT/5-lock-screen-media.png"
+adb shell wm dismiss-keyguard
+record '{"step":"media-card","card":"Play reached the desktop player","lock_screen":"5-lock-screen-media.png"}'
+
 
 alarm_volume() { adb shell cmd media_session volume --stream 4 --get 2> /dev/null | sed -n 's/.*volume is \([0-9]*\).*/\1/p' | tr -d '\r'; }
 zen() { adb shell settings get global zen_mode | tr -d '\r'; }

@@ -1,0 +1,10 @@
+# On the system media card of the desktop's player (the shade is already open): Play.
+appId: com.android.systemui
+---
+- extendedWaitUntil:
+    visible: "Desk Session"
+    timeout: 10000
+- takeScreenshot: ${OUT}/4-media-card
+- tapOn:
+    text: "Play"
+    rightOf: "Desk Session"

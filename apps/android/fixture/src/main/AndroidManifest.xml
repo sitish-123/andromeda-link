@@ -29,5 +29,8 @@
         <receiver
             android:name=".ReplyReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".PostReceiver"
+            android:exported="true" />
     </application>
 </manifest>

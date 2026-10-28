@@ -11,8 +11,8 @@ use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
     CAN_VOLUME, CAPABILITIES, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE, FS_STAT, Hello, Hotspot,
-    HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message, NotificationPosted, Ping, RemoteInput, SYSTEM, Share,
-    Status, SystemCommand, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
+    HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull, Ping, RemoteInput,
+    SYSTEM, Share, Status, SystemCommand, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -34,7 +34,7 @@ use crate::desktop_media::{DesktopMediaHandle, Request};
 use crate::hotspot;
 use crate::localsend::LocalSendHandle;
 use crate::media::Media;
-use crate::notifications::{Change, Mirror};
+use crate::notifications::Mirror;
 use crate::paths::Paths;
 
 const WINDOW: Duration = Duration::from_secs(120);
@@ -62,6 +62,10 @@ pub struct Snapshot {
     pub grants: Vec<(String, Vec<String>)>,
     /// Connected device id to `(battery, charging, network, signal)`, the D-Bus `DeviceStatus` property.
     pub status: Vec<(String, (u32, bool, String, i32))>,
+    /// Connected devices whose notification access is off, the D-Bus `NotificationsOff` property.
+    pub notifications_off: Vec<String>,
+    /// The D-Bus `NotificationsWhileLocked` property.
+    pub notify_locked: bool,
     /// "Visible to LocalSend", the D-Bus `LocalSendVisible` property.
     pub localsend: bool,
     /// Device id to its contacts as `(name, numbers)`, the D-Bus `Contacts` property.
@@ -98,6 +102,8 @@ pub enum Event {
     NotificationPosted {
         id: DeviceId,
         posted: NotificationPosted,
+        /// Whether the desktop sounds and pops it up, or only replaces the shown one.
+        alert: bool,
     },
     NotificationRemoved {
         id: DeviceId,
@@ -185,6 +191,7 @@ enum Command {
     Decide { id: TransferId, accept: bool, reply: oneshot::Sender<bool> },
     CancelTransfer { id: TransferId, reply: oneshot::Sender<bool> },
     SetLocalSend { visible: bool },
+    SetNotifyLocked { on: bool },
     ClipboardPeers { reply: oneshot::Sender<Vec<DeviceId>> },
     DesktopPlayer { player: MediaPlayer },
     DesktopPlayerGone { player: String },
@@ -300,6 +307,7 @@ impl Hub {
         let handle =
             HubHandle { commands: commands_tx, session_events: session_events_tx, transfers: transfers.handle.clone() };
         let media = Media::new(desktop_media, paths.art.clone());
+        let notifications = Mirror::load(paths.notifications.clone());
         let (snapshots, snapshots_rx) = watch::channel(Snapshot::default());
         let (events, events_rx) = mpsc::channel(16);
         let mut hub = Self {
@@ -311,7 +319,7 @@ impl Hub {
             windows_opened: 0,
             sessions: HashMap::new(),
             status: HashMap::new(),
-            notifications: Mirror::default(),
+            notifications,
             media,
             in_call: HashSet::new(),
             me: handle.clone(),
@@ -468,6 +476,11 @@ impl Hub {
                 self.save();
                 self.publish();
                 self.localsend.set_visible(visible).await;
+            }
+            Command::SetNotifyLocked { on } => {
+                self.store.notify_locked = on;
+                self.save();
+                self.publish();
             }
             Command::ClipboardPeers { reply } => {
                 let granted = |id: &DeviceId| self.store.peer(id).is_some_and(|peer| peer.grants.clipboard);
@@ -647,12 +660,17 @@ impl Hub {
     async fn on_message(&mut self, from: DeviceId, message: Message) {
         match message {
             Message::NotificationPosted(posted) => {
-                for change in self.notifications.post(&from, posted) {
-                    let event = match change {
-                        Change::Posted(posted) => Event::NotificationPosted { id: from.clone(), posted },
-                        Change::Removed(notification) => Event::NotificationRemoved { id: from.clone(), notification },
-                    };
-                    self.emit(event).await;
+                if let Some(alert) = self.notifications.post(&from, &posted) {
+                    self.emit(Event::NotificationPosted { id: from, posted, alert }).await;
+                }
+            }
+            Message::NotificationSnapshot(snapshot) => {
+                let (gone, ids) = self.notifications.snapshot(&from, &snapshot.notifications);
+                for notification in gone {
+                    self.emit(Event::NotificationRemoved { id: from.clone(), notification }).await;
+                }
+                if !ids.is_empty() {
+                    self.send_to(&from, Message::NotificationPull(NotificationPull { ids })).await;
                 }
             }
             Message::NotificationRemoved(removed) => {
@@ -1251,6 +1269,9 @@ impl Hub {
             })
             .collect();
         status.sort();
+        let mut notifications_off: Vec<String> =
+            self.status.iter().filter(|(_, status)| status.notifications_off).map(|(id, _)| id.to_string()).collect();
+        notifications_off.sort();
         self.snapshots.send_if_modified(|current| {
             let localsend = self.store.localsend;
             let (contacts, texts) = (self.messages.contacts(), self.messages.texts());
@@ -1264,6 +1285,8 @@ impl Hub {
                 auto_accept,
                 grants,
                 status,
+                notifications_off,
+                notify_locked: self.store.notify_locked,
                 localsend,
                 contacts,
                 texts,
@@ -1448,6 +1471,10 @@ impl HubHandle {
 
     pub async fn set_localsend(&self, visible: bool) {
         self.tell(Command::SetLocalSend { visible }).await;
+    }
+
+    pub async fn set_notify_locked(&self, on: bool) {
+        self.tell(Command::SetNotifyLocked { on }).await;
     }
 
     pub async fn set_auto_accept(&self, id: DeviceId, enabled: bool) -> bool {

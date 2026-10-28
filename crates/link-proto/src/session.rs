@@ -81,6 +81,7 @@ fn receives(role: Role, message: &Message) -> bool {
     match message {
         Message::NotificationPosted(_)
         | Message::NotificationRemoved(_)
+        | Message::NotificationSnapshot(_)
         | Message::Call(_)
         | Message::Hotspot(_)
         | Message::Punch(_)
@@ -100,6 +101,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::SystemCommand(_) => role == Role::Desktop,
         Message::NotificationAction(_)
         | Message::NotificationDismiss(_)
+        | Message::NotificationPull(_)
         | Message::CallAction(_)
         | Message::HotspotRequest
         | Message::HotspotJoined(_)
@@ -233,6 +235,7 @@ mod tests {
             text: "See you at 6".to_owned(),
             icon: Some(vec![0x89; 64]),
             actions: vec![NotificationButton { id: "0".to_owned(), label: "Reply".to_owned(), reply: true }],
+            alert_once: false,
         }
     }
 
@@ -418,7 +421,13 @@ mod tests {
     #[test]
     fn status_is_legal_only_towards_the_desktop_and_within_range() {
         use crate::message::{NetworkKind, Status};
-        let status = Status { battery: 42, charging: true, network: NetworkKind::Cellular, signal: Some(3) };
+        let status = Status {
+            battery: 42,
+            charging: true,
+            network: NetworkKind::Cellular,
+            signal: Some(3),
+            notifications_off: false,
+        };
         let desktop = SessionState::new(Role::Desktop).on_message(envelope(1, Message::Status(status)));
         assert_eq!(desktop, Ok(Inbound::Status(status)));
         let phone = SessionState::new(Role::Phone).on_message(envelope(1, Message::Status(status)));

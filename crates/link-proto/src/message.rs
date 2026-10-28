@@ -43,6 +43,10 @@ pub const FS_STAT: &str = "feature:fs-stat";
 /// A hello carries this when its side takes the contacts and text message types; older peers close a session on them.
 pub const MESSAGES: &str = "feature:messages";
 
+/// A desktop's hello carries this when it takes `notification-snapshot`, `alert_once`, and `status`'s
+/// `notifications_off`, and answers with `notification-pull`; older desktops close a session on them.
+pub const NOTIFICATION_SYNC: &str = "feature:notification-sync";
+
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
     let address = entry.strip_prefix(BLUETOOTH_SCHEME)?;
@@ -156,6 +160,8 @@ pub const MAX_TEXT_LEN: usize = 4096;
 pub const MAX_ICON_LEN: usize = 16 * 1024;
 pub const MAX_ACTIONS: usize = 3;
 pub const MAX_ACTION_LEN: usize = 64;
+/// Notifications in a snapshot or a pull: 200 of the longest ids fit a frame.
+pub const MAX_SNAPSHOT: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,12 +183,38 @@ pub struct NotificationPosted {
     #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_bytes")]
     pub icon: Option<Vec<u8>>,
     pub actions: Vec<NotificationButton>,
+    /// Android's `FLAG_ONLY_ALERT_ONCE`: an update replaces the shown one without a sound or a popup.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub alert_once: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NotificationRemoved {
     pub id: String,
+}
+
+/// Every notification on show on the phone, sent on connect; the desktop removes the ones missing from it and pulls
+/// the new and changed ones.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationSnapshot {
+    pub notifications: Vec<NotificationDigest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationDigest {
+    pub id: String,
+    /// [`NotificationPosted::digest`].
+    pub hash: u64,
+}
+
+/// The desktop asks for these notifications in full, as `notification-posted`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationPull {
+    pub ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,7 +249,34 @@ fn notification_id(id: &str) -> bool {
     sized(id, 1, MAX_NOTIFICATION_ID_LEN)
 }
 
+/// A snapshot's or a pull's ids: at most [`MAX_SNAPSHOT`], each valid.
+fn notification_ids<'a>(ids: impl ExactSizeIterator<Item = &'a String>) -> bool {
+    ids.len() <= MAX_SNAPSHOT && ids.into_iter().all(|id| notification_id(id))
+}
+
 impl NotificationPosted {
+    /// FNV-1a 64 over what the desktop shows, so that both sides compute it alike; `alert_once` is not content.
+    pub fn digest(&self) -> u64 {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |bytes: &[u8]| {
+            for chunk in [&(bytes.len() as u64).to_be_bytes()[..], bytes] {
+                for byte in chunk {
+                    hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
+                }
+            }
+        };
+        for field in [&self.id, &self.app, &self.title, &self.text] {
+            feed(field.as_bytes());
+        }
+        feed(self.icon.as_deref().unwrap_or_default());
+        for action in &self.actions {
+            feed(action.id.as_bytes());
+            feed(action.label.as_bytes());
+            feed(&[u8::from(action.reply)]);
+        }
+        hash
+    }
+
     fn valid(&self) -> bool {
         notification_id(&self.id)
             && sized(&self.app, 1, MAX_APP_LEN)
@@ -912,6 +971,9 @@ pub struct Status {
     /// Cellular signal in bars, 0 to 4; absent without a SIM in service.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<u8>,
+    /// The user turned off the app's notification access; nothing is mirrored until it is on again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub notifications_off: bool,
 }
 
 impl NetworkKind {
@@ -1246,6 +1308,8 @@ pub enum Message {
     ShareAck(ShareAck),
     NotificationPosted(NotificationPosted),
     NotificationRemoved(NotificationRemoved),
+    NotificationSnapshot(NotificationSnapshot),
+    NotificationPull(NotificationPull),
     NotificationAction(NotificationAction),
     NotificationDismiss(NotificationDismiss),
     MediaPlayer(MediaPlayer),
@@ -1317,6 +1381,8 @@ impl Message {
             Self::ShareAck(_) => "share-ack",
             Self::NotificationPosted(_) => "notification-posted",
             Self::NotificationRemoved(_) => "notification-removed",
+            Self::NotificationSnapshot(_) => "notification-snapshot",
+            Self::NotificationPull(_) => "notification-pull",
             Self::NotificationAction(_) => "notification-action",
             Self::NotificationDismiss(_) => "notification-dismiss",
             Self::MediaPlayer(_) => "media-player",
@@ -1391,6 +1457,8 @@ impl Message {
             Self::ShareAck(body) => Value::serialized(body),
             Self::NotificationPosted(body) => Value::serialized(body),
             Self::NotificationRemoved(body) => Value::serialized(body),
+            Self::NotificationSnapshot(body) => Value::serialized(body),
+            Self::NotificationPull(body) => Value::serialized(body),
             Self::NotificationAction(body) => Value::serialized(body),
             Self::NotificationDismiss(body) => Value::serialized(body),
             Self::MediaPlayer(body) => Value::serialized(body),
@@ -1456,6 +1524,8 @@ impl Message {
             "share-ack" => Self::ShareAck(body.deserialized()?),
             "notification-posted" => Self::NotificationPosted(body.deserialized()?),
             "notification-removed" => Self::NotificationRemoved(body.deserialized()?),
+            "notification-snapshot" => Self::NotificationSnapshot(body.deserialized()?),
+            "notification-pull" => Self::NotificationPull(body.deserialized()?),
             "notification-action" => Self::NotificationAction(body.deserialized()?),
             "notification-dismiss" => Self::NotificationDismiss(body.deserialized()?),
             "media-player" => Self::MediaPlayer(body.deserialized()?),
@@ -1565,6 +1635,8 @@ impl Message {
             Self::NotificationPosted(posted) => posted.valid(),
             Self::NotificationRemoved(NotificationRemoved { id })
             | Self::NotificationDismiss(NotificationDismiss { id }) => notification_id(id),
+            Self::NotificationSnapshot(snapshot) => notification_ids(snapshot.notifications.iter().map(|d| &d.id)),
+            Self::NotificationPull(pull) => notification_ids(pull.ids.iter()),
             Self::NotificationAction(action) => action.valid(),
             Self::MediaPlayer(player) => player.valid(),
             Self::MediaGone(gone) => player_id(&gone.player),

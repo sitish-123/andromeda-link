@@ -67,6 +67,7 @@ fn message(kind: Kind, n: u32) -> Message {
             charging: false,
             network: NetworkKind::Wifi,
             signal: None,
+            notifications_off: false,
         }),
     }
 }

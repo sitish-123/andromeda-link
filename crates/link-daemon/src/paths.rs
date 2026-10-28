@@ -11,6 +11,8 @@ pub struct Paths {
     pub downloads: PathBuf,
     /// Artwork of phone players, for their MPRIS `mpris:artUrl`; created on first use.
     pub art: PathBuf,
+    /// Mirrored phone notifications, one file per device; created on first use.
+    pub notifications: PathBuf,
 }
 
 impl Paths {
@@ -32,6 +34,7 @@ impl Paths {
             identity: dir.join("identity.pk8"),
             devices: dir.join("devices.json"),
             art: dir.join("art"),
+            notifications: dir.join("notifications"),
             state: dir,
             downloads,
         })

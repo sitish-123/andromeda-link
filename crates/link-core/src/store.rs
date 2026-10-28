@@ -153,7 +153,9 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         Message::NotificationPosted(_)
         | Message::NotificationRemoved(_)
         | Message::NotificationAction(_)
-        | Message::NotificationDismiss(_) => Some(Feature::Notifications),
+        | Message::NotificationDismiss(_)
+        | Message::NotificationSnapshot(_)
+        | Message::NotificationPull(_) => Some(Feature::Notifications),
         Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_) => Some(Feature::Media),
         Message::Ring(_) | Message::Ringing(_) => Some(Feature::Ring),
         Message::Call(_) | Message::CallAction(_) => Some(Feature::Calls),
@@ -236,6 +238,9 @@ pub struct Store {
     /// "Visible to `LocalSend`": the desktop's `LocalSend` backend listens only while this is on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub localsend: bool,
+    /// "Show phone notifications while the desktop is locked"; off, a locked desktop shows only their count.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub notify_locked: bool,
     /// What a desktop's phones may run; a desktop-side list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<StoredCommand>,

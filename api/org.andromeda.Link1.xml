@@ -149,6 +149,14 @@
          none, or other; signal is cellular bars, 0 to 4, or -1 without service. A device appears once it reported,
          and leaves when it disconnects. -->
     <property name="DeviceStatus" type="a{s(ubsi)}" access="read"/>
+    <!-- Connected device ids whose notification access is off: nothing mirrors until the user turns it on. -->
+    <property name="NotificationsOff" type="as" access="read"/>
+    <!-- "Show phone notifications while the desktop is locked": off by default, when a locked desktop shows only
+         their count. Kept across restarts. -->
+    <method name="SetNotificationsWhileLocked">
+      <arg name="on" type="b" direction="in"/>
+    </method>
+    <property name="NotificationsWhileLocked" type="b" access="read"/>
     <!-- Device id to the features it holds. -->
     <property name="Grants" type="a{sas}" access="read"/>
     <property name="Pairing" type="b" access="read"/>
@@ -216,6 +224,8 @@
       <arg name="text" type="s"/>
       <arg name="icon" type="ay"/>
       <arg name="actions" type="a(ssb)"/>
+      <!-- False for an update that replaces the shown notification without a sound or a popup. -->
+      <arg name="alert" type="b"/>
     </signal>
     <!-- action is "mute" (silence the ringer until the call ends) or "decline" (end the ringing call). Returns once sent.
          Errors: .NotConnected, .Rejected for another action. -->

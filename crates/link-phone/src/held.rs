@@ -39,7 +39,7 @@ impl Held {
     /// `notify <json>` posts or replaces a notification (see [`notification`]); `unnotify <id>` removes it;
     /// `media <json>` plays or updates a player (a `media-player` body, plus `artwork_file`); `media-gone <player>`
     /// stops it; `media-command <json>` commands a desktop player (a `media-command` body); `reconnect` drops the
-    /// session and dials again; `ring <on|off>` rings the desktop or stops it; `ringing <on|off>` reports this phone's
+    /// session and dials again; `present <on|off>` dials, or drops the session and stays away; `ring <on|off>` rings the desktop or stops it; `ringing <on|off>` reports this phone's
     /// own ringing, as stopping it on the phone does; `call <json>` reports a call (a `call` body); `input <json>`
     /// moves the desktop's pointer or types (a `remote-input` body); `run <id>` runs a desktop command; `ping [text]`
     /// pings the desktop.
@@ -49,6 +49,14 @@ impl Held {
             "notify" => self.notify(rest).await,
             "unnotify" => self.unnotify(rest.trim()).await,
             "reconnect" => self.reconnect().await,
+            "present" => {
+                let present = rest.trim() == "on";
+                self.client
+                    .set_present(present)
+                    .await
+                    .map(|()| json!({ "event": "present", "on": present }))
+                    .map_err(Into::into)
+            }
             "media" => self.media(rest).await,
             "media-gone" => self.media_gone(rest.trim()).await,
             "media-command" => self.media_command(rest).await,
@@ -66,10 +74,8 @@ impl Held {
 
     pub async fn on_event(&mut self, event: &ClientEvent) {
         match event {
+            // The client sends the notifications itself.
             ClientEvent::Connected { .. } => {
-                for posted in self.notifications.values() {
-                    self.broadcast(Message::NotificationPosted(posted.clone())).await;
-                }
                 for player in self.players.values() {
                     self.broadcast(Message::MediaPlayer(player.clone())).await;
                 }
@@ -237,7 +243,7 @@ impl Held {
     }
 }
 
-/// `{id, app, title, text, icon_file?, actions: [{id, label, reply}]}`, the icon read from a PNG file.
+/// `{id, app, title, text, icon_file?, actions: [{id, label, reply}], alert_once?}`, the icon read from a PNG file.
 pub fn notification(value: &Value) -> anyhow::Result<NotificationPosted> {
     let text = |key: &str| value[key].as_str().map(str::to_owned).with_context(|| format!("no {key}"));
     let icon = match value["icon_file"].as_str() {
@@ -264,6 +270,7 @@ pub fn notification(value: &Value) -> anyhow::Result<NotificationPosted> {
         text: text("text")?,
         icon,
         actions,
+        alert_once: value["alert_once"].as_bool().unwrap_or(false),
     })
 }
 

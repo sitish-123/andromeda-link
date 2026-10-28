@@ -195,6 +195,22 @@ impl Link {
         self.snapshots.borrow().status.iter().cloned().collect()
     }
 
+    /// Connected devices whose notification access is off: nothing mirrors until the user turns it on.
+    #[zbus(property)]
+    fn notifications_off(&self) -> Vec<String> {
+        self.snapshots.borrow().notifications_off.clone()
+    }
+
+    /// Whether phone notifications show while the desktop is locked; off, only their count shows. Kept.
+    async fn set_notifications_while_locked(&self, on: bool) {
+        self.hub.set_notify_locked(on).await;
+    }
+
+    #[zbus(property)]
+    fn notifications_while_locked(&self) -> bool {
+        self.snapshots.borrow().notify_locked
+    }
+
     /// Turns the LocalSend backend on or off; kept across restarts.
     async fn set_local_send_visible(&self, visible: bool) {
         self.hub.set_localsend(visible).await;
@@ -424,6 +440,7 @@ impl Link {
         text: &str,
         icon: &[u8],
         actions: Vec<(String, String, bool)>,
+        alert: bool,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
@@ -629,7 +646,12 @@ fn wire_name(value: &impl serde::Serialize) -> String {
     }
 }
 
-async fn emit_posted(emitter: &SignalEmitter<'_>, id: &DeviceId, posted: NotificationPosted) -> zbus::Result<()> {
+async fn emit_posted(
+    emitter: &SignalEmitter<'_>,
+    id: &DeviceId,
+    posted: NotificationPosted,
+    alert: bool,
+) -> zbus::Result<()> {
     let actions = posted.actions.into_iter().map(|action| (action.id, action.label, action.reply)).collect();
     let icon = posted.icon.unwrap_or_default();
     Link::notification_posted(
@@ -641,6 +663,7 @@ async fn emit_posted(emitter: &SignalEmitter<'_>, id: &DeviceId, posted: Notific
         &posted.text,
         &icon,
         actions,
+        alert,
     )
     .await
 }
@@ -712,6 +735,12 @@ pub async fn forward(
                 if next.status != last.status {
                     link.get().await.device_status_changed(emitter).await?;
                 }
+                if next.notifications_off != last.notifications_off {
+                    link.get().await.notifications_off_changed(emitter).await?;
+                }
+                if next.notify_locked != last.notify_locked {
+                    link.get().await.notifications_while_locked_changed(emitter).await?;
+                }
                 if next.localsend != last.localsend {
                     link.get().await.local_send_visible_changed(emitter).await?;
                 }
@@ -743,7 +772,7 @@ pub async fn forward(
                 Event::ClipboardOffered { from, id, mimes, size } => {
                     Link::clipboard_offered(emitter, from.as_str(), id, mimes, size).await?;
                 }
-                Event::NotificationPosted { id, posted } => emit_posted(emitter, &id, posted).await?,
+                Event::NotificationPosted { id, posted, alert } => emit_posted(emitter, &id, posted, alert).await?,
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
                 Event::Hotspot { id, ssid } => Link::hotspot(emitter, id.as_str(), &ssid.unwrap_or_default()).await?,

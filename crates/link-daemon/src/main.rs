@@ -40,7 +40,7 @@ async fn run() -> anyhow::Result<()> {
     let paths = paths::Paths::create()?;
     let identity = Identity::load_or_create(&paths.identity).context("loading the device key")?;
     let mut store = Store::load(&paths.devices).context("loading the device store")?;
-    let (endpoint, puncher) = bind(&identity)?;
+    let (endpoint, puncher) = bind(&identity, store.port)?;
     let port = endpoint.local_addr()?.port();
     if store.port != port {
         store.port = port;
@@ -93,12 +93,17 @@ const DEFAULT_PORT: u16 = 4717;
 
 /// Binds [`DEFAULT_PORT`], the one the firewall opens; a taken port falls back to a random one for this run only, so
 /// the next start returns to the default.
-fn bind(identity: &Identity) -> anyhow::Result<(quinn::Endpoint, Puncher)> {
+/// [`DEFAULT_PORT`], else the port of the last run, where phones dial first, else any.
+fn bind(identity: &Identity, last: u16) -> anyhow::Result<(quinn::Endpoint, Puncher)> {
     let addr = |port| SocketAddr::from((Ipv6Addr::UNSPECIFIED, port));
     transport::punchable_server_endpoint(identity, addr(DEFAULT_PORT))
         .or_else(|error| {
             log::warn!("port {DEFAULT_PORT}: {error}; choosing another");
-            transport::punchable_server_endpoint(identity, addr(0))
+            match last {
+                0 | DEFAULT_PORT => Err(error),
+                last => transport::punchable_server_endpoint(identity, addr(last)),
+            }
         })
+        .or_else(|_| transport::punchable_server_endpoint(identity, addr(0)))
         .context("binding the QUIC endpoint")
 }

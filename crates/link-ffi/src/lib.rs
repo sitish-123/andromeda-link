@@ -117,6 +117,20 @@ pub struct PhoneNotification {
     /// PNG.
     pub icon: Option<Vec<u8>>,
     pub actions: Vec<NotificationButton>,
+    /// Android's `FLAG_ONLY_ALERT_ONCE`.
+    #[uniffi(default = false)]
+    pub alert_once: bool,
+}
+
+impl From<PhoneNotification> for message::NotificationPosted {
+    fn from(notification: PhoneNotification) -> Self {
+        let PhoneNotification { id, app, title, text, icon, actions, alert_once } = notification;
+        let actions = actions
+            .into_iter()
+            .map(|action| message::NotificationButton { id: action.id, label: action.label, reply: action.reply })
+            .collect();
+        Self { id, app, title, text, icon, actions, alert_once }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -847,13 +861,15 @@ impl LinkClient {
 
     /// Mirrors a notification to every connected desktop that takes notifications; returns how many.
     pub async fn post_notification(&self, notification: PhoneNotification) -> Result<u32, LinkError> {
-        let PhoneNotification { id, app, title, text, icon, actions } = notification;
-        let actions = actions
-            .into_iter()
-            .map(|action| message::NotificationButton { id: action.id, label: action.label, reply: action.reply })
-            .collect();
-        let posted = message::NotificationPosted { id, app, title, text, icon, actions };
-        self.broadcast(Message::NotificationPosted(posted)).await
+        self.broadcast(Message::NotificationPosted(notification.into())).await
+    }
+
+    /// Every notification the phone shows, replacing the posts and removals so far: connected desktops, and each
+    /// desktop on connect, get only what changed. Until the first call a connect sends none.
+    pub async fn sync_notifications(&self, notifications: Vec<PhoneNotification>) -> Result<(), LinkError> {
+        let client = self.client.clone();
+        let notifications = notifications.into_iter().map(Into::into).collect();
+        self.run(async move { client.sync_notifications(notifications).await }).await
     }
 
     pub async fn remove_notification(&self, id: String) -> Result<u32, LinkError> {
@@ -982,18 +998,25 @@ impl LinkClient {
     }
 
     /// The phone's battery (percent), network (wifi, cellular, ethernet, none, or other), and cellular signal (0 to 4
-    /// bars, None without service), sent to every desktop on connect and, at most every 10 s, on change.
+    /// bars, None without service), and whether the user turned off notification access, sent to every desktop on
+    /// connect and, at most every 10 s, on change.
     pub async fn set_status(
         &self,
         battery: u8,
         charging: bool,
         network: String,
         signal: Option<u8>,
+        notifications_off: bool,
     ) -> Result<(), LinkError> {
         let network = message::NetworkKind::parse(&network)
             .ok_or_else(|| LinkError::Rejected { reason: format!("unknown network {network}") })?;
-        let status =
-            message::Status { battery: battery.min(100), charging, network, signal: signal.map(|bars| bars.min(4)) };
+        let status = message::Status {
+            battery: battery.min(100),
+            charging,
+            network,
+            signal: signal.map(|bars| bars.min(4)),
+            notifications_off,
+        };
         let client = self.client.clone();
         self.run(async move { client.set_status(status).await }).await
     }

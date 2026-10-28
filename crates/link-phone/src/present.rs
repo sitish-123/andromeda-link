@@ -163,19 +163,21 @@ async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
     Ok(json!({ "event": "sending", "transfer": transfer.to_hex() }))
 }
 
-/// `<battery>,<charging 0|1>,<network>[,<signal bars>]`, as `--status` and a `status` line take it.
+/// `<battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]]`, as `--status` and a `status` line take
+/// it; the signal may be empty.
 pub fn parse_status(text: &str) -> anyhow::Result<Status> {
     let mut parts = text.split(',');
-    let (Some(battery), Some(charging), Some(network), signal, None) =
-        (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
+    let (Some(battery), Some(charging), Some(network), signal, off, None) =
+        (parts.next(), parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
     else {
-        bail!("a status is <battery>,<charging 0|1>,<network>[,<signal bars>]")
+        bail!("a status is <battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]]")
     };
     Ok(Status {
         battery: battery.parse().context("battery is 0 to 100")?,
         charging: charging == "1",
         network: NetworkKind::parse(network).context("network is wifi, cellular, ethernet, none, or other")?,
-        signal: signal.map(str::parse).transpose().context("signal is 0 to 4 bars")?,
+        signal: signal.filter(|bars| !bars.is_empty()).map(str::parse).transpose().context("signal is 0 to 4 bars")?,
+        notifications_off: off == Some("notifications-off"),
     })
 }
 

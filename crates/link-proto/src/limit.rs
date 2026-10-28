@@ -118,6 +118,7 @@ mod tests {
             charging: false,
             network: crate::message::NetworkKind::Wifi,
             signal: None,
+            notifications_off: false,
         });
         assert!(limits.admit(&status, now));
     }

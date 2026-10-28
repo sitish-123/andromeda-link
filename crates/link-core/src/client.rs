@@ -1,15 +1,16 @@
 //! The phone's actor over [`Phone`]: its live sessions, presence with reconnection, file transfers, and the events an
 //! app shows. Shared by the headless phone and the Android bindings.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MESSAGES, Message, MessagesRefusal,
-    MirrorStarted, MirrorStop, NetworkKind, Punch, STATUS_SIGNAL, Share, Status, TransferId, WifiDirect,
+    FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT, MESSAGES, Message,
+    MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind, NotificationDigest, NotificationPosted,
+    NotificationRemoved, NotificationSnapshot, Punch, STATUS_SIGNAL, Share, Status, TransferId, WifiDirect,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -127,6 +128,15 @@ enum Command {
         id: DeviceId,
         reply: oneshot::Sender<Result<(), Error>>,
     },
+    /// A `notification-posted` or `notification-removed`: kept for the snapshot on connect, then broadcast.
+    Notify {
+        message: Message,
+        reply: oneshot::Sender<usize>,
+    },
+    /// Every notification the phone shows, replacing what it held; sent to the connected desktops as on connect.
+    SyncNotifications {
+        notifications: Vec<NotificationPosted>,
+    },
     /// The live sessions of desktops whose switch for `feature` is on.
     Sessions {
         feature: Feature,
@@ -187,6 +197,8 @@ pub struct ClientActor {
     /// Browse and contacts requests being answered, at most [`browse::MAX_IN_FLIGHT`].
     browsing: JoinSet<()>,
     messages: Option<Arc<dyn Messages>>,
+    /// The phone's notifications on show, by id; None until the app first posts, removes, or syncs.
+    notifications: Option<BTreeMap<String, NotificationPosted>>,
 }
 
 struct Ended {
@@ -239,6 +251,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         wifi_direct_started: JoinSet::new(),
         browsing: JoinSet::new(),
         messages: None,
+        notifications: None,
     };
     (Client { commands: commands_tx, transfers }, actor, events_rx)
 }
@@ -378,6 +391,9 @@ impl Client {
     /// dialling; returns how many it was written to.
     pub async fn broadcast(&self, message: Message) -> Result<usize, Error> {
         message.validate()?;
+        if matches!(message, Message::NotificationPosted(_) | Message::NotificationRemoved(_)) {
+            return self.request(|reply| Command::Notify { message, reply }).await;
+        }
         let feature = feature_of(&message).ok_or(Error::Unexpected(message.kind()))?;
         let sessions = self.request(|reply| Command::Sessions { feature, reply }).await?;
         let mut sent = 0;
@@ -388,6 +404,14 @@ impl Client {
             }
         }
         Ok(sent)
+    }
+
+    /// Replaces every notification the phone shows: connected desktops pull what changed and drop what is gone.
+    pub async fn sync_notifications(&self, notifications: Vec<NotificationPosted>) -> Result<(), Error> {
+        for posted in &notifications {
+            Message::NotificationPosted(posted.clone()).validate()?;
+        }
+        self.commands.send(Command::SyncNotifications { notifications }).await.map_err(|_| Error::Stopped)
     }
 
     /// Sends an unacknowledged message to one desktop, connecting first if needed.
@@ -536,6 +560,53 @@ impl ClientActor {
                     .collect();
                 drop(reply.send(sessions));
             }
+            Command::Notify { message, reply } => {
+                let _ = reply.send(self.notify(message).await);
+            }
+            Command::SyncNotifications { notifications } => self.sync_notifications(notifications).await,
+        }
+    }
+
+    /// Keeps a post or removal, then sends it to each desktop that takes notifications; returns how many.
+    async fn notify(&mut self, message: Message) -> usize {
+        let held = self.notifications.get_or_insert_default();
+        match &message {
+            Message::NotificationPosted(posted) => drop(held.insert(posted.id.clone(), posted.clone())),
+            Message::NotificationRemoved(removed) => drop(held.remove(&removed.id)),
+            _ => {}
+        }
+        let desktops: Vec<(SessionHandle, bool)> = self
+            .phone
+            .desktops()
+            .iter()
+            .filter(|peer| peer.grants.allows(Feature::Notifications))
+            .filter_map(|peer| {
+                let handle = self.sessions.get(&peer.id).filter(|handle| handle.is_live())?;
+                Some((handle.clone(), peer.has(NOTIFICATION_SYNC)))
+            })
+            .collect();
+        let mut sent = 0;
+        for (handle, sync) in desktops {
+            match handle.send(for_desktop(message.clone(), sync)).await {
+                Ok(()) => sent += 1,
+                Err(error) => log::info!("broadcasting a {}: {error}", message.kind()),
+            }
+        }
+        sent
+    }
+
+    async fn sync_notifications(&mut self, notifications: Vec<NotificationPosted>) {
+        let held: BTreeMap<_, _> = notifications.into_iter().map(|posted| (posted.id.clone(), posted)).collect();
+        let old = self.notifications.replace(held.clone()).unwrap_or_default();
+        let gone: Vec<String> = old.into_keys().filter(|id| !held.contains_key(id)).collect();
+        let live: Vec<(DeviceId, SessionHandle)> = self
+            .sessions
+            .iter()
+            .filter(|(_, handle)| handle.is_live())
+            .map(|(id, handle)| (id.clone(), handle.clone()))
+            .collect();
+        for (id, handle) in live {
+            self.send_notifications(&id, &handle, &gone).await;
         }
     }
 
@@ -652,8 +723,36 @@ impl ClientActor {
                 log::info!("{id}: sending the status: {error}");
             }
         }
+        self.send_notifications(&id, &handle, &[]).await;
         self.emit(ClientEvent::Connected { desktop, addr, via, resumed }).await;
         handle
+    }
+
+    /// A snapshot to a desktop that syncs, so that it pulls only what it lacks; every notification to an older one.
+    /// Nothing until the app first reports what it shows; an older desktop also hears the removal of `gone`.
+    async fn send_notifications(&self, id: &DeviceId, handle: &SessionHandle, gone: &[String]) {
+        let Some(peer) = self.phone.desktops().iter().find(|peer| peer.id == *id).cloned() else { return };
+        let Some(held) = self.notifications.as_ref().filter(|_| peer.grants.allows(Feature::Notifications)) else {
+            return;
+        };
+        let messages = if peer.has(NOTIFICATION_SYNC) {
+            let notifications = held
+                .values()
+                .take(MAX_SNAPSHOT)
+                .map(|posted| NotificationDigest { id: posted.id.clone(), hash: posted.digest() })
+                .collect();
+            vec![Message::NotificationSnapshot(NotificationSnapshot { notifications })]
+        } else {
+            let removed = gone.iter().map(|id| Message::NotificationRemoved(NotificationRemoved { id: id.clone() }));
+            removed
+                .chain(held.values().map(|posted| for_desktop(Message::NotificationPosted(posted.clone()), false)))
+                .collect()
+        };
+        for message in messages {
+            if let Err(error) = handle.send(message).await {
+                return log::info!("{id}: sending the notifications: {error}");
+            }
+        }
     }
 
     async fn ended(&mut self, ended: Ended) {
@@ -1047,8 +1146,12 @@ impl ClientActor {
 
     /// The status as `id` takes it: without `signal` for a desktop from before it.
     fn status_message(&self, id: &DeviceId, status: Status) -> Message {
-        let takes_signal = self.phone.desktops().iter().any(|peer| peer.id == *id && peer.has(STATUS_SIGNAL));
-        Message::Status(Status { signal: status.signal.filter(|_| takes_signal), ..status })
+        let has = |feature| self.phone.desktops().iter().any(|peer| peer.id == *id && peer.has(feature));
+        Message::Status(Status {
+            signal: status.signal.filter(|_| has(STATUS_SIGNAL)),
+            notifications_off: status.notifications_off && has(NOTIFICATION_SYNC),
+            ..status
+        })
     }
 
     fn is_busy(&self, id: &DeviceId) -> bool {
@@ -1077,6 +1180,15 @@ impl ClientActor {
             self.set_mirroring(from, false);
         }
         match event {
+            SessionEvent::Message { from, message: Message::NotificationPull(pull) } => {
+                let Some(handle) = self.sessions.get(&from).cloned() else { return };
+                let held = self.notifications.as_ref();
+                for posted in pull.ids.iter().filter_map(|id| held.and_then(|held| held.get(id))) {
+                    if let Err(error) = handle.send(Message::NotificationPosted(posted.clone())).await {
+                        return log::info!("{from}: answering a notification pull: {error}");
+                    }
+                }
+            }
             SessionEvent::Message { from, message: Message::HotspotRequest } => self.start_hotspot(from).await,
             SessionEvent::Message {
                 from,
@@ -1173,6 +1285,16 @@ async fn sleep_until(deadline: Option<Instant>) {
 }
 
 /// The phone's addresses its dials leave from, IPv4 first, for the desktop to punch its firewall toward.
+/// Drops `alert_once` for a desktop without [`NOTIFICATION_SYNC`], which closes a session on the field.
+fn for_desktop(message: Message, sync: bool) -> Message {
+    match message {
+        Message::NotificationPosted(posted) if !sync => {
+            Message::NotificationPosted(NotificationPosted { alert_once: false, ..posted })
+        }
+        message => message,
+    }
+}
+
 fn punch(dialer: &Dialer) -> Option<Message> {
     let mut addresses = net::local_addresses(dialer.port()?);
     addresses.sort_by_key(SocketAddr::is_ipv6);

@@ -3,6 +3,7 @@
 
 envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-msg / share-ack-msg /
   notification-posted-msg / notification-removed-msg / notification-action-msg / notification-dismiss-msg /
+  notification-snapshot-msg / notification-pull-msg /
   media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg /
   hotspot-request-msg / hotspot-msg / hotspot-joined-msg / hotspot-end-msg / punch-msg /
   wifi-direct-ready-msg / wifi-direct-msg / bt-pairing-msg /
@@ -102,6 +103,7 @@ status = {
   charging: bool,
   network: "wifi" / "cellular" / "ethernet" / "none" / "other",
   ? signal: uint .le 4,     ; cellular bars; absent without service
+  ? notifications_off: true, ; notification access is off; only to desktops with feature:notification-sync
 }
 ; Phone to desktop. Sizes are bytes of UTF-8; not acknowledged.
 notification-id = tstr .size (1..256)
@@ -113,9 +115,18 @@ notification-posted = {
   "text": tstr .size (0..4096),
   ? icon: bstr .size (1..16384),   ; PNG
   actions: [0*3 notification-button],
+  ? alert_once: true,              ; FLAG_ONLY_ALERT_ONCE; only to desktops with feature:notification-sync
 }
 notification-button = { "id": tstr .size (1..64), label: tstr .size (1..64), reply: bool }
 notification-removed-msg = { type: "notification-removed", id: uint, body: { "id": notification-id } }
+
+; Phone to desktop with feature:notification-sync, on connect: every notification on show. The desktop removes the
+; ones missing and answers with notification-pull for new ones and ones whose hash differs.
+; hash: FNV-1a 64 over the length-prefixed id, app, title, text, icon, then each action's id, label, reply byte.
+notification-snapshot-msg = { type: "notification-snapshot", id: uint, body: notification-snapshot }
+notification-snapshot = { notifications: [0*200 { "id": notification-id, hash: uint }] }
+; Desktop to phone; the phone answers with notification-posted for each id it still shows.
+notification-pull-msg = { type: "notification-pull", id: uint, body: { ids: [0*200 notification-id] } }
 
 ; Desktop to phone. reply_text only for an action whose reply is true.
 notification-action-msg = { type: "notification-action", id: uint, body: notification-action }

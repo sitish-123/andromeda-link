@@ -96,6 +96,7 @@ pub enum Event {
     Grants(HashMap<String, Vec<String>>),
     AutoAccept(Vec<String>),
     LocalSend(bool),
+    NotifyLocked(bool),
     /// A folder on the phone, as `ListFiles` gives it.
     Listed {
         device: String,
@@ -186,6 +187,7 @@ pub enum Command {
         enabled: bool,
     },
     SetLocalSend(bool),
+    SetNotifyLocked(bool),
     Unpair(String),
     List {
         device: String,
@@ -263,6 +265,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     let _ = events.send(Event::Grants(proxy.grants().await?));
     let _ = events.send(Event::AutoAccept(proxy.auto_accept().await?));
     let _ = events.send(Event::LocalSend(proxy.local_send_visible().await?));
+    let _ = events.send(Event::NotifyLocked(proxy.notifications_while_locked().await?));
     send_texts(events, proxy.texts().await?);
     let _ = events.send(Event::Contacts(proxy.contacts().await?));
 
@@ -271,6 +274,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     let mut grants = proxy.receive_grants_changed().await;
     let mut auto_accept = proxy.receive_auto_accept_changed().await;
     let mut localsend = proxy.receive_local_send_visible_changed().await;
+    let mut notify_locked = proxy.receive_notifications_while_locked_changed().await;
     let mut texts = proxy.receive_texts_changed().await;
     let mut contacts = proxy.receive_contacts_changed().await;
     let mut signals = proxy.inner().receive_all_signals().await?;
@@ -281,6 +285,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
             Some(change) = grants.next() => { let _ = events.send(Event::Grants(change.get().await?)); }
             Some(change) = auto_accept.next() => { let _ = events.send(Event::AutoAccept(change.get().await?)); }
             Some(change) = localsend.next() => { let _ = events.send(Event::LocalSend(change.get().await?)); }
+            Some(change) = notify_locked.next() => { let _ = events.send(Event::NotifyLocked(change.get().await?)); }
             Some(change) = texts.next() => send_texts(events, change.get().await?),
             Some(change) = contacts.next() => { let _ = events.send(Event::Contacts(change.get().await?)); }
             Some(message) = signals.next() => {
@@ -540,6 +545,7 @@ async fn execute(proxy: &Link1Proxy<'static>, events: &UnboundedSender<Event>, c
         Command::SetGrant { device, feature, granted } => proxy.set_grant(&device, &feature, granted).await,
         Command::SetAutoAccept { device, enabled } => proxy.set_auto_accept(&device, enabled).await,
         Command::SetLocalSend(visible) => proxy.set_local_send_visible(visible).await,
+        Command::SetNotifyLocked(on) => proxy.set_notifications_while_locked(on).await,
         Command::Unpair(device) => proxy.unpair(&device).await,
         // Phone reads wait on the phone, so they run beside the loop instead of holding the commands behind them.
         Command::List { device, path } => {

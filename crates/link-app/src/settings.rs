@@ -31,6 +31,7 @@ pub struct Settings {
     pub page: adw::PreferencesPage,
     service: adw::ActionRow,
     localsend: adw::SwitchRow,
+    notify_locked: adw::SwitchRow,
     phone: adw::PreferencesGroup,
     grants: Vec<adw::SwitchRow>,
     auto_accept: adw::SwitchRow,
@@ -62,19 +63,27 @@ impl Settings {
         let general = adw::PreferencesGroup::builder().title("This desk").build();
         let service = adw::ActionRow::builder().title("Link service").build();
         general.add(&service);
-        let localsend = adw::SwitchRow::builder()
-            .title("Visible to LocalSend")
-            .subtitle("Receive files from LocalSend apps on this network, with the same consent as Link")
-            .build();
-        localsend.connect_active_notify({
+        let desk_switch = |title: &str, subtitle: &str, command: fn(bool) -> Command| {
+            let row = adw::SwitchRow::builder().title(title).subtitle(subtitle).build();
             let (commands, quiet) = (commands.clone(), quiet.clone());
-            move |row| {
+            row.connect_active_notify(move |row| {
                 if !quiet.get() {
-                    let _ = commands.send(Command::SetLocalSend(row.is_active()));
+                    let _ = commands.send(command(row.is_active()));
                 }
-            }
-        });
-        general.add(&localsend);
+            });
+            general.add(&row);
+            row
+        };
+        let localsend = desk_switch(
+            "Visible to LocalSend",
+            "Receive files from LocalSend apps on this network, with the same consent as Link",
+            Command::SetLocalSend,
+        );
+        let notify_locked = desk_switch(
+            "Show phone notifications while locked",
+            "Off, a locked desk shows only how many arrived",
+            Command::SetNotifyLocked,
+        );
         let pair = seam::button("Pair a phone", false);
         pair.set_valign(Align::Center);
         pair.set_action_name(Some("win.pair"));
@@ -137,7 +146,7 @@ impl Settings {
         let phone_rows = forget.clone();
         phone.bind_property("visible", &phone_rows, "visible").sync_create().build();
 
-        Self { page, service, localsend, phone, grants, auto_accept, quiet, written: RefCell::default() }
+        Self { page, service, localsend, notify_locked, phone, grants, auto_accept, quiet, written: RefCell::default() }
     }
 
     pub fn show(
@@ -147,6 +156,7 @@ impl Settings {
         grants: &HashMap<String, Vec<String>>,
         auto_accept: &[String],
         localsend: bool,
+        notify_locked: bool,
     ) {
         self.quiet.set(true);
         self.service.set_subtitle(if service {
@@ -155,11 +165,12 @@ impl Settings {
             "Not running. Start andromeda-linkd; this window connects as soon as it runs."
         });
         self.localsend.set_sensitive(service);
+        self.notify_locked.set_sensitive(service);
         self.phone.set_visible(service && device.is_some());
         // The switches change only when the service's values do, so a flip waiting for its answer stays put.
         let held = device.and_then(|device| grants.get(&device.id)).map_or(&[][..], Vec::as_slice);
         let auto = device.is_some_and(|device| auto_accept.contains(&device.id));
-        let values = format!("{:?}{held:?}{auto}{localsend}", device.map(|device| &device.id));
+        let values = format!("{:?}{held:?}{auto}{localsend}{notify_locked}", device.map(|device| &device.id));
         if self.written.replace(values.clone()) == values {
             self.quiet.set(false);
             if let Some(device) = device {
@@ -168,6 +179,7 @@ impl Settings {
             return;
         }
         self.localsend.set_active(localsend);
+        self.notify_locked.set_active(notify_locked);
         if let Some(device) = device {
             self.describe(device);
             for (row, (feature, ..)) in self.grants.iter().zip(GRANTS) {

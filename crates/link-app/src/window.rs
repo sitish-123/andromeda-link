@@ -64,6 +64,7 @@ struct Ui {
     grants: HashMap<String, Vec<String>>,
     auto_accept: Vec<String>,
     localsend: bool,
+    notify_locked: bool,
 }
 
 type Shared = Rc<RefCell<Ui>>;
@@ -174,6 +175,7 @@ pub fn present(app: &adw::Application) {
         grants: HashMap::new(),
         auto_accept: Vec::new(),
         localsend: false,
+        notify_locked: false,
     }));
     glib::timeout_add_seconds_local(1, {
         let ui = Rc::downgrade(&ui);
@@ -593,7 +595,7 @@ fn refresh(ui: &Ui) {
     if changed {
         show_texts(ui);
     }
-    ui.views.settings.show(ui.service, device, &ui.grants, &ui.auto_accept, ui.localsend);
+    ui.views.settings.show(ui.service, device, &ui.grants, &ui.auto_accept, ui.localsend, ui.notify_locked);
     ui.views.messages.gate().show(ui.service, device, &ui.grants);
     ui.views.calls.gate.show(ui.service, device, &ui.grants);
     ui.views.screen.gate.show(ui.service, device, &ui.grants);
@@ -673,6 +675,7 @@ fn handle(ui: &Shared, event: Event) {
         Event::Grants(grants) => ui.borrow_mut().grants = grants,
         Event::AutoAccept(devices) => ui.borrow_mut().auto_accept = devices,
         Event::LocalSend(visible) => ui.borrow_mut().localsend = visible,
+        Event::NotifyLocked(on) => ui.borrow_mut().notify_locked = on,
         // Replies for a phone no longer on show are dropped.
         Event::Listed { device, path, entries } => {
             let this = ui.borrow();

@@ -169,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
     let mut system = link.proxy.receive_system_command().await?;
     let mut terminate = signal(SignalKind::terminate())?;
     let mut daemon_owner = link.proxy.inner().receive_owner_changed().await?;
+    let (mut lock_changed, mut show_locked_changed, mut access_off) = notifications.watch(&bus).await?;
     let (mut clipboard, mut input) = backends(&bus).await;
     let mut volume = attempt("WirePlumber volume", volume::Volume::connect().await);
     let capabilities = capabilities(clipboard.is_some(), input.is_some(), volume.is_some());
@@ -251,6 +252,9 @@ async fn main() -> anyhow::Result<()> {
                 (Err(error), _) => log::warn!("watching the volume: {error:#}"),
                 (Ok(()), None) => {}
             },
+            Some(message) = lock_changed.next() => notifications.set_locked(message.body().deserialize().ok(), None).await,
+            Some(change) = show_locked_changed.next() => notifications.set_locked(None, change.get().await.ok()).await,
+            Some(change) = access_off.next() => notifications.set_access_off(change.get().await.unwrap_or_default()).await,
             // A restarted daemon starts with no capabilities and no status.
             Some(Some(_)) = daemon_owner.next() => report(&link, &capabilities, volume.as_ref()).await,
             _ = terminate.recv() => return Ok(()),

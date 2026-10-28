@@ -1,0 +1,15 @@
+[Unit]
+Description=Andromeda Link, phone notifications, clipboard, and input on the desktop
+PartOf=graphical-session.target
+After=graphical-session.target andromeda-linkd.service
+Wants=andromeda-linkd.service
+
+[Service]
+Slice=session.slice
+ExecStart=/usr/bin/andromeda-link-session
+Restart=on-failure
+# It fails at start while the session's notification server is not up yet.
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

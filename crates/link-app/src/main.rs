@@ -1,7 +1,12 @@
 //! `andromeda-link`: the Link window. Home is the seam between the phone and this desk.
 
+mod files;
 mod link;
+mod messages;
+mod screen;
 mod seam;
+mod settings;
+mod view;
 mod window;
 
 use gtk4::{gdk, glib, prelude::*};

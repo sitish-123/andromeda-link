@@ -8,8 +8,13 @@ use gtk4::{self as gtk, Align, Orientation, gdk, gio, glib, prelude::*};
 use libadwaita::{self as adw, prelude::*};
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::files::{Files, Photos};
 use crate::link::{self, Command, Device, Event, Status};
+use crate::messages::Messages;
+use crate::screen::{Calls, Screen};
 use crate::seam::{self, Seam, Side, Ticket};
+use crate::settings::Settings;
+use crate::view::Ctx;
 
 struct Header {
     name: gtk::Label,
@@ -52,9 +57,46 @@ struct Ui {
     pairing: Option<adw::AlertDialog>,
     /// Per device: its player and when that state arrived, to move the seek line between updates.
     players: HashMap<String, (link::Player, std::time::Instant)>,
+    ctx: Ctx,
+    views: Views,
+    texts: HashMap<String, Vec<link::Text>>,
+    contacts: HashMap<String, Vec<(String, Vec<String>)>>,
+    grants: HashMap<String, Vec<String>>,
+    auto_accept: Vec<String>,
+    localsend: bool,
 }
 
 type Shared = Rc<RefCell<Ui>>;
+
+/// The views past Home, in rail order.
+struct Views {
+    messages: Messages,
+    calls: Calls,
+    photos: Photos,
+    files: Files,
+    screen: Screen,
+    settings: Settings,
+}
+
+impl Views {
+    fn new(ctx: &Ctx, stack: &gtk::Stack) -> Self {
+        let views = Self {
+            messages: Messages::new(ctx),
+            calls: Calls::new(ctx),
+            photos: Photos::new(ctx),
+            files: Files::new(ctx),
+            screen: Screen::new(ctx),
+            settings: Settings::new(ctx),
+        };
+        stack.add_named(&views.messages.gate().stack, Some("messages"));
+        stack.add_named(&views.calls.gate.stack, Some("calls"));
+        stack.add_named(&views.photos.gate().stack, Some("photos"));
+        stack.add_named(&views.files.gate().stack, Some("files"));
+        stack.add_named(&views.screen.gate.stack, Some("screen"));
+        stack.add_named(&views.settings.page, Some("settings"));
+        views
+    }
+}
 
 pub fn present(app: &adw::Application) {
     if let Some(window) = app.active_window() {
@@ -97,18 +139,9 @@ pub fn present(app: &adw::Application) {
     let seam = Seam::new();
     let home = home_page(&seam);
     views.add_named(&home.stack, Some("home"));
-    for (name, title) in [
-        ("messages", "Messages"),
-        ("calls", "Calls"),
-        ("photos", "Photos"),
-        ("files", "Files"),
-        ("screen", "Screen"),
-        ("settings", "Settings"),
-    ] {
-        let page = adw::StatusPage::builder().title(title).description("This view is not built yet.").build();
-        views.add_named(&page, Some(name));
-    }
-    root.append(&rail(&views));
+    let ctx = Ctx { commands: commands.clone(), device: Rc::default() };
+    let pages = Views::new(&ctx, &views);
+    root.append(&rail(&window, &views));
     sheet.append(&header.row());
     sheet.append(&views);
     root.append(&sheet);
@@ -134,6 +167,13 @@ pub fn present(app: &adw::Application) {
         calls: HashMap::new(),
         pairing: None,
         players: HashMap::new(),
+        ctx,
+        views: pages,
+        texts: HashMap::new(),
+        contacts: HashMap::new(),
+        grants: HashMap::new(),
+        auto_accept: Vec::new(),
+        localsend: false,
     }));
     glib::timeout_add_seconds_local(1, {
         let ui = Rc::downgrade(&ui);
@@ -263,10 +303,26 @@ fn header() -> Header {
     Header { name, dot, live, battery, fill, percent, charging, bars, bars_box, now: now(), ring }
 }
 
-fn rail(views: &gtk::Stack) -> gtk::Box {
+/// The view rail; `win.view` names the view on show, so tests and other apps can open one.
+fn rail(window: &adw::ApplicationWindow, views: &gtk::Stack) -> gtk::Box {
     let rail = gtk::Box::new(Orientation::Vertical, 2);
     rail.add_css_class("rail");
-    let mut first: Option<gtk::ToggleButton> = None;
+    let view = gio::ActionEntry::builder("view")
+        .parameter_type(Some(glib::VariantTy::STRING))
+        .state("home".to_variant())
+        .change_state({
+            let views = views.clone();
+            move |_: &adw::ApplicationWindow, action, value| {
+                if let Some(page) = value.and_then(glib::Variant::str)
+                    && views.child_by_name(page).is_some()
+                {
+                    views.set_visible_child_name(page);
+                    action.set_state(&page.to_variant());
+                }
+            }
+        })
+        .build();
+    window.add_action_entries([view]);
     let entries = [
         ("home", "Home", "user-home-symbolic"),
         ("messages", "Messages", "chat-message-new-symbolic"),
@@ -288,20 +344,8 @@ fn rail(views: &gtk::Stack) -> gtk::Box {
         content.append(&gtk::Image::from_icon_name(icon));
         content.append(&gtk::Label::new(Some(title)));
         let button = gtk::ToggleButton::builder().child(&content).build();
-        if let Some(first) = &first {
-            button.set_group(Some(first));
-        } else {
-            button.set_active(true);
-            first = Some(button.clone());
-        }
-        button.connect_toggled({
-            let views = views.clone();
-            move |button| {
-                if button.is_active() {
-                    views.set_visible_child_name(page);
-                }
-            }
-        });
+        button.set_action_name(Some("win.view"));
+        button.set_action_target_value(Some(&page.to_variant()));
         rail.append(&button);
     }
     rail
@@ -543,6 +587,32 @@ fn refresh(ui: &Ui) {
         ui.entry.grab_focus();
     }
     ui.compose.set_sensitive(connected);
+
+    let changed = ui.ctx.device.borrow().as_ref().map(|old| &old.id) != device.map(|device| &device.id);
+    ui.ctx.device.replace(device.cloned());
+    if changed {
+        show_texts(ui);
+    }
+    ui.views.settings.show(ui.service, device, &ui.grants, &ui.auto_accept, ui.localsend);
+    ui.views.messages.gate().show(ui.service, device, &ui.grants);
+    ui.views.calls.gate.show(ui.service, device, &ui.grants);
+    ui.views.screen.gate.show(ui.service, device, &ui.grants);
+    // Files and Photos list again from the top for a phone that went away or changed.
+    let files = ui.views.files.gate().show(ui.service, device, &ui.grants);
+    let photos = ui.views.photos.gate().show(ui.service, device, &ui.grants);
+    if changed {
+        ui.views.files.shown(false);
+        ui.views.photos.shown(false);
+    }
+    ui.views.files.shown(files);
+    ui.views.photos.shown(photos);
+}
+
+fn show_texts(ui: &Ui) {
+    let id = ui.ctx.device.borrow().as_ref().map(|device| device.id.clone()).unwrap_or_default();
+    ui.views
+        .messages
+        .set(ui.texts.get(&id).cloned().unwrap_or_default(), ui.contacts.get(&id).cloned().unwrap_or_default());
 }
 
 fn handle(ui: &Shared, event: Event) {
@@ -599,6 +669,35 @@ fn handle(ui: &Shared, event: Event) {
             let this = ui.borrow();
             let ticket = seam::ticket("edit-paste-symbolic", text.lines().next().unwrap_or_default(), "Clipboard");
             this.seam.add(Side::Desk, &ticket.widget, &seam::now(), "");
+        }
+        Event::Grants(grants) => ui.borrow_mut().grants = grants,
+        Event::AutoAccept(devices) => ui.borrow_mut().auto_accept = devices,
+        Event::LocalSend(visible) => ui.borrow_mut().localsend = visible,
+        // Replies for a phone no longer on show are dropped.
+        Event::Listed { device, path, entries } => {
+            let this = ui.borrow();
+            if current(&this).is_some_and(|shown| shown.id == device) {
+                this.views.files.listed(&path, &entries);
+                this.views.photos.listed(&path, &entries);
+            }
+        }
+        Event::Thumbnail { device, path, png } => {
+            let this = ui.borrow();
+            if current(&this).is_some_and(|shown| shown.id == device) {
+                this.views.photos.thumbnail(&path, &png);
+            }
+        }
+        Event::Saved(path) => {
+            let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            toast(ui, &format!("Saved {name} to Downloads"));
+        }
+        Event::Texts(texts) => {
+            ui.borrow_mut().texts = texts;
+            show_texts(&ui.borrow());
+        }
+        Event::Contacts(contacts) => {
+            ui.borrow_mut().contacts = contacts;
+            show_texts(&ui.borrow());
         }
         Event::Failed(message) => {
             log::warn!("{message}");
@@ -826,7 +925,11 @@ fn call(ui: &Shared, device: &str, state: &str, number: &str, name: &str) {
         }
         None => this.seam.add(Side::Phone, &item, &seam::now(), kind),
     };
-    if state != "idle" {
+    if state == "idle" {
+        if current(&this).is_some_and(|shown| shown.id == device) {
+            this.views.calls.ended(&who, missed, &seam::now());
+        }
+    } else {
         this.calls.insert(device.to_owned(), (row, who, answered));
     }
 }

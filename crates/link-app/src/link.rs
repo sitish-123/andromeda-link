@@ -92,7 +92,47 @@ pub enum Event {
         player: Option<Player>,
     },
     ClipSent(String),
+    /// Device id to the features it holds.
+    Grants(HashMap<String, Vec<String>>),
+    AutoAccept(Vec<String>),
+    LocalSend(bool),
+    /// A folder on the phone, as `ListFiles` gives it.
+    Listed {
+        device: String,
+        path: String,
+        entries: Vec<Entry>,
+    },
+    Thumbnail {
+        device: String,
+        path: String,
+        png: Vec<u8>,
+    },
+    /// A phone file copied to this path.
+    Saved(PathBuf),
+    /// Device id to its texts, newest first.
+    Texts(HashMap<String, Vec<Text>>),
+    /// Device id to its contacts as (name, numbers).
+    Contacts(HashMap<String, Vec<(String, Vec<String>)>>),
     Failed(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub name: String,
+    pub folder: bool,
+    pub size: u64,
+    /// Unix seconds.
+    pub mtime: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct Text {
+    pub thread: u64,
+    pub address: String,
+    pub body: String,
+    /// Unix milliseconds.
+    pub date: u64,
+    pub sent: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -136,7 +176,41 @@ pub enum Command {
     PlayPause(String),
     /// Offers this text as the desktop's clipboard to the phones holding the clipboard grant.
     OfferClipboard(String),
+    SetGrant {
+        device: String,
+        feature: String,
+        granted: bool,
+    },
+    SetAutoAccept {
+        device: String,
+        enabled: bool,
+    },
+    SetLocalSend(bool),
+    Unpair(String),
+    List {
+        device: String,
+        path: String,
+    },
+    /// A thumbnail at most this many pixels on its longer side.
+    Thumbnail {
+        device: String,
+        path: String,
+        size: u16,
+    },
+    /// Copies a phone file into the Downloads folder.
+    Save {
+        device: String,
+        path: String,
+    },
+    SendText {
+        device: String,
+        to: String,
+        body: String,
+    },
 }
+
+/// The `ReadFile` chunk, its largest allowed length.
+const CHUNK: u32 = 1 << 20;
 
 /// The prefix of the MPRIS names the service exports, one per phone, followed by the device id.
 const PLAYER_PREFIX: &str = "org.mpris.MediaPlayer2.andromeda_link_";
@@ -186,14 +260,29 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     let _ = events.send(Event::Service(true));
     send_devices(events, devices);
     send_status(events, proxy.device_status().await.unwrap_or_default());
+    let _ = events.send(Event::Grants(proxy.grants().await?));
+    let _ = events.send(Event::AutoAccept(proxy.auto_accept().await?));
+    let _ = events.send(Event::LocalSend(proxy.local_send_visible().await?));
+    send_texts(events, proxy.texts().await?);
+    let _ = events.send(Event::Contacts(proxy.contacts().await?));
 
     let mut devices = proxy.receive_devices_changed().await;
     let mut status = proxy.receive_device_status_changed().await;
+    let mut grants = proxy.receive_grants_changed().await;
+    let mut auto_accept = proxy.receive_auto_accept_changed().await;
+    let mut localsend = proxy.receive_local_send_visible_changed().await;
+    let mut texts = proxy.receive_texts_changed().await;
+    let mut contacts = proxy.receive_contacts_changed().await;
     let mut signals = proxy.inner().receive_all_signals().await?;
     loop {
         tokio::select! {
             Some(change) = devices.next() => send_devices(events, change.get().await?),
             Some(change) = status.next() => send_status(events, change.get().await?),
+            Some(change) = grants.next() => { let _ = events.send(Event::Grants(change.get().await?)); }
+            Some(change) = auto_accept.next() => { let _ = events.send(Event::AutoAccept(change.get().await?)); }
+            Some(change) = localsend.next() => { let _ = events.send(Event::LocalSend(change.get().await?)); }
+            Some(change) = texts.next() => send_texts(events, change.get().await?),
+            Some(change) = contacts.next() => { let _ = events.send(Event::Contacts(change.get().await?)); }
             Some(message) = signals.next() => {
                 if let Some(event) = signal(message) {
                     let _ = events.send(event);
@@ -289,6 +378,64 @@ fn send_status(events: &UnboundedSender<Event>, status: HashMap<String, (u32, bo
     let _ = events.send(Event::Status(status));
 }
 
+#[allow(clippy::type_complexity)]
+fn send_texts(events: &UnboundedSender<Event>, texts: HashMap<String, Vec<(u64, u64, String, String, u64, bool)>>) {
+    let texts = texts
+        .into_iter()
+        .map(|(id, texts)| {
+            let texts = texts
+                .into_iter()
+                .map(|(_, thread, address, body, date, sent)| Text { thread, address, body, date, sent })
+                .collect();
+            (id, texts)
+        })
+        .collect();
+    let _ = events.send(Event::Texts(texts));
+}
+
+/// Copies a phone file into Downloads under a free name, a chunk at a time.
+async fn save(proxy: &Link1Proxy<'_>, device: &str, path: &str) -> zbus::Result<PathBuf> {
+    static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let failure = |error: std::io::Error| zbus::Error::Failure(format!("saving {path}: {error}"));
+    let folder = gtk4::glib::user_special_dir(gtk4::glib::UserDirectory::Downloads)
+        .unwrap_or_else(|| gtk4::glib::home_dir().join("Downloads"));
+    std::fs::create_dir_all(&folder).map_err(failure)?;
+    let name = path.rsplit('/').next().filter(|name| !name.is_empty()).unwrap_or("file");
+    let save = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let partial = folder.join(format!(".{name}.{}-{save}.part", std::process::id()));
+    let mut file = File::options().write(true).create_new(true).open(&partial).map_err(failure)?;
+    let copied = async {
+        let mut offset = 0;
+        loop {
+            let data = proxy.read_file(device, path, offset, CHUNK).await?;
+            if data.is_empty() {
+                return Ok(());
+            }
+            file.write_all(&data).map_err(failure)?;
+            offset += data.len() as u64;
+        }
+    }
+    .await
+    .and_then(|()| claim(&folder, name, &partial).map_err(failure));
+    let _ = std::fs::remove_file(&partial);
+    copied
+}
+
+/// Links `partial` to the first free name of "name", "name (2)", ...; a link fails rather than replace a file.
+fn claim(folder: &std::path::Path, name: &str, partial: &std::path::Path) -> std::io::Result<PathBuf> {
+    let (stem, extension) =
+        name.rsplit_once('.').map_or((name, String::new()), |(stem, ext)| (stem, format!(".{ext}")));
+    for copy in 1.. {
+        let target = if copy == 1 { folder.join(name) } else { folder.join(format!("{stem} ({copy}){extension}")) };
+        match std::fs::hard_link(partial, &target) {
+            Ok(()) => return Ok(target),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("an unbounded range")
+}
+
 fn signal(message: zbus::Message) -> Option<Event> {
     let owned = |text: &str| text.to_owned();
     if let Some(signal) = link_api::NotificationPosted::from_message(message.clone()) {
@@ -344,7 +491,7 @@ fn signal(message: zbus::Message) -> Option<Event> {
     None
 }
 
-async fn execute(proxy: &Link1Proxy<'_>, events: &UnboundedSender<Event>, command: Command) -> zbus::Result<()> {
+async fn execute(proxy: &Link1Proxy<'static>, events: &UnboundedSender<Event>, command: Command) -> zbus::Result<()> {
     match command {
         Command::Ring(device) => proxy.ring(&device, true).await,
         Command::Reply { device, id, action, text } => proxy.notification_action(&device, &id, &action, &text).await,
@@ -390,6 +537,48 @@ async fn execute(proxy: &Link1Proxy<'_>, events: &UnboundedSender<Event>, comman
             let _ = events.send(Event::ClipSent(text));
             Ok(())
         }
+        Command::SetGrant { device, feature, granted } => proxy.set_grant(&device, &feature, granted).await,
+        Command::SetAutoAccept { device, enabled } => proxy.set_auto_accept(&device, enabled).await,
+        Command::SetLocalSend(visible) => proxy.set_local_send_visible(visible).await,
+        Command::Unpair(device) => proxy.unpair(&device).await,
+        // Phone reads wait on the phone, so they run beside the loop instead of holding the commands behind them.
+        Command::List { device, path } => {
+            let (proxy, events) = (proxy.clone(), events.clone());
+            tokio::spawn(async move {
+                let _ = events.send(match proxy.list_files(&device, &path).await {
+                    Ok(entries) => {
+                        let entries = entries
+                            .into_iter()
+                            .map(|(name, folder, size, mtime)| Entry { name, folder, size, mtime })
+                            .collect();
+                        Event::Listed { device, path, entries }
+                    }
+                    Err(error) => Event::Failed(error.to_string()),
+                });
+            });
+            Ok(())
+        }
+        Command::Thumbnail { device, path, size } => {
+            let (proxy, events) = (proxy.clone(), events.clone());
+            tokio::spawn(async move {
+                match proxy.thumbnail(&device, &path, size).await {
+                    Ok(png) => drop(events.send(Event::Thumbnail { device, path, png })),
+                    Err(error) => log::debug!("thumbnail {path}: {error}"),
+                }
+            });
+            Ok(())
+        }
+        Command::Save { device, path } => {
+            let (proxy, events) = (proxy.clone(), events.clone());
+            tokio::spawn(async move {
+                let _ = events.send(match save(&proxy, &device, &path).await {
+                    Ok(saved) => Event::Saved(saved),
+                    Err(error) => Event::Failed(error.to_string()),
+                });
+            });
+            Ok(())
+        }
+        Command::SendText { device, to, body } => proxy.send_text(&device, &to, &body).await,
         Command::Pair => {
             let (code, uri) = proxy.start_pairing().await?;
             let _ = events.send(Event::Pairing { code, uri });

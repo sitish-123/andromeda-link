@@ -90,3 +90,36 @@ window.link { background: var(--mist); color: var(--ink); font-family: "Google S
 .now .art { border-radius: 14px; }
 .now progressbar trough { min-height: 3px; min-width: 64px; border-radius: 2px; background: var(--rule); }
 .now progressbar progress { min-height: 3px; border-radius: 2px; background: var(--ink); }
+
+/* Settings: plain wells on the sheet; switches are live things, so Tide. */
+.settings .boxed-list { background: var(--well); box-shadow: none; border-radius: 14px; }
+.settings .boxed-list > row { background: none; border-color: var(--rule); }
+.settings .boxed-list .subtitle { color: var(--slate); }
+.settings switch:checked { background: var(--tide); }
+.settings switch slider { background: var(--sheet); }
+
+/* Files, Photos, Calls: rows on the sheet, the place in the phone above them. */
+.browse { padding: 18px 32px 0; }
+.place-bar { padding-bottom: 12px; }
+.place { font-size: 17px; font-weight: 600; }
+.entries { background: none; }
+.entries > row { background: none; border-radius: 12px; }
+.entries > row:hover { background: var(--well); }
+.entry { padding: 8px 10px; }
+.album { min-height: 30px; padding: 0 14px; border-radius: 15px; border: 1px solid var(--rule); background: none;
+  color: var(--slate); }
+.album:checked { background: var(--ink); color: var(--sheet); border-color: var(--ink); }
+.photo { padding: 0; border-radius: 12px; background: var(--well); }
+.photo picture { border-radius: 12px; }
+
+/* Messages: conversations on the left, the open one on the right. */
+.threads { background: none; padding: 18px 8px 18px 24px; }
+.threads > row { border-radius: 12px; background: none; }
+.threads > row:selected { background: var(--well); }
+.thread { padding: 10px 12px; }
+.from-name { font-weight: 600; }
+.thread-title { font-size: 17px; font-weight: 600; padding: 22px 32px 8px; }
+.talk { padding: 8px 32px; }
+.bubble { padding: 9px 14px; border-radius: 18px; }
+.bubble.got { background: var(--well); }
+.bubble.sent { background: var(--tide-soft); }

@@ -111,7 +111,8 @@
       <arg name="device_id" type="s" direction="in"/>
       <arg name="enabled" type="b" direction="in"/>
     </method>
-    <!-- feature: clipboard, files, or notifications. A paired device starts with clipboard and files. -->
+    <!-- feature: a name from link-core's Feature (clipboard, files, notifications, media, ring, calls, browse, screen,
+         messages, input, commands, system). -->
     <method name="SetGrant">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="feature" type="s" direction="in"/>

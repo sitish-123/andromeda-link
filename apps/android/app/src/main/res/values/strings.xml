@@ -109,6 +109,8 @@
     <string name="clipboard_auto_row_hint">Set up once to send what you copy by itself</string>
     <string name="clipboard_send">Send to desktop</string>
     <string name="clipboard_tile">Send clipboard</string>
+    <string name="clipboard_prompt_title">Tap to send your copy</string>
+    <string name="clipboard_prompt_text">The app you copied in keeps Link from reading the clipboard.</string>
     <string name="share_files_sending">Offered to %1$s</string>
     <string name="mirror_label">Mirror to your desktop</string>
     <string name="mirror_title">Phone notifications on your desktop</string>

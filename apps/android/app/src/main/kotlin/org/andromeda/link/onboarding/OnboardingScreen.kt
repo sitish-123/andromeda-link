@@ -60,6 +60,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.andromeda.link.R
+import org.andromeda.link.clipboard.LogAccess
 import org.andromeda.link.ui.components.Glyph
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.Readout
@@ -207,7 +208,9 @@ private fun ClipboardSteps(viewModel: OnboardingViewModel, onOverlay: () -> Unit
                 )
             }, kind = PillKind.Quiet)
         }
-        Step(stringResource(R.string.onboarding_clipboard_step_logs), logs) {}
+        Step(stringResource(R.string.onboarding_clipboard_step_logs), logs) {
+            if (LogAccess.shizukuAsks()) PillButton(stringResource(R.string.onboarding_clipboard_shizuku), LogAccess::askShizuku)
+        }
         if (!logs) {
             Label(
                 command,

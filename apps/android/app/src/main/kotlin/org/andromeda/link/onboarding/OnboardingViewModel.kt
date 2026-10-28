@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import org.andromeda.link.clipboard.ClipboardWatcher
+import org.andromeda.link.clipboard.LogAccess
 import org.andromeda.link.notifications.NotificationMirror
 import org.andromeda.link.ring.Ringer
 
@@ -50,7 +51,7 @@ class OnboardingViewModel(
     /** The two halves of automatic clipboard, which the page shows apart since only one is given on the phone. */
     fun overlayAllowed(): Boolean = Settings.canDrawOverlays(application)
 
-    fun logsAllowed(): Boolean = held(Manifest.permission.READ_LOGS)
+    fun logsAllowed(): Boolean = LogAccess.allowed(application)
 
     /** The one command to run from a computer with the phone plugged in. */
     fun adbCommand(): String = "adb shell pm grant ${application.packageName} android.permission.READ_LOGS"

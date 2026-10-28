@@ -9,6 +9,7 @@ coreKtx = "1.16.0"
 jna = "5.17.0"
 camerax = "1.4.2"
 zxing = "3.5.3"
+shizuku = "13.1.5"
 ktlintGradle = "14.2.0"
 composeRules = "0.6.8"
 
@@ -28,6 +29,8 @@ camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.
 camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
 camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
+shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 compose-rules-ktlint = { group = "io.nlopez.compose.rules", name = "ktlint", version.ref = "composeRules" }
 

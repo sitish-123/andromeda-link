@@ -10,6 +10,7 @@ import androidx.core.app.ServiceCompat
 import org.andromeda.link.LinkApplication
 import org.andromeda.link.MainActivity
 import org.andromeda.link.R
+import org.andromeda.link.clipboard.ClipboardReadActivity
 import org.andromeda.link.notifications.Channels
 
 /**
@@ -26,11 +27,18 @@ class PresenceService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
         )
+        val sendClipboard = PendingIntent.getActivity(
+            this,
+            1,
+            Intent(this, ClipboardReadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification = NotificationCompat.Builder(this, Channels.PRESENCE)
             .setSmallIcon(R.drawable.ic_stat_link)
             .setContentTitle(getString(R.string.presence_title))
             .setContentText(getString(R.string.presence_text))
             .setContentIntent(open)
+            .addAction(0, getString(R.string.clipboard_tile), sendClipboard)
             .setOngoing(true)
             // Its own group, so Android does not bundle it with incoming shares and hide their actions.
             .setGroup(GROUP)

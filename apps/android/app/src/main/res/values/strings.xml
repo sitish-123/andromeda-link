@@ -227,9 +227,10 @@
     <string name="onboarding_texts_title">Texts on your desktop</string>
     <string name="onboarding_texts_body">Optional. Read and answer this phone\'s texts from your desktop. Link reads them only for a desktop whose Contacts and texts switch is on, and sends a text only when you send it there.</string>
     <string name="onboarding_clipboard_title">Copy here, paste there</string>
-    <string name="onboarding_clipboard_body">Optional. Android lets only a few apps notice what you copy. With these two allowances, anything you copy on this phone lands on your desktop\'s clipboard by itself. Without them, the Clipboard button on Home sends it in one tap. Once both are given, Android asks to allow access to device logs: tap Allow. On OnePlus, OPPO, and realme, turn on Disable permission monitoring in Developer options before running the command.</string>
+    <string name="onboarding_clipboard_body">Optional. Android lets only a few apps notice what you copy. With these two allowances, anything you copy on this phone lands on your desktop\'s clipboard by itself. Without them, the Clipboard button on Home, the quick settings tile, or the Stay connected notification sends it in one tap. With Shizuku or root, Android asks nothing more. With the computer command, Android asks to allow access to device logs: tap Allow. On OnePlus, OPPO, and realme, turn on Disable permission monitoring in Developer options before running the command.</string>
     <string name="onboarding_clipboard_step_overlay">Display over other apps</string>
-    <string name="onboarding_clipboard_step_logs">Log access, given once from a computer</string>
+    <string name="onboarding_clipboard_step_logs">Log access: Shizuku, root, or once from a computer</string>
+    <string name="onboarding_clipboard_shizuku">Use Shizuku</string>
     <string name="onboarding_clipboard_copy">Copy the command</string>
     <string name="onboarding_clipboard_open">Open</string>
     <string name="onboarding_clipboard_restricted">Switch greyed out? Android limits this for apps installed outside a store: in App info, open the ⋮ menu and choose Allow restricted settings, then come back.</string>

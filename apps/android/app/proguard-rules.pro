@@ -3,3 +3,5 @@
 -keep class * implements com.sun.jna.** { *; }
 -keep class org.andromeda.link.ffi.** { *; }
 -dontwarn java.awt.**
+# LogAccess calls Shizuku.newProcess by reflection.
+-keepclassmembers class rikka.shizuku.Shizuku { *** newProcess(...); }

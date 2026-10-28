@@ -1,9 +1,7 @@
 package org.andromeda.link.clipboard
 
-import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.lifecycle.Lifecycle
@@ -15,11 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import rikka.shizuku.Shizuku
 
 /**
  * Phone to desktop, automatic, as KDE Connect does it: Android lets only the focused app read the clipboard, but it
- * logs a denial for this app on every copy elsewhere, because this app listens for changes. With READ_LOGS (granted
- * once over adb; a sideload-build path, not Play) each denial line brings up a [ClipboardOverlay] for a moment,
+ * logs a denial for this app on every copy elsewhere, because this app listens for changes. With [LogAccess] (a
+ * sideload-build path, not Play) each denial line brings up a [ClipboardOverlay] for a moment,
  * which reads the clipboard while focused and offers it. The overlay needs "Display over other apps" as well. Runs
  * while [org.andromeda.link.presence.PresenceService] does.
  */
@@ -39,6 +38,15 @@ class ClipboardWatcher(
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START && wanted) restartIfBlind() },
         )
+        // Shizuku's binder arrives after the app starts, and its grant comes later still; either moves logcat to it.
+        Shizuku.addBinderReceivedListenerSticky(::restartOnShizuku)
+        Shizuku.addRequestPermissionResultListener { _, _ -> restartOnShizuku() }
+    }
+
+    private fun restartOnShizuku() {
+        if (!wanted || !LogAccess.quiet()) return
+        stop()
+        start()
     }
 
     /**
@@ -63,7 +71,7 @@ class ClipboardWatcher(
         start()
     }
 
-    private fun mayAsk(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+    private fun mayAsk(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || LogAccess.quiet() ||
         ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
 
     fun stop() {
@@ -77,7 +85,7 @@ class ClipboardWatcher(
 
     private suspend fun follow() {
         // -T 1 starts at the newest line, so only denials from now on count.
-        val logcat = ProcessBuilder("logcat", "-T", "1", "-v", "brief", "ClipboardService:E", "*:S").start()
+        val logcat = LogAccess.logcat("-T", "1", "-v", "brief", "ClipboardService:E", "*:S")
         process = logcat
         val denial = "Denying clipboard access to ${context.packageName}"
         try {
@@ -96,8 +104,6 @@ class ClipboardWatcher(
     }
 
     companion object {
-        fun granted(context: Context): Boolean =
-            context.checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED &&
-                Settings.canDrawOverlays(context)
+        fun granted(context: Context): Boolean = LogAccess.allowed(context) && Settings.canDrawOverlays(context)
     }
 }

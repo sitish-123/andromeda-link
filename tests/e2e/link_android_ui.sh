@@ -91,7 +91,16 @@ for mode in light dark; do
   theme "$([[ $mode == dark ]] && echo yes || echo no)"
   maestro -e THEME="$mode" "$FLOWS/ui-unpaired.yaml"
   pair "$mode"
+  # A stand-in link-session reports what this desk can do. Light: everything, so the desktop's page shows every
+  # control. Dark: only notifications, so Clipboard, Touchpad and keyboard, and Presenter are hidden there.
+  CAN=$([[ $mode == dark ]] && echo notifications || echo notifications,clipboard,input,volume)
+  python3 -c 'import dbus, sys, time
+link = dbus.Interface(dbus.SessionBus().get_object("org.andromeda.Link1", "/org/andromeda/Link1"), "org.andromeda.Link1")
+link.SetSessionCapabilities(dbus.Array(sys.argv[1].split(","), signature="s"))
+time.sleep(3600)' "$CAN" &
+  SESSION=$!
   maestro -e THEME="$mode" "$FLOWS/ui-paired.yaml"
+  kill "$SESSION"
   maestro "$FLOWS/unpair.yaml"
   mv "$OUT/8-unpaired.png" "$OUT/$mode-unpaired.png"
   # Pairing again from a clean slate asks for notifications afresh.

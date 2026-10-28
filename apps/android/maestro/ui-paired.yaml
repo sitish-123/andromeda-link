@@ -37,12 +37,16 @@ appId: org.andromeda.link
 - tapOn: "Next"
 - takeScreenshot: ${OUT}/${THEME}-onboarding-6-bluetooth
 - tapOn: "Next"
-- takeScreenshot: ${OUT}/${THEME}-onboarding-7-clipboard
+- takeScreenshot: ${OUT}/${THEME}-onboarding-7-texts
+- tapOn: "Next"
+- takeScreenshot: ${OUT}/${THEME}-onboarding-8-clipboard
 - tapOn: "Done"
 - tapOn: "Home tab"
 - extendedWaitUntil:
     visible: "Features and pairing"
     timeout: 10000
+# A capability report can arrive now and move Home's rows; tap once they stop.
+- waitForAnimationToEnd
 - tapOn: "Features and pairing"
 - extendedWaitUntil:
     visible: "Shared with this desktop"
@@ -80,7 +84,10 @@ appId: org.andromeda.link
 - takeScreenshot: ${OUT}/${THEME}-picker-photos
 - tapOn: "Videos"
 - takeScreenshot: ${OUT}/${THEME}-picker-videos
-- tapOn: "Files"
+# The tab, not Home's Files text behind the sheet.
+- tapOn:
+    text: "Files"
+    rightOf: "Videos"
 - scrollUntilVisible:
     element: "Pictures"
 - takeScreenshot: ${OUT}/${THEME}-picker-files

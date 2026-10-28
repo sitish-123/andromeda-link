@@ -3,6 +3,10 @@ appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: true
+# Once an earlier run granted READ_LOGS, Android asks again for each start of the clipboard log reader.
+- tapOn:
+    text: "Allow one-time access"
+    optional: true
 - extendedWaitUntil:
     visible: "Scan your desktop"
     timeout: 15000

@@ -21,6 +21,9 @@ impl Mirror {
         let mut live = HashMap::new();
         for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
             let path = entry.path();
+            if path.extension().is_none_or(|ext| ext != "json") {
+                continue;
+            }
             let Some(id) = path.file_stem().and_then(|stem| DeviceId::parse(&stem.to_string_lossy()).ok()) else {
                 continue;
             };

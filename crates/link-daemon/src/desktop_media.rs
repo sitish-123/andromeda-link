@@ -200,7 +200,9 @@ impl DesktopMedia {
                 if let Some(track) = watched.track.clone().and_then(|track| ObjectPath::try_from(track).ok()) {
                     self.call(&name, "SetPosition", &(track, position)).await;
                 } else {
-                    let now = i64::try_from(watched.player.position_ms).unwrap_or(0).saturating_mul(1000);
+                    // MPRIS signals no change while a track plays, so the cached position is stale: ask the player.
+                    let cached = i64::try_from(watched.player.position_ms).unwrap_or(0).saturating_mul(1000);
+                    let now = self.position(&name).await.unwrap_or(cached);
                     self.call(&name, "Seek", &(position - now)).await;
                 }
             }
@@ -223,6 +225,15 @@ impl DesktopMedia {
         if let Err(error) = result.await {
             log::info!("{name}: {method}: {error}");
         }
+    }
+
+    /// The player's position now, in microseconds.
+    async fn position(&self, name: &str) -> Option<i64> {
+        let result = async {
+            let proxy = Proxy::new(&self.bus, name.to_owned(), PATH, PLAYER).await?;
+            proxy.get_property::<i64>("Position").await
+        };
+        result.await.inspect_err(|error| log::info!("{name}: reading Position: {error}")).ok()
     }
 
     async fn set_volume(&self, name: &str, volume: f64) {

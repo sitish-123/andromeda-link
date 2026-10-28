@@ -9,7 +9,8 @@ window.link.dark {
 }
 
 window.link { background: var(--mist); color: var(--ink); font-family: "Google Sans Flex"; font-size: 14px;
-  font-variation-settings: "ROND" 40; }
+  font-variation-settings: "ROND" 40, "opsz" 14; }
+/* Pango's automatic optical size clips the cap tops of F and T at the small sizes; 14 is the body size. */
 .link label { color: inherit; }
 .slate { color: var(--slate); }
 .faint { color: var(--faint); font-size: 12.5px; }

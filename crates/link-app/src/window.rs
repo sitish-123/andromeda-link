@@ -440,9 +440,13 @@ fn wire(ui: &Shared, home: &Home) {
     this.window.add_controller(drop);
 
     let commands = this.commands.clone();
-    home.pair.connect_clicked(move |_| {
-        let _ = commands.send(Command::Pair);
-    });
+    let pair = gio::ActionEntry::builder("pair")
+        .activate(move |_: &adw::ApplicationWindow, _, _| {
+            let _ = commands.send(Command::Pair);
+        })
+        .build();
+    this.window.add_action_entries([pair]);
+    home.pair.set_action_name(Some("win.pair"));
 }
 
 fn choose_files(ui: &Shared) {

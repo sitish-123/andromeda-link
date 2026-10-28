@@ -6,12 +6,13 @@ appId: org.andromeda.link
     stopApp: false
 - tapOn: "Activity tab"
 - extendedWaitUntil:
-    visible: "Waiting for your approval"
+    visible: "(?i)waiting"
     timeout: 15000
 - takeScreenshot: ${OUT}/7-offer-in-activity
 - tapOn: "Accept"
+# The sent card already reads "Completed", so wait for the offer's chip to go instead.
 - extendedWaitUntil:
-    visible: "Completed"
+    notVisible: "(?i)waiting"
     timeout: 30000
 - takeScreenshot: ${OUT}/7-received-in-activity
 - tapOn: "Home tab"

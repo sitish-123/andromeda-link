@@ -85,10 +85,14 @@ link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
 dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb shell cmd statusbar collapse
 adb shell input keyevent KEYCODE_HOME
 adb uninstall "$PACKAGE" > /dev/null 2>&1 || true
 adb install "$APK" > /dev/null || fail "installing $APK"
+# As link_android_ui.sh: the scanner gets the camera, so pairing by link shows no camera prompt.
+adb shell pm grant "$PACKAGE" android.permission.CAMERA
 adb shell pm revoke "$PACKAGE" android.permission.READ_LOGS
 record '{"step":"installed"}'
 
@@ -155,6 +159,9 @@ wait_for 60 "no session after a reboot" connected
 screenshot 7-after-reboot
 record '{"step":"stay-connected-survives-reboot"}'
 
+# link_android_locked.sh needs the swipe lock on, so a boot ends on the keyguard.
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 maestro -e STAY=off "$FLOWS/stay-connected.yaml"
 wait_for 10 "the Stay connected notification outlived the toggle" no_presence

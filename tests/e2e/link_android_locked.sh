@@ -104,12 +104,14 @@ record '{"step":"paired-and-connected"}'
 
 adb shell input keyevent KEYCODE_SLEEP
 wait_for 10 "the phone did not lock" locked
+# A private message without a public version first: it must not leave the phone before the public one replaces it.
+adb shell am broadcast -f 32 -n org.andromeda.link.fixture/.PostReceiver --es text "'$FULL'" > /dev/null
 adb shell am broadcast -f 32 -n org.andromeda.link.fixture/.PostReceiver --es text "'$FULL'" --es public "'$PUBLIC'" > /dev/null
 KEY="0|org.andromeda.link.fixture|7|null|$(adb shell pm list packages -U org.andromeda.link.fixture | sed 's/.*uid://' | tr -d '\r')"
 wait_for 30 "no NotificationPosted for the message while locked" heard NotificationPosted "$KEY"
 LOCKED_POST=$(signal NotificationPosted "$KEY")
 [[ $LOCKED_POST == *"$PUBLIC"* ]] || fail "the locked post is not the public version: $LOCKED_POST"
-[[ $LOCKED_POST != *"$FULL"* ]] || fail "the full text left the phone while it was locked: $LOCKED_POST"
+heard NotificationPosted "$FULL" && fail "the full text left the phone while it was locked: $(signal NotificationPosted "$FULL")"
 record "{\"step\":\"locked\",\"dbus\":\"$PUBLIC\",\"full_text_sent\":false}"
 
 adb shell input keyevent KEYCODE_WAKEUP

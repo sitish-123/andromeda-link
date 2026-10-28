@@ -212,14 +212,14 @@ class NotificationMirror(
             title = title.truncateUtf8(NotificationLimits.TITLE),
             text = text.truncateUtf8(NotificationLimits.TEXT),
             icon = icon(sbn.packageName, app),
-            actions = buttons(notification),
+            actions = if (shown === notification) buttons(notification) else emptyList(),
             alertOnce = alertOnce || notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0,
         )
     }
 
     /**
      * The version a locked phone may show, by the app's visibility or the user's override for its channel: none for a
-     * secret one, the public version of a private one when it has one.
+     * secret one or a private one without a public version, else the public version of a private one.
      */
     private fun lockScreenVersion(
         notification: Notification,
@@ -229,7 +229,8 @@ class NotificationMirror(
         val override = ranking?.lockscreenVisibilityOverride ?: NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE
         val visibility = if (override == NotificationListenerService.Ranking.VISIBILITY_NO_OVERRIDE) notification.visibility else override
         if (visibility == Notification.VISIBILITY_SECRET) return null
-        return notification.publicVersion.takeIf { visibility == Notification.VISIBILITY_PRIVATE } ?: notification
+        if (visibility != Notification.VISIBILITY_PRIVATE) return notification
+        return notification.publicVersion
     }
 
     /** A conversation's latest messages, one `Sender: text` line each, as the shade shows them. */

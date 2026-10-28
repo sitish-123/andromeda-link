@@ -661,6 +661,9 @@ impl Hub {
         match message {
             Message::NotificationPosted(posted) => {
                 if let Some(alert) = self.notifications.post(&from, &posted) {
+                    for notification in self.notifications.trim(&from) {
+                        self.emit(Event::NotificationRemoved { id: from.clone(), notification }).await;
+                    }
                     self.emit(Event::NotificationPosted { id: from, posted, alert }).await;
                 }
             }

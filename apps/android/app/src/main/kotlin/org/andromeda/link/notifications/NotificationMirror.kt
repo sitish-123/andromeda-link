@@ -109,6 +109,8 @@ class NotificationMirror(
     fun detach(service: NotificationListenerService) {
         if (listener == service) listener = null
         _granted.value = false
+        mirrored.clear()
+        scope.launch { repository.syncNotifications(emptyList()).onFailure { log("syncing", it) } }
     }
 
     fun posted(
@@ -162,12 +164,12 @@ class NotificationMirror(
         return intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-    /** Reports every shown notification; a changed one replaces the desktop's copy without a sound. */
+    /** Reports every shown notification, oldest first; a new or changed one reaches the desktop without a sound. */
     private fun resync() {
         val service = listener ?: return
         val active = runCatching { service.activeNotifications }.getOrNull() ?: return
         val ranking = runCatching { service.currentRanking }.getOrNull()
-        val shown = active.mapNotNull { sbn -> build(sbn, ranking, alertOnce = true) }
+        val shown = active.sortedBy { it.postTime }.mapNotNull { sbn -> build(sbn, ranking, alertOnce = true) }
         mirrored.clear()
         mirrored += shown.map { it.id }
         scope.launch { repository.syncNotifications(shown).onFailure { log("syncing", it) } }
@@ -213,7 +215,7 @@ class NotificationMirror(
             text = text.truncateUtf8(NotificationLimits.TEXT),
             icon = icon(sbn.packageName, app),
             actions = if (shown === notification) buttons(notification) else emptyList(),
-            alertOnce = alertOnce || notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0,
+            alertOnce = alertOnce || (sbn.key in mirrored && notification.flags and Notification.FLAG_ONLY_ALERT_ONCE != 0),
         )
     }
 

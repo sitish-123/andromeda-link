@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The Android app on an emulator against a private andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME), with "full
 # content while locked" off and the lock screen's "Hide sensitive content" on. Proves: a private chat message (the
-# fixture app, with a public version) posted while the phone is locked reaches D-Bus as its public version only; at
-# unlock the full text reaches D-Bus under the same key.
+# fixture app, with a public version) posted while the phone is locked reaches D-Bus as its public version only, and
+# one without a public version not at all; at unlock the full text reaches D-Bus under the same key; when notification
+# access goes off, the desktop's copy goes.
 # Writes screenshots, results.jsonl, signals.txt, linkd.log to $OUT (default ./artifacts/link-android-locked). Needs the
 # debug APK, the fixture APK and a running emulator; run under flock /tmp/link-emulator.lock, since the emulator is shared.
 set -euo pipefail
@@ -26,6 +27,7 @@ adb() { "$ADB" -s "$SERIAL" "$@"; }
 SENSITIVE=$(adb shell settings get secure lock_screen_allow_private_notifications | tr -d '\r')
 cleanup() {
   adb shell settings put secure lock_screen_allow_private_notifications "$SENSITIVE" > /dev/null 2>&1 || true
+  adb shell cmd notification allow_listener "$PACKAGE/$PACKAGE.notifications.MirrorService" > /dev/null 2>&1 || true
   kill $(jobs -p) 2>/dev/null || true
   wait 2>/dev/null
   rm -rf "$RUNTIME"
@@ -121,5 +123,10 @@ wait_for 30 "the full text did not arrive after unlock" heard NotificationPosted
 [[ $(signal NotificationPosted "$FULL") == *"$KEY"* ]] || fail "the full text came under another key"
 screenshot unlocked
 record "{\"step\":\"unlocked\",\"dbus\":\"$FULL\",\"same_key\":true}"
+
+adb shell cmd notification disallow_listener "$PACKAGE/$PACKAGE.notifications.MirrorService"
+wait_for 30 "the desktop kept the message after notification access went off" heard NotificationRemoved "$KEY"
+adb shell cmd notification allow_listener "$PACKAGE/$PACKAGE.notifications.MirrorService"
+record '{"step":"access-off","removed":true}'
 
 echo "PASS; artifacts: $OUT"

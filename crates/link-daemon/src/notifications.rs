@@ -7,7 +7,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
 use link_core::identity::DeviceId;
-use link_core::proto::message::{NotificationDigest, NotificationPosted};
+use link_core::proto::message::{MAX_SNAPSHOT, NotificationDigest, NotificationPosted};
 
 pub struct Mirror {
     /// One `<device id>.json` per device: its notifications, oldest first.
@@ -35,8 +35,8 @@ impl Mirror {
         Self { dir, live }
     }
 
-    /// None for an identical re-post; else whether the desktop alerts: for a new one, or a changed title or text
-    /// without `alert_once`.
+    /// None for an identical re-post; else whether the desktop alerts: without `alert_once`, for a new one or a changed
+    /// title or text. Keeps the newest [`MAX_SNAPSHOT`]; [`Mirror::trim`] drops the rest.
     pub fn post(&mut self, device: &DeviceId, posted: &NotificationPosted) -> Option<bool> {
         let live = self.live.entry(device.clone()).or_default();
         let alert = match live.iter().position(|shown| shown.id == posted.id) {
@@ -45,11 +45,22 @@ impl Mirror {
                 let old = live.remove(index);
                 !posted.alert_once && (old.title != posted.title || old.text != posted.text)
             }
-            None => true,
+            None => !posted.alert_once,
         };
         live.push(posted.clone());
         self.save(device);
         Some(alert)
+    }
+
+    /// Drops the oldest of `device` past [`MAX_SNAPSHOT`], as a snapshot lists no more, and returns their ids.
+    pub fn trim(&mut self, device: &DeviceId) -> Vec<String> {
+        let Some(live) = self.live.get_mut(device) else { return Vec::new() };
+        let over = live.len().saturating_sub(MAX_SNAPSHOT);
+        let dropped: Vec<String> = live.drain(..over).map(|shown| shown.id).collect();
+        if !dropped.is_empty() {
+            self.save(device);
+        }
+        dropped
     }
 
     /// Whether `id` was on show.
@@ -103,11 +114,45 @@ impl Mirror {
         let written = fs::create_dir_all(&self.dir)
             .and_then(|()| {
                 let mut file = OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(&tmp)?;
-                file.write_all(&serde_json::to_vec(shown)?)
+                file.write_all(&serde_json::to_vec(shown)?)?;
+                file.sync_all()
             })
             .and_then(|()| fs::rename(&tmp, &path));
         if let Err(error) = written {
             log::error!("saving {}: {error}", path.display());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn posted(id: &str, alert_once: bool) -> NotificationPosted {
+        NotificationPosted {
+            id: id.to_owned(),
+            app: "Messages".to_owned(),
+            title: "Ann".to_owned(),
+            text: id.to_owned(),
+            icon: None,
+            actions: Vec::new(),
+            alert_once,
+        }
+    }
+
+    #[test]
+    fn keeps_the_newest_and_a_new_alert_once_post_is_quiet() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!("link-mirror-{}", std::process::id()));
+        let device = DeviceId::parse("c07199387069c952a0a7f44df4100ef2")?;
+        let mut mirror = Mirror::load(dir.clone());
+        for n in 0..=MAX_SNAPSHOT {
+            assert_eq!(mirror.post(&device, &posted(&n.to_string(), false)), Some(true));
+        }
+        assert_eq!(mirror.trim(&device), vec!["0".to_owned()]);
+        assert_eq!(mirror.post(&device, &posted("resynced", true)), Some(false));
+        assert_eq!(mirror.trim(&device), vec!["1".to_owned()]);
+        assert_eq!(Mirror::load(dir.clone()).live[&device].len(), MAX_SNAPSHOT);
+        fs::remove_dir_all(dir)?;
+        Ok(())
     }
 }

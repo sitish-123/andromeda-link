@@ -1,7 +1,7 @@
 //! The phone's actor over [`Phone`]: its live sessions, presence with reconnection, file transfers, and the events an
 //! app shows. Shared by the headless phone and the Android bindings.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -197,8 +197,8 @@ pub struct ClientActor {
     /// Browse and contacts requests being answered, at most [`browse::MAX_IN_FLIGHT`].
     browsing: JoinSet<()>,
     messages: Option<Arc<dyn Messages>>,
-    /// The phone's notifications on show, by id; None until the app first posts, removes, or syncs.
-    notifications: Option<BTreeMap<String, NotificationPosted>>,
+    /// The phone's notifications on show, oldest first; None until the app first posts, removes, or syncs.
+    notifications: Option<Vec<NotificationPosted>>,
 }
 
 struct Ended {
@@ -571,8 +571,11 @@ impl ClientActor {
     async fn notify(&mut self, message: Message) -> usize {
         let held = self.notifications.get_or_insert_default();
         match &message {
-            Message::NotificationPosted(posted) => drop(held.insert(posted.id.clone(), posted.clone())),
-            Message::NotificationRemoved(removed) => drop(held.remove(&removed.id)),
+            Message::NotificationPosted(posted) => {
+                held.retain(|shown| shown.id != posted.id);
+                held.push(posted.clone());
+            }
+            Message::NotificationRemoved(removed) => held.retain(|shown| shown.id != removed.id),
             _ => {}
         }
         let desktops: Vec<(SessionHandle, bool)> = self
@@ -596,9 +599,12 @@ impl ClientActor {
     }
 
     async fn sync_notifications(&mut self, notifications: Vec<NotificationPosted>) {
-        let held: BTreeMap<_, _> = notifications.into_iter().map(|posted| (posted.id.clone(), posted)).collect();
-        let old = self.notifications.replace(held.clone()).unwrap_or_default();
-        let gone: Vec<String> = old.into_keys().filter(|id| !held.contains_key(id)).collect();
+        let old = self.notifications.replace(notifications.clone()).unwrap_or_default();
+        let gone: Vec<String> = old
+            .into_iter()
+            .map(|posted| posted.id)
+            .filter(|id| !notifications.iter().any(|posted| posted.id == *id))
+            .collect();
         let live: Vec<(DeviceId, SessionHandle)> = self
             .sessions
             .iter()
@@ -737,7 +743,8 @@ impl ClientActor {
         };
         let messages = if peer.has(NOTIFICATION_SYNC) {
             let notifications = held
-                .values()
+                .iter()
+                .rev()
                 .take(MAX_SNAPSHOT)
                 .map(|posted| NotificationDigest { id: posted.id.clone(), hash: posted.digest() })
                 .collect();
@@ -745,7 +752,7 @@ impl ClientActor {
         } else {
             let removed = gone.iter().map(|id| Message::NotificationRemoved(NotificationRemoved { id: id.clone() }));
             removed
-                .chain(held.values().map(|posted| for_desktop(Message::NotificationPosted(posted.clone()), false)))
+                .chain(held.iter().map(|posted| for_desktop(Message::NotificationPosted(posted.clone()), false)))
                 .collect()
         };
         for message in messages {
@@ -1183,7 +1190,9 @@ impl ClientActor {
             SessionEvent::Message { from, message: Message::NotificationPull(pull) } => {
                 let Some(handle) = self.sessions.get(&from).cloned() else { return };
                 let held = self.notifications.as_ref();
-                for posted in pull.ids.iter().filter_map(|id| held.and_then(|held| held.get(id))) {
+                for posted in
+                    pull.ids.iter().filter_map(|id| held.and_then(|held| held.iter().find(|posted| posted.id == *id)))
+                {
                     if let Err(error) = handle.send(Message::NotificationPosted(posted.clone())).await {
                         return log::info!("{from}: answering a notification pull: {error}");
                     }

@@ -120,6 +120,9 @@
     <string name="media_pause">Pause</string>
     <string name="media_next">Next</string>
     <string name="media_previous">Previous</string>
+    <string name="media_position">Position</string>
+    <string name="media_desktop_volume">Desktop volume</string>
+    <string name="media_player_volume">Player volume</string>
     <string name="channel_ring">Find my phone</string>
     <string name="ring_title">Your desktop is looking for this phone</string>
     <string name="ring_text">Tap to stop ringing</string>

@@ -161,7 +161,11 @@ python3 "$ROOT/tests/e2e/mpris_test_player.py" "$OUT/player-calls.txt" &
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 maestro "$FLOWS/media.yaml"
 wait_for 10 "the app's Pause did not reach the desktop player" grep -qx PlayPause "$OUT/player-calls.txt"
-record '{"step":"desktop-media-on-phone","player":"E2E Player","command":"PlayPause"}'
+wait_for 10 "the Position bar did not seek the desktop player near 100 s: $(tr "\n" " " < "$OUT/player-calls.txt")" \
+  grep -qE "^SetPosition /org/e2e/track/1 (99|100)[0-9]{6}$" "$OUT/player-calls.txt"
+wait_for 10 "the Player volume bar did not set 0.50: $(tr "\n" " " < "$OUT/player-calls.txt")" \
+  grep -qx "Set Volume 0.50" "$OUT/player-calls.txt"
+record '{"step":"desktop-media-on-phone","player":"E2E Player","commands":["PlayPause","seek by the bar","volume by the bar"]}'
 
 # The desktop's player is also an Android media session (system media card, lock screen), paused as the app left it.
 # Android routes media keys only to a session that plays audio on the phone, so a key cannot reach it.

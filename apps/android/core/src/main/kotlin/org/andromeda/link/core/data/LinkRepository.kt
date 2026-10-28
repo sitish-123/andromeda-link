@@ -31,6 +31,7 @@ import org.andromeda.link.core.domain.IncomingPing
 import org.andromeda.link.core.domain.PointerButton
 import org.andromeda.link.core.domain.RemoteInput
 import org.andromeda.link.core.domain.DesktopPlayer
+import org.andromeda.link.core.domain.DesktopVolume
 import org.andromeda.link.core.domain.Feature
 import org.andromeda.link.core.domain.IncomingClip
 import org.andromeda.link.core.domain.IncomingShare
@@ -112,6 +113,7 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _mirrorCommands = MutableSharedFlow<MirrorCommand>(extraBufferCapacity = MIRROR_BUFFER)
     private val _commands = MutableStateFlow<Map<String, List<DesktopCommand>>>(emptyMap())
     private val _capabilities = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    private val _desktopVolumes = MutableStateFlow<Map<String, DesktopVolume>>(emptyMap())
     private val _pings = MutableSharedFlow<IncomingPing>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
@@ -205,6 +207,9 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     /** What each desktop's session can do now, by desktop id; absent for desktops that do not report it. */
     val capabilities: StateFlow<Map<String, Set<String>>> = _capabilities.asStateFlow()
 
+    /** Each desktop's output volume, once its link-session reported it. */
+    val desktopVolumes: StateFlow<Map<String, DesktopVolume>> = _desktopVolumes.asStateFlow()
+
     val pings: SharedFlow<IncomingPing> = _pings.asSharedFlow()
 
     /** Connects first if needed. */
@@ -252,6 +257,12 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     /** Connects first if needed. */
     suspend fun mediaCommand(desktopId: String, player: String, command: MediaCommandKind, value: Long? = null): Result<Unit> =
         call { it.mediaCommand(desktopId, player, command.toFfi(), value?.toULong()) }
+
+    /** Sets the desktop's output volume, in percent; needs the desktop's system grant. */
+    suspend fun setDesktopVolume(desktopId: String, percent: Int): Result<Unit> =
+        call { it.setDesktopVolume(desktopId, percent.coerceIn(0, 100).toUByte()) }
+
+    suspend fun setDesktopMuted(desktopId: String, muted: Boolean): Result<Unit> = call { it.setDesktopMuted(desktopId, muted) }
 
     /** Succeeds with how many connected desktops took it; none are dialled. */
     suspend fun postNotification(notification: PhoneNotification): Result<Int> = call {
@@ -448,8 +459,9 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 }
                 is LinkEvent.Pinged -> _pings.emit(IncomingPing(nameOf(event.desktopId), event.message))
                 is LinkEvent.CapabilitiesChanged -> _capabilities.update { it + (event.desktopId to event.can.toSet()) }
-                // No screen shows the desktop's volume yet; stage 4's Media screen adds the slider.
-                is LinkEvent.DesktopStatusChanged -> Unit
+                is LinkEvent.DesktopStatusChanged -> _desktopVolumes.update {
+                    it + (event.desktopId to DesktopVolume(event.volume.toInt(), event.muted))
+                }
             }
         }
     }

@@ -41,3 +41,6 @@ object MediaLimits {
     const val METADATA = 512
     const val ARTWORK = 48 * 1024
 }
+
+/** A desktop's output volume, as its link-session reports it. */
+data class DesktopVolume(val percent: Int, val muted: Boolean)

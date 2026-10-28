@@ -1,0 +1,4 @@
+# Taps the notification that shows TEXT in the open shade.
+appId: com.android.systemui
+---
+- tapOn: ${TEXT}

@@ -220,8 +220,20 @@ maestro "$FLOWS/allow-logs.yaml"
 wait_for 10 "no Stay connected notification" presence
 adb shell input keyevent KEYCODE_HOME
 
-# Automatic clipboard both ways while Stay connected runs, in Settings' device-name field: another app's copy.
+# Automatic clipboard both ways while Stay connected runs: another app's copy reaches the desktop by itself.
 clip_offers() { grep -c "member=ClipboardOffered" "$OUT/signals.txt" || true; }
+pulled() {
+  CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
+  python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" "text/plain;charset=utf-8" || fail "PullClipboard"
+}
+COPIED="copied in another app"
+BEFORE=$(clip_offers)
+adb shell am start -W -n org.andromeda.link.fixture/.TextClipboardActivity --es text "'$COPIED'" > /dev/null
+wait_for 20 "the copy in another app never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
+[[ $(pulled) == "$COPIED" ]] || fail "the desktop got \"$(pulled)\", not \"$COPIED\""
+record "{\"step\":\"android-copy-reaches-desktop\",\"text\":\"$COPIED\",\"taps\":0}"
+
+# Settings hides other apps' overlays, so its copy cannot be read by itself: a quiet prompt sends it in one tap.
 COPIED=$(adb shell settings get global device_name | tr -d '\r')
 adb shell am start -W -a android.settings.DEVICE_NAME > /dev/null
 maestro "$FLOWS/device-name-field.yaml"
@@ -229,13 +241,16 @@ maestro -e TEXT="$COPIED" "$FLOWS/field-shows.yaml"
 BEFORE=$(clip_offers)
 adb shell input keycombination 113 29 # Ctrl+A
 adb shell input keycombination 113 31 # Ctrl+C
-wait_for 20 "the copy in Settings never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
-CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
-PULLED=$(python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" "text/plain;charset=utf-8") \
-  || fail "PullClipboard"
-[[ $PULLED == "$COPIED" ]] || fail "the desktop got \"$PULLED\", not \"$COPIED\""
+prompted() { adb shell dumpsys notification --noredact | grep -q "Tap to send your copy"; }
+wait_for 10 "no prompt for the copy in Settings" prompted
+adb shell cmd statusbar expand-notifications
+maestro -e TEXT="Tap to send your copy" "$FLOWS/tap-notification.yaml"
+wait_for 20 "the copy in Settings never reached the desktop after the tap" eval '(( $(clip_offers) > BEFORE ))'
+[[ $(pulled) == "$COPIED" ]] || fail "the desktop got \"$(pulled)\", not \"$COPIED\""
 screenshot 8-copied-in-settings
-record "{\"step\":\"android-copy-reaches-desktop\",\"text\":\"$COPIED\",\"taps\":0}"
+record "{\"step\":\"settings-copy-reaches-desktop\",\"text\":\"$COPIED\",\"taps\":1}"
+adb shell am start -W -a android.settings.DEVICE_NAME > /dev/null
+maestro "$FLOWS/device-name-field.yaml"
 
 OFFERS=$(clip_offers)
 python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" offer "text/plain;charset=utf-8" "from the desktop clipboard" \
@@ -256,10 +271,7 @@ BEFORE=$(clip_offers)
 adb shell am start -W -n "$PACKAGE/.clipboard.ClipboardReadActivity" -a android.intent.action.PROCESS_TEXT \
   -t text/plain --es android.intent.extra.PROCESS_TEXT "'selected on the phone'" > /dev/null
 wait_for 20 "the selected text never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
-CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
-PULLED=$(python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" "text/plain;charset=utf-8") \
-  || fail "PullClipboard for the selection"
-[[ $PULLED == "selected on the phone" ]] || fail "the selection arrived as \"$PULLED\""
+[[ $(pulled) == "selected on the phone" ]] || fail "the selection arrived as \"$(pulled)\""
 record '{"step":"process-text-reaches-desktop","text":"selected on the phone"}'
 
 # Fixture photos for the in-app picker: two distinct PNGs in Pictures, scanned into MediaStore, with the media grants

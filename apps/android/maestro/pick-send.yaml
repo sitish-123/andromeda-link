@@ -5,7 +5,10 @@ appId: org.andromeda.link
     # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
     permissions: { notifications: allow }
     stopApp: false
-- tapOn: "Home tab"
+# A tap during the launch transition can be lost, and the app stays on its last tab.
+- tapOn:
+    text: "Home tab"
+    retryTapIfNoChange: true
 - scrollUntilVisible:
     element: "Photos"
     direction: UP

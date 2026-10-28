@@ -22,6 +22,7 @@ class PlayerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        intent.getStringExtra("title")?.let { title = it }
         session = MediaSession(this, "link-fixture")
         session.setCallback(object : MediaSession.Callback() {
             override fun onPlay() = obey("play") { playing = true }

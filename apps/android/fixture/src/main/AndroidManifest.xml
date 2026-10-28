@@ -23,7 +23,7 @@
             android:exported="true" />
         <provider
             android:name=".ImageClipboardProvider"
-            android:authorities="org.andromeda.link.fixture.clip"
+            android:authorities="${applicationId}.clip"
             android:exported="false"
             android:grantUriPermissions="true" />
         <receiver

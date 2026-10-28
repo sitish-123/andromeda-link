@@ -25,7 +25,7 @@ class ImageClipboardActivity : Activity() {
         for (y in 0 until 64) for (x in 0 until 64) bitmap.setPixel(x, y, Color.rgb(x * 4, y * 4, (x + y) * 2))
         File(filesDir, "clipboard.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
-        val uri = Uri.parse("content://org.andromeda.link.fixture.clip/clipboard.png")
+        val uri = Uri.parse("content://$packageName.clip/clipboard.png")
         getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newUri(contentResolver, "Screenshot", uri))
         finish()
     }

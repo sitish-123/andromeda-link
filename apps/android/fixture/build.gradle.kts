@@ -16,6 +16,13 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+    buildTypes {
+        // A second package, so the E2E has two media apps at once.
+        create("second") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".second"
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

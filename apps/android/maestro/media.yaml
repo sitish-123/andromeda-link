@@ -15,6 +15,7 @@ appId: org.andromeda.link
     timeout: 15000
 - takeScreenshot: ${OUT}/3-desktop-media
 - tapOn: "Pause"
-# A tap at the middle of each bar: half the track, and half the player's volume.
+# A tap at the middle of each bar: half the track, half the player's volume, and half the desk's volume.
 - tapOn: "Position"
 - tapOn: "Player volume"
+- tapOn: "Desktop volume"

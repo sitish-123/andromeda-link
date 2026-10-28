@@ -24,6 +24,7 @@ MAESTRO=${MAESTRO:-$HOME/.maestro/bin/maestro}
 SERIAL=${ANDROID_SERIAL:-emulator-5554}
 APK=${APK:-$ROOT/apps/android/app/build/outputs/apk/debug/app-debug.apk}
 FIXTURE_APK=${FIXTURE_APK:-$ROOT/apps/android/fixture/build/outputs/apk/debug/fixture-debug.apk}
+SECOND_APK=${SECOND_APK:-$ROOT/apps/android/fixture/build/outputs/apk/second/fixture-second.apk}
 FLOWS=$ROOT/apps/android/maestro
 PACKAGE=org.andromeda.link
 
@@ -119,6 +120,7 @@ record '{"step":"dismissed-from-desktop","phone":"cancelled","dbus":"Notificatio
 
 # A fresh install: replacing the package cancels its notifications late, racing the reply below.
 adb uninstall org.andromeda.link.fixture > /dev/null 2>&1 || true
+adb uninstall org.andromeda.link.fixture.second > /dev/null 2>&1 || true
 adb install "$FIXTURE_APK" > /dev/null || fail "installing $FIXTURE_APK"
 adb shell pm grant org.andromeda.link.fixture android.permission.POST_NOTIFICATIONS
 adb logcat -c
@@ -157,7 +159,24 @@ pc position 90
 wait_for 10 "the media session was not seeked" fixture " seek 90000"
 record "{\"step\":\"phone-media-on-mpris\",\"player\":\"$PLAYER\",\"commands\":[\"pause\",\"next\",\"seek\"],\"art\":\"jpeg\"}"
 
+# A second media app that plays takes over the player; when it stops, the paused first app does not come back over it.
+adb install "$SECOND_APK" > /dev/null || fail "installing $SECOND_APK"
+adb shell am start -W -n org.andromeda.link.fixture.second/org.andromeda.link.fixture.PlayerActivity --es title "'Second Song'" > /dev/null
+wait_for 20 "the second app's session did not become the player: $(pc metadata title)" eval '[[ $(pc metadata title) == "Second Song" && $(pc status) == Playing ]]'
+pc pause
+wait_for 10 "the pause did not reach the second app: $(pc status)" eval '[[ $(pc metadata title) == "Second Song" && $(pc status) == Paused ]]'
+adb uninstall org.andromeda.link.fixture.second > /dev/null
+wait_for 10 "the first app did not come back after the second left: $(pc metadata title)" eval '[[ $(pc metadata title) == "Emulator Song, part 2" ]]'
+record '{"step":"two-phone-players","newest_playing":"Second Song","after_leave":"Emulator Song, part 2"}'
+
 python3 "$ROOT/tests/e2e/mpris_test_player.py" "$OUT/player-calls.txt" &
+# A stand-in link-session reports the desk's volume at 30%; the phone's Desktop volume bar needs the system grant.
+link SetGrant "$ID" system true > /dev/null || fail "D-Bus SetGrant system"
+python3 -c 'import dbus, time
+link = dbus.Interface(dbus.SessionBus().get_object("org.andromeda.Link1", "/org/andromeda/Link1"), "org.andromeda.Link1")
+link.SetSessionCapabilities(dbus.Array(["volume"], signature="s"))
+link.SetDesktopStatus(dbus.UInt32(30), False)
+time.sleep(3600)' &
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 maestro "$FLOWS/media.yaml"
 wait_for 10 "the app's Pause did not reach the desktop player" grep -qx PlayPause "$OUT/player-calls.txt"
@@ -165,7 +184,9 @@ wait_for 10 "the Position bar did not seek the desktop player near 100 s: $(tr "
   grep -qE "^SetPosition /org/e2e/track/1 (99|100)[0-9]{6}$" "$OUT/player-calls.txt"
 wait_for 10 "the Player volume bar did not set 0.50: $(tr "\n" " " < "$OUT/player-calls.txt")" \
   grep -qx "Set Volume 0.50" "$OUT/player-calls.txt"
-record '{"step":"desktop-media-on-phone","player":"E2E Player","commands":["PlayPause","seek by the bar","volume by the bar"]}'
+wait_for 10 "the Desktop volume bar sent no set-volume near 50: $(signal SystemCommand set-volume)" \
+  eval '[[ $(signal SystemCommand set-volume) =~ uint32\ (4[5-9]|5[0-5]) ]]'
+record '{"step":"desktop-media-on-phone","player":"E2E Player","commands":["PlayPause","seek by the bar","volume by the bar","desktop volume by the bar"]}'
 
 # The desktop's player is also an Android media session (system media card, lock screen), paused as the app left it.
 # Android routes media keys only to a session that plays audio on the phone, so a key cannot reach it.
@@ -180,6 +201,35 @@ adb shell cmd statusbar expand-notifications
 maestro "$FLOWS/media-card.yaml"
 wait_for 10 "the media card's Play did not reach the desktop player: $(tr "\n" " " < "$OUT/player-calls.txt")" \
   grep -qx Play "$OUT/player-calls.txt"
+# The card's seek bar takes a drag only from its thumb (elsewhere the card itself swipes) and held like a finger, so the drag
+# is built from motion events, from the thumb to 75% (150 s).
+# uiautomator dump never sees the animated card idle; Maestro's hierarchy does not wait for idle, but sometimes misses it.
+seek_bar() {
+  "$MAESTRO" --device "$SERIAL" hierarchy 2> /dev/null | python3 -c '
+import json, re, sys
+def find(node):
+    attributes = node.get("attributes", {})
+    if attributes.get("class") == "android.widget.SeekBar":
+        return attributes["bounds"]
+    return next((b for b in map(find, node.get("children", [])) if b), None)
+print(*re.findall(r"\d+", find(json.load(sys.stdin)) or ""))' > "$OUT/seek-bar.txt"
+  [[ -s $OUT/seek-bar.txt && $(wc -w < "$OUT/seek-bar.txt") == 4 ]]
+}
+wait_for 30 "the media card shows no seek bar" seek_bar
+read -r x1 y1 x2 y2 < "$OUT/seek-bar.txt"
+y=$(((y1 + y2) / 2))
+screenshot 4b-before-drag
+# The track is the bounds less a padding of 1/20 at each end; the thumb sits at the live position of 200 s.
+read -r position updated < <(session | grep -o 'position=[0-9]*, .*updated=[0-9]*' | head -1 | grep -oE '[0-9]+' | sed -n '1p;$p' | xargs)
+now=$(adb shell cat /proc/uptime | awk '{printf "%d", $1 * 1000}')
+pad=$(((x2 - x1) / 20)) track=$((x2 - x1 - 2 * (x2 - x1) / 20))
+thumb=$((x1 + pad + track * (position + now - updated) / 200000)) target=$((x1 + pad + track * 3 / 4))
+adb shell "input motionevent DOWN $thumb $y; sleep 0.3
+for step in 1 2 3 4 5 6 7 8 9 10; do input motionevent MOVE \$(($thumb + ($target - $thumb) * step / 10)) $y; done
+sleep 0.3; input motionevent UP $target $y"
+screenshot 4c-after-drag
+wait_for 10 "dragging the card's seek bar did not seek past 120 s: $(tr "\n" " " < "$OUT/player-calls.txt")" \
+  eval 'grep -E "^SetPosition " "$OUT/player-calls.txt" | tail -1 | awk "{exit !(\$3 > 120000000 && \$3 < 190000000)}"'
 adb shell cmd statusbar collapse
 # The emulator has no lock screen until the swipe lock is on.
 adb shell locksettings set-disabled false > /dev/null

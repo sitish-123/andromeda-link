@@ -57,18 +57,18 @@
         <error line="90" column="13" source="standard:chain-method-continuation" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/fixture/PlayerActivity.kt">
-        <error line="26" column="29" source="standard:multiline-expression-wrapping" />
-        <error line="28" column="13" source="standard:blank-line-before-declaration" />
+        <error line="27" column="29" source="standard:multiline-expression-wrapping" />
         <error line="29" column="13" source="standard:blank-line-before-declaration" />
-        <error line="29" column="43" source="standard:multiline-expression-wrapping" />
-        <error line="29" column="43" source="standard:function-signature" />
-        <error line="34" column="13" source="standard:blank-line-before-declaration" />
+        <error line="30" column="13" source="standard:blank-line-before-declaration" />
+        <error line="30" column="43" source="standard:multiline-expression-wrapping" />
+        <error line="30" column="43" source="standard:function-signature" />
         <error line="35" column="13" source="standard:blank-line-before-declaration" />
-        <error line="47" column="22" source="standard:function-signature" />
-        <error line="47" column="39" source="standard:function-signature" />
-        <error line="47" column="57" source="standard:function-signature" />
-        <error line="57" column="26" source="standard:chain-method-continuation" />
-        <error line="68" column="23" source="standard:multiline-expression-wrapping" />
-        <error line="72" column="26" source="standard:chain-method-continuation" />
+        <error line="36" column="13" source="standard:blank-line-before-declaration" />
+        <error line="48" column="22" source="standard:function-signature" />
+        <error line="48" column="39" source="standard:function-signature" />
+        <error line="48" column="57" source="standard:function-signature" />
+        <error line="58" column="26" source="standard:chain-method-continuation" />
+        <error line="69" column="23" source="standard:multiline-expression-wrapping" />
+        <error line="73" column="26" source="standard:chain-method-continuation" />
     </file>
 </baseline>

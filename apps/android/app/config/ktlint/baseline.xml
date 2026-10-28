@@ -80,32 +80,34 @@
     </file>
     <file name="src/main/kotlin/org/andromeda/link/clipboard/ClipboardWatcher.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="74" column="37" source="standard:multiline-expression-wrapping" />
-        <error line="74" column="37" source="standard:function-signature" />
-        <error line="74" column="93" source="standard:condition-wrapping" />
-        <error line="75" column="30" source="standard:chain-method-continuation" />
-        <error line="75" column="36" source="standard:chain-method-continuation" />
-        <error line="75" column="59" source="standard:chain-method-continuation" />
+        <error line="73" column="37" source="standard:multiline-expression-wrapping" />
+        <error line="73" column="37" source="standard:function-signature" />
+        <error line="73" column="93" source="standard:condition-wrapping" />
+        <error line="74" column="30" source="standard:chain-method-continuation" />
+        <error line="74" column="36" source="standard:chain-method-continuation" />
+        <error line="74" column="59" source="standard:chain-method-continuation" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/clipboard/LogAccess.kt">
-        <error line="17" column="46" source="standard:multiline-expression-wrapping" />
-        <error line="17" column="46" source="standard:function-signature" />
-        <error line="17" column="59" source="standard:condition-wrapping" />
-        <error line="36" column="37" source="standard:function-signature" />
-        <error line="40" column="36" source="standard:multiline-expression-wrapping" />
-        <error line="40" column="36" source="standard:function-signature" />
-        <error line="40" column="51" source="standard:argument-list-wrapping" />
-        <error line="40" column="57" source="standard:argument-list-wrapping" />
-        <error line="40" column="75" source="standard:argument-list-wrapping" />
-        <error line="40" column="78" source="standard:argument-list-wrapping" />
-        <error line="40" column="81" source="standard:binary-expression-wrapping" />
-        <error line="40" column="89" source="standard:argument-list-wrapping" />
-        <error line="40" column="104" source="standard:argument-list-wrapping" />
-        <error line="40" column="120" source="standard:argument-list-wrapping" />
-        <error line="40" column="129" source="standard:argument-list-wrapping" />
-        <error line="40" column="141" source="standard:max-line-length" />
-        <error line="40" column="145" source="standard:argument-list-wrapping" />
-        <error line="45" column="28" source="standard:chain-method-continuation" />
+        <error line="18" column="46" source="standard:multiline-expression-wrapping" />
+        <error line="18" column="46" source="standard:function-signature" />
+        <error line="18" column="59" source="standard:condition-wrapping" />
+        <error line="41" column="46" source="standard:multiline-expression-wrapping" />
+        <error line="41" column="46" source="standard:function-signature" />
+        <error line="47" column="37" source="standard:function-signature" />
+        <error line="51" column="36" source="standard:multiline-expression-wrapping" />
+        <error line="51" column="36" source="standard:function-signature" />
+        <error line="51" column="51" source="standard:argument-list-wrapping" />
+        <error line="51" column="57" source="standard:argument-list-wrapping" />
+        <error line="51" column="75" source="standard:argument-list-wrapping" />
+        <error line="51" column="78" source="standard:argument-list-wrapping" />
+        <error line="51" column="81" source="standard:binary-expression-wrapping" />
+        <error line="51" column="89" source="standard:argument-list-wrapping" />
+        <error line="51" column="104" source="standard:argument-list-wrapping" />
+        <error line="51" column="120" source="standard:argument-list-wrapping" />
+        <error line="51" column="129" source="standard:argument-list-wrapping" />
+        <error line="51" column="141" source="standard:max-line-length" />
+        <error line="51" column="145" source="standard:argument-list-wrapping" />
+        <error line="56" column="28" source="standard:chain-method-continuation" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/control/RemoteScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />

@@ -49,7 +49,7 @@ class OnboardingViewModel(
     }
 
     /** The two halves of automatic clipboard, which the page shows apart since only one is given on the phone. */
-    fun overlayAllowed(): Boolean = Settings.canDrawOverlays(application)
+    fun overlayAllowed(): Boolean = LogAccess.overlayAllowed(application)
 
     fun logsAllowed(): Boolean = LogAccess.allowed(application)
 

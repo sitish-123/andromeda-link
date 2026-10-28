@@ -3,6 +3,7 @@ package org.andromeda.link.clipboard
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.provider.Settings
 import rikka.shizuku.Shizuku
 import java.io.File
 
@@ -28,10 +29,20 @@ object LogAccess {
     /** Blocks while the root manager asks the user the first time. */
     fun logcat(vararg args: String): Process {
         if (shizuku()) return newProcess.invoke(null, arrayOf("logcat", *args), null, null) as Process
-        if (hasSu() && root == null) root = runCatching { ProcessBuilder("su", "-c", "true").start().waitFor() == 0 }.getOrDefault(false)
+        if (hasSu() && root == null) root = su("true")
         if (root == true) return ProcessBuilder("su", "-c", (listOf("logcat") + args).joinToString(" ") { "'$it'" }).start()
         return ProcessBuilder("logcat", *args).start()
     }
+
+    /** Whether the overlay [ClipboardOverlay] needs is allowed, or root may still allow it in [overlay]. */
+    fun overlayAllowed(context: Context): Boolean = Settings.canDrawOverlays(context) || (hasSu() && root != false)
+
+    /** With root the overlay is given here, so the user sets nothing in Settings; blocks like [logcat]. */
+    fun overlay(context: Context): Boolean = Settings.canDrawOverlays(context) ||
+        (hasSu() && root != false && su("appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow"))
+
+    private fun su(command: String): Boolean =
+        runCatching { ProcessBuilder("su", "-c", command).start().waitFor() == 0 }.getOrDefault(false).also { root = it }
 
     private fun shizuku(): Boolean =
         Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED

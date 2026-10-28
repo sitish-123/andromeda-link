@@ -3,7 +3,6 @@ package org.andromeda.link.clipboard
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
-import android.provider.Settings
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -84,6 +83,7 @@ class ClipboardWatcher(
     }
 
     private suspend fun follow() {
+        if (!LogAccess.overlay(context)) return
         // -T 1 starts at the newest line, so only denials from now on count.
         val logcat = LogAccess.logcat("-T", "1", "-v", "brief", "ClipboardService:E", "*:S")
         process = logcat
@@ -104,6 +104,6 @@ class ClipboardWatcher(
     }
 
     companion object {
-        fun granted(context: Context): Boolean = LogAccess.allowed(context) && Settings.canDrawOverlays(context)
+        fun granted(context: Context): Boolean = LogAccess.allowed(context) && LogAccess.overlayAllowed(context)
     }
 }

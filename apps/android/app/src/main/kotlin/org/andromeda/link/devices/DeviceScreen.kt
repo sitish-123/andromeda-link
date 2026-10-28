@@ -99,7 +99,13 @@ fun DeviceScreen(
                     FeatureRow(Feature.Media, R.string.feature_media, R.string.feature_media_hint, Icons.Filled.PlayArrow),
                     FeatureRow(Feature.Ring, R.string.feature_ring, R.string.feature_ring_hint, Icons.Filled.Phone),
                     FeatureRow(Feature.Calls, R.string.feature_calls, R.string.feature_calls_hint, Icons.Filled.Call),
-                ).forEach { row ->
+                ).filter { row ->
+                    when (row.feature) {
+                        Feature.Clipboard -> state.desktopCan(CAN_CLIPBOARD)
+                        Feature.Notifications -> state.desktopCan(CAN_NOTIFICATIONS)
+                        else -> true
+                    }
+                }.forEach { row ->
                     SwitchRow(
                         title = stringResource(row.label),
                         subtitle = stringResource(row.hint),
@@ -123,8 +129,10 @@ fun DeviceScreen(
             if (desktop.control) {
                 DashboardSection(stringResource(R.string.control_title), stringResource(R.string.control_hint))
                 DashboardCard(Modifier.fillMaxWidth()) {
-                    NavRow(stringResource(R.string.remote_title), null, Icons.Filled.Edit, onRemote)
-                    NavRow(stringResource(R.string.presenter_title), null, Icons.Filled.PlayArrow, onPresenter)
+                    if (state.desktopCan(CAN_INPUT)) {
+                        NavRow(stringResource(R.string.remote_title), null, Icons.Filled.Edit, onRemote)
+                        NavRow(stringResource(R.string.presenter_title), null, Icons.Filled.PlayArrow, onPresenter)
+                    }
                     NavRow(stringResource(R.string.ping), stringResource(R.string.ping_hint), Icons.Filled.Notifications, viewModel::ping)
                     state.commands.forEach { command ->
                         NavRow(command.name, stringResource(R.string.command_hint), Icons.Filled.Build, { viewModel.run(command) })

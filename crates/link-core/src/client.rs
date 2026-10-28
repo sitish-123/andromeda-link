@@ -1125,7 +1125,10 @@ impl ClientActor {
                 }
             }
             SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
-            SessionEvent::Message { from, message: message @ Message::Ping(_) } => {
+            SessionEvent::Message {
+                from,
+                message: message @ (Message::Ping(_) | Message::Capabilities(_) | Message::DesktopStatus(_)),
+            } => {
                 self.emit(ClientEvent::Message { from, message }).await;
             }
             SessionEvent::Message { from, message } => {

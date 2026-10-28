@@ -1539,6 +1539,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
+name = "link-api"
+version = "0.1.0"
+dependencies = [
+ "zbus",
+ "zbus_xml",
+ "zbus_xmlgen",
+]
+
+[[package]]
 name = "link-app"
 version = "0.1.0"
 dependencies = [
@@ -1547,6 +1556,7 @@ dependencies = [
  "futures-util",
  "gtk4",
  "libadwaita",
+ "link-api",
  "log",
  "pango",
  "qrcode",
@@ -1702,6 +1712,7 @@ dependencies = [
  "anyhow",
  "env_logger",
  "futures-util",
+ "link-api",
  "log",
  "reis",
  "rustix",
@@ -2661,6 +2672,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
+name = "snakecase"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfa28ca481031c5019449fe13932199d8f5189d49a9ec1abfe00056d7d24637d"
+
+[[package]]
 name = "socket-pktinfo"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2877,6 +2894,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -2969,7 +2987,19 @@ checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
  "log",
  "pin-project-lite",
+ "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -3658,6 +3688,7 @@ dependencies = [
  "serde_repr",
  "socket2",
  "tokio",
+ "tracing",
  "uds_windows",
  "uuid",
  "windows-sys 0.61.2",
@@ -3691,6 +3722,27 @@ dependencies = [
  "serde",
  "syn 3.0.6",
  "winnow 1.0.4",
+]
+
+[[package]]
+name = "zbus_xml"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d21954afb379fe9389d5aaa8a91f9e1a19b58f72061a78199162ea39e63c801a"
+dependencies = [
+ "winnow 1.0.4",
+ "zbus",
+]
+
+[[package]]
+name = "zbus_xmlgen"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9077a8de5cd76193c7d4778abe033cbf96788f57f059c69c071becdc8d01f19b"
+dependencies = [
+ "snakecase",
+ "zbus",
+ "zbus_xml",
 ]
 
 [[package]]
@@ -3742,4 +3794,8 @@ checksum = "dfc035df602243402949ddf3dcc5bcfad7edeb732dd49ec6e605431c4eca54ce"
 dependencies = [
  "futures-core",
  "futures-io",
+ "rustix",
+ "socket2",
+ "tracing",
+ "windows-sys 0.61.2",
 ]

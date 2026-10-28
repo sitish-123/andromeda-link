@@ -10,7 +10,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg / fs-stat-msg / fs-thumb-msg /
   contacts-list-msg / contacts-msg / contacts-changed-msg /
   texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
-  remote-input-msg / commands-msg / run-command-msg / ping-msg /
+  remote-input-msg / commands-msg / run-command-msg / ping-msg / capabilities-msg / desktop-status-msg / system-command-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
@@ -285,3 +285,17 @@ commands-msg = { type: "commands", id: uint, body: {
 } }
 run-command-msg = { type: "run-command", id: uint, body: { id: tstr .size (1..64) } }
 ping-msg = { type: "ping", id: uint, body: { ? message: tstr .size (1..256) } }
+
+; Desktop to phone, only when both hellos listed "feature:capabilities"; on connect and after each change: what the
+; desktop's session can do now ("clipboard", "input", "notifications", "volume"). The phone hides the rest and skips
+; entries it does not know.
+capabilities-msg = { type: "capabilities", id: uint, body: { can: [* tstr .size (1..32)] } }  ; at most 16
+
+; Only when both hellos listed "feature:system". Desktop to phone, on connect and after each change: the desktop's
+; state (stage 4 adds fields). Phone to desktop, while the desktop's system switch for the phone is on: a command;
+; set-volume takes a percent, set-mute 1 to mute and 0 to unmute.
+desktop-status-msg = { type: "desktop-status", id: uint, body: { volume: uint .le 100, muted: bool } }
+system-command-msg = { type: "system-command", id: uint, body:
+  { command: "set-volume", value: uint .le 100 } /
+  { command: "set-mute", value: 0 / 1 }
+}

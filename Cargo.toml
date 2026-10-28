@@ -9,6 +9,7 @@ rust-version = "1.88"
 publish = false
 
 [workspace.dependencies]
+link-api = { path = "crates/link-api" }
 link-proto = { path = "crates/link-proto" }
 link-core = { path = "crates/link-core" }
 link-quickshare = { path = "crates/link-quickshare" }

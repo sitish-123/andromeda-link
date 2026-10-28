@@ -15,12 +15,20 @@ import org.andromeda.link.core.domain.Feature
 import org.andromeda.link.core.domain.LinkFailure
 import org.andromeda.link.core.domain.linkFailure
 
+const val CAN_CLIPBOARD = "clipboard"
+const val CAN_INPUT = "input"
+const val CAN_NOTIFICATIONS = "notifications"
+
 data class DeviceState(
     val desktop: Desktop? = null,
     val busy: Boolean = false,
     val failure: LinkFailure? = null,
     val commands: List<DesktopCommand> = emptyList(),
-)
+    /** What the desktop's session can do now; null when it does not say, so nothing is hidden. */
+    val capabilities: Set<String>? = null,
+) {
+    fun desktopCan(capability: String): Boolean = capabilities?.contains(capability) ?: true
+}
 
 /** One desktop: this phone's switches for it, reconnecting, and unpairing. */
 class DeviceViewModel(private val repository: LinkRepository, private val desktopId: String) : ViewModel() {
@@ -28,9 +36,22 @@ class DeviceViewModel(private val repository: LinkRepository, private val deskto
     private val failure = MutableStateFlow<LinkFailure?>(null)
     private val _unpaired = MutableStateFlow(false)
 
-    val state: StateFlow<DeviceState> = combine(repository.desktops, busy, failure, repository.commands) { desktops, working, failed, commands ->
-        DeviceState(desktops.firstOrNull { it.id == desktopId }, working, failed, commands[desktopId].orEmpty())
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), DeviceState())
+    val state: StateFlow<DeviceState> =
+        combine(
+            repository.desktops,
+            busy,
+            failure,
+            repository.commands,
+            repository.capabilities,
+        ) { desktops, working, failed, commands, capabilities ->
+            DeviceState(
+                desktops.firstOrNull { it.id == desktopId },
+                working,
+                failed,
+                commands[desktopId].orEmpty(),
+                capabilities[desktopId],
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), DeviceState())
 
     /** True once the desktop is unpaired, so the screen leaves. */
     val unpaired: StateFlow<Boolean> = _unpaired

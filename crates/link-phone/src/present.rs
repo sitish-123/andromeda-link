@@ -99,7 +99,12 @@ pub async fn share(phone: Phone, inbox: Inbox, id: DeviceId, share: Share) -> an
 async fn reply(session: &mut Session) -> Result<Message, Error> {
     loop {
         match session.control.recv().await? {
-            Message::Commands(_) | Message::MediaPlayer(_) | Message::ContactsList(_) | Message::TextsList(_) => {}
+            Message::Commands(_)
+            | Message::Capabilities(_)
+            | Message::DesktopStatus(_)
+            | Message::MediaPlayer(_)
+            | Message::ContactsList(_)
+            | Message::TextsList(_) => {}
             message => return Ok(message),
         }
     }

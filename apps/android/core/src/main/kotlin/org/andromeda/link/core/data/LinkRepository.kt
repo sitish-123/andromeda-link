@@ -111,6 +111,7 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     private val _callActions = MutableSharedFlow<CallAction>(extraBufferCapacity = INCOMING_BUFFER)
     private val _mirrorCommands = MutableSharedFlow<MirrorCommand>(extraBufferCapacity = MIRROR_BUFFER)
     private val _commands = MutableStateFlow<Map<String, List<DesktopCommand>>>(emptyMap())
+    private val _capabilities = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     private val _pings = MutableSharedFlow<IncomingPing>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
@@ -200,6 +201,9 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     /** What each desktop lets this phone run there, by desktop id. */
     val commands: StateFlow<Map<String, List<DesktopCommand>>> = _commands.asStateFlow()
+
+    /** What each desktop's session can do now, by desktop id; absent for desktops that do not report it. */
+    val capabilities: StateFlow<Map<String, Set<String>>> = _capabilities.asStateFlow()
 
     val pings: SharedFlow<IncomingPing> = _pings.asSharedFlow()
 
@@ -385,6 +389,7 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                 is LinkEvent.Disconnected -> {
                     markConnected(event.desktopId, false)
                     _desktopPlayers.update { list -> list.filter { it.desktopId != event.desktopId } }
+                    _capabilities.update { it - event.desktopId }
                 }
                 is LinkEvent.PlayerChanged -> {
                     val player = event.player.toDomain(SystemClock.elapsedRealtime())
@@ -442,6 +447,9 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                     it + (event.desktopId to event.commands.map { command -> DesktopCommand(command.id, command.name) })
                 }
                 is LinkEvent.Pinged -> _pings.emit(IncomingPing(nameOf(event.desktopId), event.message))
+                is LinkEvent.CapabilitiesChanged -> _capabilities.update { it + (event.desktopId to event.can.toSet()) }
+                // No screen shows the desktop's volume yet; stage 4's Media screen adds the slider.
+                is LinkEvent.DesktopStatusChanged -> Unit
             }
         }
     }

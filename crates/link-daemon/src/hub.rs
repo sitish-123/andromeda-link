@@ -10,9 +10,9 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    CONTROL, Call, CallState, FEATURE, FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer,
-    Message, NotificationPosted, Ping, RemoteInput, Share, Status, Text, TransferId, WIFI_DIRECT_BY_ADDRESS,
-    WifiDirect, WifiDirectReady,
+    CAN_VOLUME, CAPABILITIES, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE, FS_STAT, Hello, Hotspot,
+    HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message, NotificationPosted, Ping, RemoteInput, SYSTEM, Share,
+    Status, SystemCommand, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -70,6 +70,8 @@ pub struct Snapshot {
     pub texts: Vec<(String, crate::messages::Texts)>,
     /// `(name, command)`, the D-Bus `Commands` property.
     pub commands: Vec<(String, String)>,
+    /// What `link-session` can do now, the D-Bus `SessionCapabilities` property.
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -128,6 +130,11 @@ pub enum Event {
         id: DeviceId,
         input: RemoteInput,
     },
+    /// The phone sets the desktop's volume.
+    SystemCommand {
+        id: DeviceId,
+        command: SystemCommand,
+    },
     Pinged {
         id: DeviceId,
         message: Option<String>,
@@ -185,6 +192,9 @@ enum Command {
     SendText { id: DeviceId, to: String, body: String, reply: crate::messages::SendReply },
     OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
     SetCommands { commands: Vec<StoredCommand>, reply: oneshot::Sender<bool> },
+    SetCapabilities { owner: String, can: Vec<String> },
+    CapabilitiesGone { owner: String },
+    SetDesktopStatus { status: DesktopStatus },
     Ping { id: DeviceId, message: Option<String>, reply: oneshot::Sender<Result<(), link_core::Error>> },
 }
 
@@ -247,6 +257,10 @@ pub struct Hub {
     browsing: browse::Browsing,
     /// Each connected phone's `feature:` entries from its hello.
     features: HashMap<DeviceId, Vec<String>>,
+    /// The D-Bus unique name of the `link-session` that last reported, and what it can do.
+    capabilities: Option<(String, Vec<String>)>,
+    /// The desktop's state as `link-session` last reported it.
+    desktop_status: Option<DesktopStatus>,
     messages: crate::messages::Messages,
     mirrors: crate::mirror::Mirrors,
     puncher: Puncher,
@@ -320,6 +334,8 @@ impl Hub {
             hotspot_asked: HashSet::new(),
             browsing: browse::Browsing::default(),
             features: HashMap::new(),
+            capabilities: None,
+            desktop_status: None,
             messages: crate::messages::Messages::default(),
             mirrors: crate::mirror::Mirrors::default(),
             puncher,
@@ -396,6 +412,20 @@ impl Hub {
             Command::Browse { id, request, reply } => self.browse(id, request, reply).await,
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
             Command::SetCommands { commands, reply } => drop(reply.send(self.set_commands(commands).await)),
+            Command::SetCapabilities { owner, can } => self.set_capabilities(Some((owner, can))).await,
+            Command::SetDesktopStatus { status } => {
+                if self.desktop_status.as_ref() != Some(&status) {
+                    self.desktop_status = Some(status);
+                    for id in self.sessions.keys().cloned().collect::<Vec<_>>() {
+                        self.send_desktop_status(&id).await;
+                    }
+                }
+            }
+            Command::CapabilitiesGone { owner } => {
+                if self.capabilities.as_ref().is_some_and(|(current, _)| *current == owner) {
+                    self.set_capabilities(None).await;
+                }
+            }
             Command::Ping { id, message, reply } => drop(reply.send(self.ping(&id, message).await)),
             Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
             Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
@@ -649,6 +679,7 @@ impl Hub {
                 self.leave_hotspot(&from).await;
             }
             Message::RemoteInput(input) => self.emit(Event::RemoteInput { id: from, input }).await,
+            Message::SystemCommand(command) => self.emit(Event::SystemCommand { id: from, command }).await,
             Message::RunCommand(run) => {
                 match self.store.commands.iter().find(|stored| crate::control::id(stored) == run.id) {
                     Some(stored) => match crate::control::run(stored) {
@@ -796,6 +827,8 @@ impl Hub {
             self.send_to(&id, texts).await;
         }
         self.send_commands(&id).await;
+        self.send_capabilities(&id).await;
+        self.send_desktop_status(&id).await;
         let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
         let ready = self
             .wifi_direct_peer
@@ -898,6 +931,40 @@ impl Hub {
             Some(_) if !self.phone_has(id, CONTROL) => Err(link_core::Error::Unexpected("ping")),
             Some(session) => session.send(Message::Ping(Ping { message })).await,
             None => Err(link_core::Error::NotConnected),
+        }
+    }
+
+    fn capabilities(&self) -> &[String] {
+        self.capabilities.as_ref().map_or(&[], |(_, can)| can.as_slice())
+    }
+
+    async fn set_capabilities(&mut self, capabilities: Option<(String, Vec<String>)>) {
+        let changed = self.capabilities().to_vec() != capabilities.as_ref().map_or(&[][..], |(_, can)| can.as_slice());
+        self.capabilities = capabilities;
+        // A volume no session can set any more is not sent to phones that connect later.
+        if !self.capabilities().iter().any(|can| can == CAN_VOLUME) {
+            self.desktop_status = None;
+        }
+        if !changed {
+            return;
+        }
+        self.publish();
+        for id in self.sessions.keys().cloned().collect::<Vec<_>>() {
+            self.send_capabilities(&id).await;
+        }
+    }
+
+    async fn send_capabilities(&self, id: &DeviceId) {
+        if self.phone_has(id, CAPABILITIES) {
+            self.send_to(id, Message::Capabilities(Capabilities { can: self.capabilities().to_vec() })).await;
+        }
+    }
+
+    async fn send_desktop_status(&self, id: &DeviceId) {
+        if let Some(status) = &self.desktop_status
+            && self.phone_has(id, SYSTEM)
+        {
+            self.send_to(id, Message::DesktopStatus(status.clone())).await;
         }
     }
 
@@ -1190,7 +1257,19 @@ impl Hub {
             let commands =
                 self.store.commands.iter().map(|stored| (stored.name.clone(), stored.command.clone())).collect();
             let pairing = self.window.is_some();
-            let next = Snapshot { devices, pairing, auto_accept, grants, status, localsend, contacts, texts, commands };
+            let capabilities = self.capabilities().to_vec();
+            let next = Snapshot {
+                devices,
+                pairing,
+                auto_accept,
+                grants,
+                status,
+                localsend,
+                contacts,
+                texts,
+                commands,
+                capabilities,
+            };
             let changed = *current != next;
             *current = next;
             changed
@@ -1316,6 +1395,21 @@ impl HubHandle {
 
     pub async fn session(&self, id: DeviceId) -> Option<SessionHandle> {
         self.request(|reply| Command::Session { id, reply }).await.flatten()
+    }
+
+    /// Records what the `link-session` at D-Bus name `owner` can do, and tells connected phones.
+    pub async fn set_capabilities(&self, owner: String, can: Vec<String>) {
+        self.tell(Command::SetCapabilities { owner, can }).await;
+    }
+
+    /// Records the desktop's state and sends it to connected phones when it changed.
+    pub async fn set_desktop_status(&self, status: DesktopStatus) {
+        self.tell(Command::SetDesktopStatus { status }).await;
+    }
+
+    /// Forgets the capabilities `owner` reported, when it still holds them.
+    pub async fn capabilities_gone(&self, owner: String) {
+        self.tell(Command::CapabilitiesGone { owner }).await;
     }
 
     /// Replaces the commands phones may run; false when the list breaks its limits.

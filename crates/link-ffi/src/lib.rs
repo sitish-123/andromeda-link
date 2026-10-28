@@ -249,6 +249,18 @@ pub enum LinkEvent {
         desktop_id: String,
         message: Option<String>,
     },
+    /// What the desktop's session can do now (`clipboard`, `input`, `notifications`, `volume`); sent on connect and
+    /// after each change. Desktops from before it send none.
+    CapabilitiesChanged {
+        desktop_id: String,
+        can: Vec<String>,
+    },
+    /// The desktop's output volume (percent) and mute; sent on connect and after each change.
+    DesktopStatusChanged {
+        desktop_id: String,
+        volume: u8,
+        muted: bool,
+    },
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -891,6 +903,15 @@ impl LinkClient {
         self.run(async move { client.send(id, Message::RemoteInput(input.into())).await }).await
     }
 
+    /// Sets the desktop's output volume, `percent` 0 to 100; needs the desktop's system switch for this phone.
+    pub async fn set_desktop_volume(&self, desktop_id: String, percent: u8) -> Result<(), LinkError> {
+        self.system_command(desktop_id, message::SystemCommandKind::SetVolume, percent).await
+    }
+
+    pub async fn set_desktop_muted(&self, desktop_id: String, muted: bool) -> Result<(), LinkError> {
+        self.system_command(desktop_id, message::SystemCommandKind::SetMute, u8::from(muted)).await
+    }
+
     /// Runs one of the commands from [`LinkEvent::CommandsChanged`] on the desktop.
     pub async fn run_command(&self, desktop_id: String, command_id: String) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
@@ -1139,6 +1160,12 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                     commands: list.commands.into_iter().map(|c| DesktopCommand { id: c.id, name: c.name }).collect(),
                 },
                 Message::Ping(ping) => LinkEvent::Pinged { desktop_id, message: ping.message },
+                Message::Capabilities(capabilities) => {
+                    LinkEvent::CapabilitiesChanged { desktop_id, can: capabilities.can }
+                }
+                Message::DesktopStatus(status) => {
+                    LinkEvent::DesktopStatusChanged { desktop_id, volume: status.volume, muted: status.muted }
+                }
                 Message::MirrorStop(stop) => LinkEvent::MirrorStopped { desktop_id, reason: stop.reason },
                 Message::MediaCommand(command) => LinkEvent::PlayerCommand {
                     desktop_id,
@@ -1153,6 +1180,17 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
 }
 
 impl LinkClient {
+    async fn system_command(
+        &self,
+        desktop_id: String,
+        command: message::SystemCommandKind,
+        value: u8,
+    ) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let message = Message::SystemCommand(message::SystemCommand { command, value });
+        self.run(async move { client.send(id, message).await }).await
+    }
+
     /// Runs `work` on the client's runtime, which owns the timers and sockets it needs.
     async fn run<T: Send + 'static>(
         &self,

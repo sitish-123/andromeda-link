@@ -32,6 +32,20 @@ pub struct Posted {
     pub actions: Vec<(String, String, bool)>,
 }
 
+impl From<&link_api::NotificationPostedArgs<'_>> for Posted {
+    fn from(args: &link_api::NotificationPostedArgs<'_>) -> Self {
+        Self {
+            device: args.device_id.to_owned(),
+            id: args.id.to_owned(),
+            app: args.app.to_owned(),
+            title: args.title.to_owned(),
+            text: args.text.to_owned(),
+            icon: args.icon.clone(),
+            actions: args.actions.iter().map(|&(id, label, reply)| (id.to_owned(), label.to_owned(), reply)).collect(),
+        }
+    }
+}
+
 struct Mirrored {
     device: String,
     id: String,

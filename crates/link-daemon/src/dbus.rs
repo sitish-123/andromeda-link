@@ -6,12 +6,14 @@ use std::fs::File;
 use std::io::Read as _;
 use std::os::fd::OwnedFd;
 
+use futures_util::StreamExt;
 use link_core::Error;
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    CallAction, CallActionKind, InputAction, MAX_NAME_LEN, MAX_NUMBER_LEN, MAX_SHARE_LEN, MAX_TEXT_BODY, Message,
-    MirrorAction, MirrorInput, NotificationAction, NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring,
-    Ringing, Share, ShareKind, TransferId, is_text_mime,
+    CallAction, CallActionKind, DesktopStatus, InputAction, MAX_CAPABILITIES, MAX_CAPABILITY_LEN, MAX_NAME_LEN,
+    MAX_NUMBER_LEN, MAX_SHARE_LEN, MAX_TEXT_BODY, Message, MirrorAction, MirrorInput, NotificationAction,
+    NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring, Ringing, Share, ShareKind, TransferId,
+    is_text_mime,
 };
 use link_core::store::StoredCommand;
 use link_core::transfer::{LocalClip, Source};
@@ -32,6 +34,8 @@ struct Link {
     hub: HubHandle,
     snapshots: watch::Receiver<Snapshot>,
     nearby: watch::Receiver<Vec<(String, String)>>,
+    /// Callers of `SetSessionCapabilities` whose leaving the bus is watched.
+    watched: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 #[derive(Debug, zbus::DBusError)]
@@ -490,6 +494,49 @@ impl Link {
         self.snapshots.borrow().commands.clone()
     }
 
+    /// Records what the calling `link-session` can do, until it calls again or leaves the bus, and tells phones.
+    async fn set_session_capabilities(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
+        capabilities: Vec<String>,
+    ) -> fdo::Result<()> {
+        if capabilities.len() > MAX_CAPABILITIES
+            || capabilities.iter().any(|entry| entry.is_empty() || entry.len() > MAX_CAPABILITY_LEN)
+        {
+            return Err(fdo::Error::InvalidArgs("at most 16 capabilities, each 1 to 32 bytes".to_owned()));
+        }
+        let owner = header.sender().ok_or_else(|| fdo::Error::Failed("no sender".to_owned()))?.to_owned();
+        // One watcher per caller: a caller that reports again keeps the one it has.
+        if !self.watched.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(owner.to_string()) {
+            self.hub.set_capabilities(owner.to_string(), capabilities).await;
+            return Ok(());
+        }
+        let bus = fdo::DBusProxy::new(connection).await?;
+        // Subscribed before the owner check, so a caller that leaves meanwhile is not missed.
+        let mut gone = bus.receive_name_owner_changed_with_args(&[(0, owner.as_str())]).await?;
+        self.hub.set_capabilities(owner.to_string(), capabilities).await;
+        let (hub, watched) = (self.hub.clone(), self.watched.clone());
+        let present = bus.name_has_owner(owner.as_ref().into()).await.unwrap_or(false);
+        tokio::spawn(async move {
+            if present {
+                while let Some(changed) = gone.next().await {
+                    if changed.args().is_ok_and(|args| args.new_owner().is_none()) {
+                        break;
+                    }
+                }
+            }
+            watched.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(owner.as_str());
+            hub.capabilities_gone(owner.to_string()).await;
+        });
+        Ok(())
+    }
+
+    #[zbus(property)]
+    fn session_capabilities(&self) -> Vec<String> {
+        self.snapshots.borrow().capabilities.clone()
+    }
+
     /// Shows `message`, or a plain ping when empty, on the phone.
     async fn ping(&self, device_id: String, message: String) -> Result<(), LinkError> {
         let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
@@ -520,6 +567,25 @@ impl Link {
         dy: i32,
         detail: &str,
     ) -> zbus::Result<()>;
+
+    /// A phone with the system grant asks for `set-volume` (`value` a percent) or `set-mute` (`value` 1 or 0).
+    #[zbus(signal)]
+    async fn system_command(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        command: &str,
+        value: u32,
+    ) -> zbus::Result<()>;
+
+    /// Called by `link-session`: the default output's volume (percent) and mute, sent to phones when they change.
+    async fn set_desktop_status(&self, volume: u32, muted: bool) -> fdo::Result<()> {
+        let volume = u8::try_from(volume)
+            .ok()
+            .filter(|volume| *volume <= 100)
+            .ok_or_else(|| fdo::Error::InvalidArgs("volume is a percent, 0 to 100".to_owned()))?;
+        self.hub.set_desktop_status(DesktopStatus { volume, muted }).await;
+        Ok(())
+    }
 }
 
 impl Link {
@@ -611,7 +677,7 @@ pub async fn serve(
     snapshots: watch::Receiver<Snapshot>,
     nearby: watch::Receiver<Vec<(String, String)>>,
 ) -> anyhow::Result<()> {
-    bus.object_server().at(PATH, Link { hub, snapshots, nearby }).await?;
+    bus.object_server().at(PATH, Link { hub, snapshots, nearby, watched: std::sync::Arc::default() }).await?;
     bus.request_name(NAME).await?;
     Ok(())
 }
@@ -658,6 +724,9 @@ pub async fn forward(
                 if next.commands != last.commands {
                     link.get().await.commands_changed(emitter).await?;
                 }
+                if next.capabilities != last.capabilities {
+                    link.get().await.session_capabilities_changed(emitter).await?;
+                }
                 last = next;
             }
             changed = nearby.changed() => {
@@ -685,6 +754,10 @@ pub async fn forward(
                     Link::pinged(emitter, id.as_str(), &message.unwrap_or_default()).await?;
                 }
                 Event::RemoteInput { id, input } => emit_input(emitter, &id, input).await?,
+                Event::SystemCommand { id, command } => {
+                    let name = wire_name(&command.command);
+                    Link::system_command(emitter, id.as_str(), &name, u32::from(command.value)).await?;
+                }
                 Event::Call { id, call } => {
                     let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
                     Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;

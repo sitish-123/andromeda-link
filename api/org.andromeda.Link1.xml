@@ -43,6 +43,23 @@
       <arg name="path" type="s" direction="in"/>
       <arg name="entries" type="a(sbtt)" direction="out"/>
     </method>
+    <!-- One entry on a connected phone, as ListFiles gives it: (name, is_folder, size, mtime). Errors as ListFiles. -->
+    <method name="StatFile">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="name" type="s" direction="out"/>
+      <arg name="is_folder" type="b" direction="out"/>
+      <arg name="size" type="t" direction="out"/>
+      <arg name="mtime" type="t" direction="out"/>
+    </method>
+    <!-- A PNG of an image or video on a connected phone, at most size pixels (1 to 1024) on its longer side. Errors
+         as ListFiles. -->
+    <method name="Thumbnail">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="size" type="q" direction="in"/>
+      <arg name="png" type="ay" direction="out"/>
+    </method>
     <!-- Up to length bytes (1 byte to 1 MiB) of a file on a connected phone from offset; fewer at its end, none
          past it. Errors as ListFiles. -->
     <method name="ReadFile">
@@ -264,6 +281,13 @@
     <method name="SetCommands">
       <arg name="commands" type="a(ss)" direction="in"/>
     </method>
+    <!-- What link-session can do now: clipboard, input, notifications, volume. Empty while no link-session runs. -->
+    <property name="SessionCapabilities" type="as" access="read"/>
+    <!-- Called by link-session: replaces SessionCapabilities until the caller calls again or leaves the bus, and
+         sends phones the new set. Errors: InvalidArgs past 16 entries, or for an entry not 1 to 32 bytes. -->
+    <method name="SetSessionCapabilities">
+      <arg name="capabilities" type="as" direction="in"/>
+    </method>
     <!-- Shows message, or a plain ping when empty, on the phone. Errors: .NotConnected; .Rejected when the phone's
          Link takes no pings. -->
     <method name="Ping">
@@ -275,6 +299,43 @@
       <arg name="device_id" type="s"/>
       <arg name="message" type="s"/>
     </signal>
+    <!-- A phone holding the system grant asks for set-volume (value a percent) or set-mute (value 1 or 0);
+         link-session carries it out. -->
+    <signal name="SystemCommand">
+      <arg name="device_id" type="s"/>
+      <arg name="command" type="s"/>
+      <arg name="value" type="u"/>
+    </signal>
+    <!-- Called by link-session: the default output's volume (percent) and mute, sent to phones when they change.
+         Errors: InvalidArgs for a volume over 100. -->
+    <method name="SetDesktopStatus">
+      <arg name="volume" type="u" direction="in"/>
+      <arg name="muted" type="b" direction="in"/>
+    </method>
+    <!-- True when a phone with a Link session reported passkey for the Bluetooth pairing under way, so the desktop's
+         pairing agent confirms without asking. Answers true once per report; waits up to 10 s for the report. -->
+    <method name="ConfirmBluetoothPairing">
+      <arg name="passkey" type="u" direction="in"/>
+      <arg name="confirmed" type="b" direction="out"/>
+    </method>
+    <!-- Device id to its contacts as (name, numbers), from phones whose messages switch is on. -->
+    <property name="Contacts" type="a{sa(sas)}" access="read"/>
+    <!-- Device id to its newest texts (id, thread, address, body, date in Unix ms, sent), newest first, from phones
+         whose messages switch is on. -->
+    <property name="Texts" type="a{sa(ttsstb)}" access="read"/>
+    <!-- A text the phone received, newer than every text kept for it. -->
+    <signal name="TextReceived">
+      <arg name="device_id" type="s"/>
+      <arg name="id" type="t"/>
+      <arg name="address" type="s"/>
+      <arg name="body" type="s"/>
+    </signal>
+    <!-- Sends a text through a connected phone whose messages switch is on; returns once the phone reports it sent. -->
+    <method name="SendText">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="to" type="s" direction="in"/>
+      <arg name="body" type="s" direction="in"/>
+    </method>
   </interface>
   <!-- Quick Share with nearby Android devices, on the same object. Hidden until Visible is set; every offer waits for
        Accept or Decline (60 s, then declined). -->

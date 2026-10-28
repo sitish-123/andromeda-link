@@ -1,31 +1,28 @@
 //! The calls `link-session` makes to `andromeda-linkd` over `org.andromeda.Link1`.
 
-use std::collections::HashMap;
 use std::io::{Seek, SeekFrom, Write};
+use std::os::fd::AsFd;
 
-const SERVICE: &str = "org.andromeda.Link1";
-const PATH: &str = "/org/andromeda/Link1";
-const INTERFACE: &str = "org.andromeda.Link1";
+use link_api::Link1Proxy;
 
 #[derive(Clone)]
 pub struct Link {
-    pub proxy: zbus::Proxy<'static>,
+    pub proxy: Link1Proxy<'static>,
 }
 
 impl Link {
     pub async fn connect(bus: &zbus::Connection) -> zbus::Result<Self> {
-        Ok(Self { proxy: zbus::Proxy::new_owned(bus.clone(), SERVICE, PATH, INTERFACE).await? })
+        Ok(Self { proxy: Link1Proxy::new(bus).await? })
     }
 
     pub async fn notification_action(&self, device: &str, id: &str, action: &str, reply: &str) {
-        let result: zbus::Result<()> = self.proxy.call("NotificationAction", &(device, id, action, reply)).await;
-        log_failure("NotificationAction", result);
+        log_failure("NotificationAction", self.proxy.notification_action(device, id, action, reply).await);
     }
 
     /// Whether a connected device holds the clipboard grant, so a new selection is worth sending.
     pub async fn clipboard_wanted(&self) -> bool {
-        let devices: Vec<(String, String, bool)> = self.proxy.get_property("Devices").await.unwrap_or_default();
-        let grants: HashMap<String, Vec<String>> = self.proxy.get_property("Grants").await.unwrap_or_default();
+        let devices = self.proxy.devices().await.unwrap_or_default();
+        let grants = self.proxy.grants().await.unwrap_or_default();
         devices.iter().any(|(id, _, connected)| {
             *connected && grants.get(id).is_some_and(|features| features.iter().any(|feature| feature == "clipboard"))
         })
@@ -38,9 +35,9 @@ impl Link {
             let mut file = std::fs::File::from(fd);
             file.write_all(data)?;
             file.seek(SeekFrom::Start(0))?;
-            let fd = zbus::OwnedFd::from(std::os::fd::OwnedFd::from(file));
-            let result: () = self.proxy.call("OfferClipboard", &(mimes, fd)).await?;
-            anyhow::Ok(result)
+            let mimes: Vec<&str> = mimes.iter().map(String::as_str).collect();
+            self.proxy.offer_clipboard(&mimes, file.as_fd().into()).await?;
+            anyhow::Ok(())
         };
         if let Err(error) = offer.await {
             log::warn!("OfferClipboard: {error}");
@@ -49,14 +46,21 @@ impl Link {
 
     /// Whether the phone's bytes reached `sink`.
     pub async fn pull_clipboard(&self, device: &str, id: u64, mime: &str, sink: std::os::fd::OwnedFd) -> bool {
-        let sink = zbus::OwnedFd::from(sink);
-        let result: zbus::Result<u64> = self.proxy.call("PullClipboard", &(device, id, mime, sink)).await;
+        let result = self.proxy.pull_clipboard(device, id, mime, sink.as_fd().into()).await;
         result.inspect_err(|error| log::warn!("PullClipboard: {error}")).is_ok()
     }
 
     pub async fn notification_dismiss(&self, device: &str, id: &str) {
-        let result: zbus::Result<()> = self.proxy.call("NotificationDismiss", &(device, id)).await;
-        log_failure("NotificationDismiss", result);
+        log_failure("NotificationDismiss", self.proxy.notification_dismiss(device, id).await);
+    }
+
+    pub async fn report_desktop_status(&self, volume: u8, muted: bool) {
+        log_failure("SetDesktopStatus", self.proxy.set_desktop_status(u32::from(volume), muted).await);
+    }
+
+    /// Tells the daemon what this session can do; it forgets them when this process leaves the bus.
+    pub async fn report_capabilities(&self, capabilities: &[&str]) {
+        log_failure("SetSessionCapabilities", self.proxy.set_session_capabilities(capabilities).await);
     }
 }
 

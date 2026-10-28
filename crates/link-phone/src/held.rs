@@ -58,7 +58,7 @@ impl Held {
                 self.ringing = rest.trim() == "on";
                 self.send_switch(rest, |on| Message::Ringing(Ringing { on })).await
             }
-            "input" | "run" | "ping" => self.control(verb, rest).await,
+            "input" | "run" | "ping" | "system" => self.control(verb, rest).await,
             _ => Err(anyhow!("unknown command")),
         };
         result.unwrap_or_else(|error| json!({ "event": "command-failed", "command": verb, "error": error.to_string() }))
@@ -178,6 +178,7 @@ impl Held {
         let message = match verb {
             "input" => Message::RemoteInput(serde_json::from_str(rest).context("not a remote-input body")?),
             "run" => Message::RunCommand(RunCommand { id: rest.trim().to_owned() }),
+            "system" => Message::SystemCommand(serde_json::from_str(rest).context("not a system-command body")?),
             _ => Message::Ping(Ping { message: (!rest.is_empty()).then(|| rest.to_owned()) }),
         };
         let kind = message.kind();
@@ -295,6 +296,12 @@ pub fn describe(from: &DeviceId, message: &Message) -> Value {
         Message::MirrorStop(stop) => json!({ "event": "mirror-stop", "desktop": from, "reason": stop.reason }),
         Message::Commands(list) => json!({ "event": "commands", "desktop": from, "commands": list.commands }),
         Message::Ping(ping) => json!({ "event": "ping", "desktop": from, "message": ping.message }),
+        Message::Capabilities(capabilities) => {
+            json!({ "event": "capabilities", "desktop": from, "can": capabilities.can })
+        }
+        Message::DesktopStatus(status) => {
+            json!({ "event": "desktop-status", "desktop": from, "volume": status.volume, "muted": status.muted })
+        }
         other => json!({ "event": "message", "desktop": from, "type": other.kind() }),
     }
 }

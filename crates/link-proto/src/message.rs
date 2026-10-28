@@ -1065,6 +1065,56 @@ fn unique(ids: impl Iterator<Item = u64>) -> bool {
 /// `ping`; older peers close a session on those types.
 pub const CONTROL: &str = "feature:control";
 
+/// Both hellos carry this among their `addresses` when the peer takes `capabilities`; older peers close a session on
+/// the type.
+pub const CAPABILITIES: &str = "feature:capabilities";
+
+/// Desktop to phone, on connect and after each change: what the desktop's session can do now, so the phone hides
+/// the rest. Known entries: [`CAN_CLIPBOARD`], [`CAN_INPUT`], [`CAN_NOTIFICATIONS`], [`CAN_VOLUME`]; a phone skips
+/// others.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capabilities {
+    pub can: Vec<String>,
+}
+
+pub const CAN_CLIPBOARD: &str = "clipboard";
+pub const CAN_INPUT: &str = "input";
+pub const CAN_NOTIFICATIONS: &str = "notifications";
+pub const CAN_VOLUME: &str = "volume";
+pub const MAX_CAPABILITIES: usize = 16;
+pub const MAX_CAPABILITY_LEN: usize = 32;
+
+/// Both hellos carry this among their `addresses` when the peer takes `desktop-status` and `system-command`; older
+/// peers close a session on those types.
+pub const SYSTEM: &str = "feature:system";
+
+/// Desktop to phone, on connect and after each change: the desktop's state. Stage 4 adds fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopStatus {
+    /// The default output's volume, percent.
+    pub volume: u8,
+    pub muted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SystemCommandKind {
+    /// `value` is the percent, 0 to 100.
+    SetVolume,
+    /// `value` is 1 to mute, 0 to unmute.
+    SetMute,
+}
+
+/// Phone to desktop, while the desktop's system switch for the phone is on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SystemCommand {
+    pub command: SystemCommandKind,
+    pub value: u8,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum InputAction {
@@ -1251,6 +1301,9 @@ pub enum Message {
     Commands(Commands),
     RunCommand(RunCommand),
     Ping(Ping),
+    Capabilities(Capabilities),
+    DesktopStatus(DesktopStatus),
+    SystemCommand(SystemCommand),
 }
 
 impl Message {
@@ -1317,6 +1370,9 @@ impl Message {
             Self::Commands(_) => "commands",
             Self::RunCommand(_) => "run-command",
             Self::Ping(_) => "ping",
+            Self::Capabilities(_) => "capabilities",
+            Self::DesktopStatus(_) => "desktop-status",
+            Self::SystemCommand(_) => "system-command",
         }
     }
 
@@ -1381,6 +1437,9 @@ impl Message {
             Self::Commands(body) => Value::serialized(body),
             Self::RunCommand(body) => Value::serialized(body),
             Self::Ping(body) => Value::serialized(body),
+            Self::Capabilities(body) => Value::serialized(body),
+            Self::DesktopStatus(body) => Value::serialized(body),
+            Self::SystemCommand(body) => Value::serialized(body),
         }
     }
 
@@ -1465,6 +1524,9 @@ impl Message {
             "commands" => Self::Commands(body.deserialized()?),
             "run-command" => Self::RunCommand(body.deserialized()?),
             "ping" => Self::Ping(body.deserialized()?),
+            "capabilities" => Self::Capabilities(body.deserialized()?),
+            "desktop-status" => Self::DesktopStatus(body.deserialized()?),
+            "system-command" => Self::SystemCommand(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -1560,6 +1622,15 @@ impl Message {
             Self::Commands(commands) => commands.valid(),
             Self::RunCommand(run) => sized(&run.id, 1, MAX_COMMAND_ID_LEN),
             Self::Ping(ping) => ping.message.as_ref().is_none_or(|message| sized(message, 1, MAX_PING_LEN)),
+            Self::Capabilities(capabilities) => {
+                capabilities.can.len() <= MAX_CAPABILITIES
+                    && capabilities.can.iter().all(|entry| sized(entry, 1, MAX_CAPABILITY_LEN))
+            }
+            Self::DesktopStatus(status) => status.volume <= 100,
+            Self::SystemCommand(command) => match command.command {
+                SystemCommandKind::SetVolume => command.value <= 100,
+                SystemCommandKind::SetMute => command.value <= 1,
+            },
         };
         if valid { Ok(()) } else { Err(DecodeError::Invalid(self.kind())) }
     }

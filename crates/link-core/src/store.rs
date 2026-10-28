@@ -66,10 +66,12 @@ pub enum Feature {
     Input,
     /// The phone may run the commands the desktop lists.
     Commands,
+    /// The phone may set the desktop's volume; a desktop-side switch, off after pairing.
+    System,
 }
 
-/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, `messages`, and `input`. A
-/// store from before a feature gets it on.
+/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, `messages`, `input`, and
+/// `system`. A store from before a feature gets its value after pairing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
@@ -85,6 +87,7 @@ pub struct Grants {
     pub messages: bool,
     pub input: bool,
     pub commands: bool,
+    pub system: bool,
 }
 
 impl Default for Grants {
@@ -101,12 +104,13 @@ impl Default for Grants {
             messages: false,
             input: false,
             commands: true,
+            system: false,
         }
     }
 }
 
 impl Feature {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Clipboard,
         Self::Files,
         Self::Notifications,
@@ -118,6 +122,7 @@ impl Feature {
         Self::Messages,
         Self::Input,
         Self::Commands,
+        Self::System,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -133,6 +138,7 @@ impl Feature {
             Self::Messages => "messages",
             Self::Input => "input",
             Self::Commands => "commands",
+            Self::System => "system",
         }
     }
 
@@ -166,6 +172,7 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::MirrorKeyframe => Some(Feature::Screen),
         Message::RemoteInput(_) => Some(Feature::Input),
         Message::Commands(_) | Message::RunCommand(_) => Some(Feature::Commands),
+        Message::SystemCommand(_) => Some(Feature::System),
         _ => None,
     }
 }
@@ -184,6 +191,7 @@ impl Grants {
             Feature::Messages => self.messages,
             Feature::Input => self.input,
             Feature::Commands => self.commands,
+            Feature::System => self.system,
         }
     }
 
@@ -200,6 +208,7 @@ impl Grants {
             Feature::Messages => &mut self.messages,
             Feature::Input => &mut self.input,
             Feature::Commands => &mut self.commands,
+            Feature::System => &mut self.system,
         };
         *flag = on;
     }

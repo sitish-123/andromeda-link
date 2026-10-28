@@ -3,16 +3,13 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Seek, Write};
+use std::os::fd::AsFd;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use futures_util::StreamExt;
+use link_api::{Link1Proxy, SERVICE};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use zbus::OwnedFd;
-
-const SERVICE: &str = "org.andromeda.Link1";
-const PATH: &str = "/org/andromeda/Link1";
-const INTERFACE: &str = "org.andromeda.Link1";
 
 #[derive(Clone, Debug)]
 pub struct Device {
@@ -177,7 +174,7 @@ async fn run(mut commands: UnboundedReceiver<Command>, events: UnboundedSender<E
 /// One connection to the service; returns Ok when the app closes, Err when the service is gone.
 async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSender<Event>) -> zbus::Result<()> {
     let bus = zbus::Connection::session().await?;
-    let proxy = zbus::Proxy::new_owned(bus.clone(), SERVICE, PATH, INTERFACE).await?;
+    let proxy = Link1Proxy::new(&bus).await?;
     let names = zbus::fdo::DBusProxy::new(&bus).await?;
     let mut owner = names.receive_name_owner_changed().await?;
     for name in names.list_names().await? {
@@ -185,20 +182,20 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
             tokio::spawn(watch_player(bus.clone(), name.to_string(), events.clone()));
         }
     }
-    let devices: Vec<(String, String, bool)> = proxy.get_property("Devices").await?;
+    let devices = proxy.devices().await?;
     let _ = events.send(Event::Service(true));
     send_devices(events, devices);
-    send_status(events, proxy.get_property("DeviceStatus").await.unwrap_or_default());
+    send_status(events, proxy.device_status().await.unwrap_or_default());
 
-    let mut devices = proxy.receive_property_changed::<Vec<(String, String, bool)>>("Devices").await;
-    let mut status = proxy.receive_property_changed::<HashMap<String, (u32, bool, String, i32)>>("DeviceStatus").await;
-    let mut signals = proxy.receive_all_signals().await?;
+    let mut devices = proxy.receive_devices_changed().await;
+    let mut status = proxy.receive_device_status_changed().await;
+    let mut signals = proxy.inner().receive_all_signals().await?;
     loop {
         tokio::select! {
             Some(change) = devices.next() => send_devices(events, change.get().await?),
             Some(change) = status.next() => send_status(events, change.get().await?),
             Some(message) = signals.next() => {
-                if let Some(event) = signal(&message) {
+                if let Some(event) = signal(message) {
                     let _ = events.send(event);
                 }
             }
@@ -292,61 +289,70 @@ fn send_status(events: &UnboundedSender<Event>, status: HashMap<String, (u32, bo
     let _ = events.send(Event::Status(status));
 }
 
-fn signal(message: &zbus::Message) -> Option<Event> {
-    let header = message.header();
-    let body = message.body();
-    match header.member()?.as_str() {
-        "NotificationPosted" => {
-            let (device, id, app, title, text, icon, actions) = body.deserialize().ok()?;
-            Some(Event::Notification(Notification { device, id, app, title, text, icon, actions }))
-        }
-        "NotificationRemoved" => {
-            let (device, id) = body.deserialize().ok()?;
-            Some(Event::NotificationRemoved { device, id })
-        }
-        "Call" => {
-            let (device, state, number, name) = body.deserialize().ok()?;
-            Some(Event::Call { device, state, number, name })
-        }
-        "TransferOffered" => {
-            let (transfer, device, files) = body.deserialize().ok()?;
-            Some(Event::Offered { transfer, device, files })
-        }
-        "TransferProgress" => {
-            let (transfer, bytes, total) = body.deserialize().ok()?;
-            Some(Event::Progress { transfer, bytes, total })
-        }
-        "TransferFinished" => {
-            let (transfer, status, _paths): (String, String, Vec<String>) = body.deserialize().ok()?;
-            Some(Event::Finished { transfer, status })
-        }
-        "PairingFinished" => {
-            let (_device, name): (String, String) = body.deserialize().ok()?;
-            Some(Event::Paired(name))
-        }
-        "PairingFailed" => {
-            let (reason,): (String,) = body.deserialize().ok()?;
-            Some(Event::Failed(format!("Pairing failed: {reason}")))
-        }
-        "Received" => {
-            let (device, _kind, text): (String, String, String) = body.deserialize().ok()?;
-            Some(Event::Received { device, text })
-        }
-        _ => None,
+fn signal(message: zbus::Message) -> Option<Event> {
+    let owned = |text: &str| text.to_owned();
+    if let Some(signal) = link_api::NotificationPosted::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        let actions = args.actions.iter().map(|&(id, label, reply)| (owned(id), owned(label), reply)).collect();
+        return Some(Event::Notification(Notification {
+            device: owned(args.device_id),
+            id: owned(args.id),
+            app: owned(args.app),
+            title: owned(args.title),
+            text: owned(args.text),
+            icon: args.icon.clone(),
+            actions,
+        }));
     }
+    if let Some(signal) = link_api::NotificationRemoved::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        return Some(Event::NotificationRemoved { device: owned(args.device_id), id: owned(args.id) });
+    }
+    if let Some(signal) = link_api::Call::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        let (device, state, number, name) = (args.device_id, args.state, args.number, args.name);
+        return Some(Event::Call {
+            device: owned(device),
+            state: owned(state),
+            number: owned(number),
+            name: owned(name),
+        });
+    }
+    if let Some(signal) = link_api::TransferOffered::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        let files = args.files.iter().map(|&(name, size)| (owned(name), size)).collect();
+        return Some(Event::Offered { transfer: owned(args.transfer_id), device: owned(args.device_id), files });
+    }
+    if let Some(signal) = link_api::TransferProgress::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        return Some(Event::Progress { transfer: owned(args.transfer_id), bytes: args.bytes, total: args.total });
+    }
+    if let Some(signal) = link_api::TransferFinished::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        return Some(Event::Finished { transfer: owned(args.transfer_id), status: owned(args.status) });
+    }
+    if let Some(signal) = link_api::PairingFinished::from_message(message.clone()) {
+        return Some(Event::Paired(owned(signal.args().ok()?.name)));
+    }
+    if let Some(signal) = link_api::PairingFailed::from_message(message.clone()) {
+        return Some(Event::Failed(format!("Pairing failed: {}", signal.args().ok()?.reason)));
+    }
+    if let Some(signal) = link_api::Received::from_message(message) {
+        let args = signal.args().ok()?;
+        return Some(Event::Received { device: owned(args.device_id), text: owned(args.text) });
+    }
+    None
 }
 
-async fn execute(proxy: &zbus::Proxy<'_>, events: &UnboundedSender<Event>, command: Command) -> zbus::Result<()> {
+async fn execute(proxy: &Link1Proxy<'_>, events: &UnboundedSender<Event>, command: Command) -> zbus::Result<()> {
     match command {
-        Command::Ring(device) => proxy.call("Ring", &(device, true)).await,
-        Command::Reply { device, id, action, text } => {
-            proxy.call("NotificationAction", &(device, id, action, text)).await
-        }
-        Command::Accept(transfer) => proxy.call("AcceptTransfer", &(transfer,)).await,
-        Command::Decline(transfer) => proxy.call("DeclineTransfer", &(transfer,)).await,
-        Command::Cancel(transfer) => proxy.call("CancelTransfer", &(transfer,)).await,
+        Command::Ring(device) => proxy.ring(&device, true).await,
+        Command::Reply { device, id, action, text } => proxy.notification_action(&device, &id, &action, &text).await,
+        Command::Accept(transfer) => proxy.accept_transfer(&transfer).await,
+        Command::Decline(transfer) => proxy.decline_transfer(&transfer).await,
+        Command::Cancel(transfer) => proxy.cancel_transfer(&transfer).await,
         Command::Share { device, text } => {
-            proxy.call::<_, _, ()>("Share", &(&device, "text", &text)).await?;
+            proxy.share(&device, "text", &text).await?;
             let _ = events.send(Event::Shared(text));
             Ok(())
         }
@@ -359,17 +365,19 @@ async fn execute(proxy: &zbus::Proxy<'_>, events: &UnboundedSender<Event>, comma
                 let size = file.metadata().map_or(0, |meta| meta.len());
                 let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
                 listed.push((name.clone(), size));
-                files.push((OwnedFd::from(std::os::fd::OwnedFd::from(file)), name));
+                files.push((file, name));
             }
-            let transfer: String = proxy.call("SendFiles", &(&device, files)).await?;
+            let pairs: Vec<(zbus::Fd<'_>, &str)> =
+                files.iter().map(|(file, name)| (file.as_fd().into(), name.as_str())).collect();
+            let transfer = proxy.send_files(&device, &pairs.iter().collect::<Vec<_>>()).await?;
             let _ = events.send(Event::Sending { transfer, files: listed });
             Ok(())
         }
-        Command::CallAction { device, action } => proxy.call("CallAction", &(device, action)).await,
-        Command::CancelPairing => proxy.call("CancelPairing", &()).await,
+        Command::CallAction { device, action } => proxy.call_action(&device, &action).await,
+        Command::CancelPairing => proxy.cancel_pairing().await,
         Command::PlayPause(device) => {
             let name = format!("{PLAYER_PREFIX}{device}");
-            let player = zbus::Proxy::new(proxy.connection(), name, PLAYER_PATH, PLAYER_INTERFACE).await?;
+            let player = zbus::Proxy::new(proxy.inner().connection(), name, PLAYER_PATH, PLAYER_INTERFACE).await?;
             player.call("PlayPause", &()).await
         }
         Command::OfferClipboard(text) => {
@@ -378,13 +386,12 @@ async fn execute(proxy: &zbus::Proxy<'_>, events: &UnboundedSender<Event>, comma
                 .map_err(|error| failure(error.into()))?;
             let mut file = File::from(fd);
             file.write_all(text.as_bytes()).and_then(|()| file.rewind()).map_err(failure)?;
-            let mimes = vec!["text/plain;charset=utf-8", "text/plain"];
-            proxy.call::<_, _, ()>("OfferClipboard", &(mimes, OwnedFd::from(std::os::fd::OwnedFd::from(file)))).await?;
+            proxy.offer_clipboard(&["text/plain;charset=utf-8", "text/plain"], file.as_fd().into()).await?;
             let _ = events.send(Event::ClipSent(text));
             Ok(())
         }
         Command::Pair => {
-            let (code, uri): (String, String) = proxy.call("StartPairing", &()).await?;
+            let (code, uri) = proxy.start_pairing().await?;
             let _ = events.send(Event::Pairing { code, uri });
             Ok(())
         }

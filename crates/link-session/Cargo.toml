@@ -14,10 +14,11 @@ path = "src/main.rs"
 anyhow.workspace = true
 env_logger.workspace = true
 futures-util.workspace = true
+link-api.workspace = true
 log.workspace = true
 reis = { version = "0.7", features = ["tokio"] }
 rustix = { workspace = true, features = ["event", "time"] }
-tokio = { workspace = true, features = ["net"] }
+tokio = { workspace = true, features = ["net", "process"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 wayland-protocols-misc = { version = "0.3", features = ["client"] }

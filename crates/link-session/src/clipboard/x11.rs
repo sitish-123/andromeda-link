@@ -21,7 +21,7 @@ use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
 use x11rb::{CURRENT_TIME, NONE};
 
-use super::{Event, MAX_BYTES, REMOTE_MIME, choose, offered};
+use super::{Event, MAX_BYTES, REMOTE_MIME, aliases, choose};
 
 /// A selection's owner, or a phone, has this long to deliver.
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -223,9 +223,10 @@ impl Worker {
             .map(|name| if X_TEXT.contains(&name.as_str()) { UTF8_MIME.to_owned() } else { name.clone() })
             .collect();
         let mime = if X_TEXT.contains(&mime) { UTF8_MIME } else { mime };
-        let mut offered = offered(&phone_mimes, mime);
-        offered.dedup();
-        let _ = self.events.send(Event::Local { mimes: offered, data });
+        // One type: the selection is read one conversion at a time.
+        let mut names = aliases(&phone_mimes, mime);
+        names.dedup();
+        let _ = self.events.send(Event::Local { types: vec![(names, data)] });
     }
 
     /// Answers a paste of the phone's clip, pulling its bytes through the main loop.

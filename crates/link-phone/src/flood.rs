@@ -61,6 +61,7 @@ fn message(kind: Kind, n: u32) -> Message {
             mimes: vec!["text/plain".to_owned()],
             size: 1,
             text: Some("x".to_owned()),
+            ..ClipOffer::default()
         }),
         Kind::Status => Message::Status(Status {
             battery: u8::try_from(n % 101).unwrap_or(0),

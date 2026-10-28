@@ -47,6 +47,10 @@ pub const MESSAGES: &str = "feature:messages";
 /// `notifications_off`, and answers with `notification-pull`; older desktops close a session on them.
 pub const NOTIFICATION_SYNC: &str = "feature:notification-sync";
 
+/// Both hellos carry this when the peer takes `clip-offer`'s `sizes`, `origin`, and `at`, and serves each type's own
+/// bytes; older peers close a session on those fields.
+pub const CLIP_ITEMS: &str = "feature:clip-items";
+
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
     let address = entry.strip_prefix(BLUETOOTH_SCHEME)?;
@@ -1002,7 +1006,7 @@ impl NetworkKind {
 pub const MAX_CLIP_MIMES: usize = 16;
 pub const MAX_CLIP_SIZE: u64 = 64 << 20;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClipOffer {
     pub id: u64,
@@ -1010,6 +1014,15 @@ pub struct ClipOffer {
     pub size: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// [`CLIP_ITEMS`]: each type's length, in `mimes` order; the first is `size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<Vec<u64>>,
+    /// [`CLIP_ITEMS`]: the copy's random id, kept when a side offers a received clip on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<u64>,
+    /// [`CLIP_ITEMS`]: when the copy was made, in ms since the Unix epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
 }
 
 /// The body of `clip-pull`, and of `clip-data`, the first frame of the stream that answers it.
@@ -1027,7 +1040,28 @@ impl ClipOffer {
         let text_ok = self.text.as_ref().is_none_or(|text| {
             (1..=MAX_SHARE_LEN).contains(&text.len()) && self.mimes.iter().any(|mime| is_text_mime(mime))
         });
-        mimes_ok && text_ok && self.size <= MAX_CLIP_SIZE
+        let sizes_ok = self.sizes.as_ref().is_none_or(|sizes| {
+            sizes.len() == self.mimes.len()
+                && sizes.first() == Some(&self.size)
+                && sizes.iter().all(|size| *size <= MAX_CLIP_SIZE)
+        });
+        mimes_ok && text_ok && sizes_ok && self.size <= MAX_CLIP_SIZE
+    }
+
+    /// The length of type `mime`: from `sizes`, or `size` for an offer without them.
+    pub fn size_of(&self, mime: &str) -> Option<u64> {
+        let index = self.mimes.iter().position(|offered| offered == mime)?;
+        Some(self.sizes.as_ref().and_then(|sizes| sizes.get(index).copied()).unwrap_or(self.size))
+    }
+
+    /// The offer for a peer without [`CLIP_ITEMS`]: only the first type, since its `size` is the only one it knows.
+    #[must_use]
+    pub fn without_items(mut self) -> Self {
+        self.mimes.truncate(1);
+        if !self.mimes.iter().any(|mime| is_text_mime(mime)) {
+            self.text = None;
+        }
+        Self { sizes: None, origin: None, at: None, ..self }
     }
 }
 

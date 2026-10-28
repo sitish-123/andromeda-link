@@ -10,7 +10,7 @@ use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_registry::WlRegistry, wl_seat::WlSeat};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle};
 
-use super::{Event, REMOTE_MIME, choose, offered, read_fd};
+use super::{Event, REMOTE_MIME, plan, read_fd};
 
 trait OfferProxy {
     fn receive(&self, mime: String, fd: BorrowedFd<'_>);
@@ -257,23 +257,23 @@ impl Wayland {
 }
 
 async fn read(conn: &Connection, selection: &Selection) -> Option<Event> {
-    let mime = choose(&selection.mimes)?.to_owned();
-    let read = async {
-        let (reader, writer) = std::io::pipe()?;
-        selection.offer.receive(mime.clone(), writer.as_fd());
-        drop(writer);
-        conn.flush()?;
-        read_fd(OwnedFd::from(reader)).await
-    };
-    let data = match read.await {
-        Ok(data) if !data.is_empty() => data,
-        Ok(_) => return None,
-        Err(error) => {
-            log::warn!("reading the selection's {mime}: {error:#}");
-            return None;
+    let mut types = Vec::new();
+    for names in plan(&selection.mimes) {
+        let mime = names[0].clone();
+        let read = async {
+            let (reader, writer) = std::io::pipe()?;
+            selection.offer.receive(mime.clone(), writer.as_fd());
+            drop(writer);
+            conn.flush()?;
+            read_fd(OwnedFd::from(reader)).await
+        };
+        match read.await {
+            Ok(data) if !data.is_empty() => types.push((names, data)),
+            Ok(_) => {}
+            Err(error) => log::warn!("reading the selection's {mime}: {error:#}"),
         }
-    };
-    Some(Event::Local { mimes: offered(&selection.mimes, &mime), data })
+    }
+    (!types.is_empty()).then_some(Event::Local { types })
 }
 
 impl Dispatch<WlRegistry, GlobalListContents> for State {

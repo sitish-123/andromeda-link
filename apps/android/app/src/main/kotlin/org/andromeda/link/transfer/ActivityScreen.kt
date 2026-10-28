@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.andromeda.link.R
+import org.andromeda.link.clipboard.ClipEntry
 import org.andromeda.link.core.domain.TransferRecord
 import org.andromeda.link.ui.components.DashboardCard
 import org.andromeda.link.ui.components.Footnote
@@ -65,6 +66,7 @@ private enum class Filter { All, Received, Sent }
 @Composable
 fun ActivityScreen(viewModel: ActivityViewModel) {
     val transfers by viewModel.transfers.collectAsStateWithLifecycle()
+    val allClips by viewModel.clips.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -84,6 +86,14 @@ fun ActivityScreen(viewModel: ActivityViewModel) {
             is ActivityMessage.Failed -> shown.failure.text(context.resources)
             ActivityMessage.Expired -> stringResource(R.string.activity_expired)
             null -> null
+        }
+    val clips =
+        allClips.filter {
+            when (filter) {
+                Filter.All -> true
+                Filter.Received -> it.incoming
+                Filter.Sent -> !it.incoming
+            }
         }
     val shown =
         transfers.filter {
@@ -130,7 +140,10 @@ fun ActivityScreen(viewModel: ActivityViewModel) {
                     { filter = Filter.entries[it] },
                 )
             }
-            if (shown.isEmpty()) {
+            if (clips.isNotEmpty()) {
+                item(key = "clips") { ClipCard(clips, viewModel::copyAgain) }
+            }
+            if (shown.isEmpty() && clips.isEmpty()) {
                 item {
                     Column(Modifier.padding(top = Space.s32), verticalArrangement = Arrangement.spacedBy(Space.s8)) {
                         Readout(stringResource(R.string.activity_empty_readout), LinkTheme.colors.textTertiary)
@@ -294,6 +307,42 @@ private fun Progress(
             )
         }
         PillButton(stringResource(R.string.cancel), onCancel, kind = PillKind.Quiet, enabled = !busy)
+    }
+}
+
+/** The last clips, newest first; one with text can be put back on the clipboard. */
+@Composable
+private fun ClipCard(
+    clips: List<ClipEntry>,
+    onCopy: (ClipEntry) -> Unit,
+) {
+    val context = LocalContext.current
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    DashboardCard(Modifier.fillMaxWidth()) {
+        Readout(stringResource(R.string.activity_clipboard), modifier = Modifier.padding(top = Space.s8))
+        (if (expanded) clips else clips.take(COLLAPSED)).forEach { clip ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s12)) {
+                Column(Modifier.weight(1f)) {
+                    Label(clip.text ?: stringResource(R.string.activity_clip_other, clip.mime), LinkTheme.type.bodyMedium, maxLines = 1)
+                    val desktop = clip.desktopName ?: stringResource(R.string.app_name)
+                    Readout(
+                        listOf(
+                            if (clip.incoming) {
+                                stringResource(R.string.activity_from, desktop)
+                            } else {
+                                stringResource(R.string.activity_clip_sent)
+                            },
+                            DateUtils.formatDateTime(context, clip.time, DateUtils.FORMAT_SHOW_TIME),
+                        ).joinToString(" · "),
+                        LinkTheme.colors.textTertiary,
+                    )
+                }
+                if (clip.text != null) PillButton(stringResource(R.string.activity_copy_again), { onCopy(clip) }, kind = PillKind.Quiet)
+            }
+        }
+        if (!expanded && clips.size > COLLAPSED) {
+            PillButton(stringResource(R.string.activity_more, clips.size - COLLAPSED), { expanded = true }, kind = PillKind.Quiet)
+        }
     }
 }
 

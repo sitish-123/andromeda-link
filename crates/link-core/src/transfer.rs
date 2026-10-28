@@ -32,7 +32,7 @@ use crate::wire::{RecvStream, SendStream};
 mod clip;
 
 use clip::Clips;
-pub use clip::LocalClip;
+pub use clip::{ClipBytes, ClipPeer, LocalClip};
 
 /// How long the receiver's user has to answer an offer.
 pub const CONSENT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -96,7 +96,7 @@ pub struct Source {
 }
 
 enum Command {
-    Attach { peer: DeviceId, session: SessionHandle },
+    Attach { peer: DeviceId, session: SessionHandle, clip: ClipPeer },
     Detach { peer: DeviceId, stable_id: usize },
     Control { peer: DeviceId, message: Message },
     Stream { peer: DeviceId, recv: RecvStream },
@@ -138,7 +138,7 @@ enum TaskEnd {
     Received { id: TransferId, file: u64, seq: u64, end: Received },
     Sent { id: TransferId, file: u64, seq: u64, result: Result<(), Error> },
     ClipServed { peer: DeviceId, result: Result<(), Error> },
-    ClipPulled { peer: DeviceId, header: ClipPull, result: Result<(u64, Vec<u8>), Error> },
+    ClipPulled { peer: DeviceId, header: ClipPull, result: Result<u64, Error> },
 }
 
 enum Received {
@@ -258,9 +258,9 @@ impl TransferHandle {
         response.await.map_err(|_| Error::Stopped)
     }
 
-    /// `peer` has a new live session; unfinished transfers with it resume there.
-    pub async fn attach(&self, peer: DeviceId, session: SessionHandle) {
-        self.tell(Command::Attach { peer, session }).await;
+    /// `peer` has a new live session; unfinished transfers with it resume there, and it gets the kept clip.
+    pub async fn attach(&self, peer: DeviceId, session: SessionHandle, clip: ClipPeer) {
+        self.tell(Command::Attach { peer, session, clip }).await;
     }
 
     pub async fn detach(&self, peer: DeviceId, stable_id: usize) {
@@ -328,7 +328,10 @@ impl TransferActor {
 
     async fn handle(&mut self, command: Command) {
         match command {
-            Command::Attach { peer, session } => self.attach(peer, session).await,
+            Command::Attach { peer, session, clip } => {
+                self.attach(peer.clone(), session).await;
+                self.offer_kept_clip(&peer, clip).await;
+            }
             Command::Detach { peer, stable_id } => self.detach(&peer, stable_id),
             Command::Control { peer, message } => {
                 if let Err(error) = self.on_control(&peer, message).await {

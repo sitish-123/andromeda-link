@@ -122,6 +122,7 @@ fun HomeScreen(
             is HomeMessage.FilesSending -> resources.getString(R.string.share_files_sending, shown.name)
             HomeMessage.ClipboardEmpty -> resources.getString(R.string.clipboard_empty)
             is HomeMessage.ClipboardSent -> resources.getString(R.string.clipboard_sent, shown.name)
+            is HomeMessage.ClipboardQueued -> resources.getString(R.string.clipboard_queued, shown.name)
             is HomeMessage.Failed -> shown.failure.text(resources)
             null -> null
         }

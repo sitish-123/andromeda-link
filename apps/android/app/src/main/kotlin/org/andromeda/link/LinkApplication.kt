@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.andromeda.link.calls.Calls
+import org.andromeda.link.clipboard.ClipHistory
 import org.andromeda.link.clipboard.ClipboardSync
 import org.andromeda.link.clipboard.ClipboardWatcher
 import org.andromeda.link.core.data.LinkRepository
@@ -37,6 +38,7 @@ import org.andromeda.link.presence.StatusReporter
 import org.andromeda.link.ring.Ringer
 import org.andromeda.link.screen.ScreenMirror
 import org.andromeda.link.transfer.TransferService
+import java.io.File
 
 class LinkApplication : Application() {
     lateinit var container: AppContainer
@@ -58,7 +60,8 @@ class AppContainer(
     private val transferNotifier = TransferNotifier(application)
     val repository = LinkRepository(application, deviceName(application))
     val presence = Presence(application, repository, scope)
-    val clipboard = ClipboardSync(application, repository, scope)
+    val clipHistory = ClipHistory(File(application.filesDir, "clips.json"))
+    val clipboard = ClipboardSync(application, repository, clipHistory, scope)
     val clipboardWatcher = ClipboardWatcher(application, clipboard, scope)
     val mirror = NotificationMirror(application, repository, scope)
     private val status = StatusReporter(application, repository, scope, mirror.accessOff)

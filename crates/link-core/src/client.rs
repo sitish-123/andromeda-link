@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT, MESSAGES, Message,
+    CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT, MESSAGES, Message,
     MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind, NotificationDigest, NotificationPosted,
     NotificationRemoved, NotificationSnapshot, Punch, STATUS_SIGNAL, Share, Status, TransferId, WifiDirect,
 };
@@ -30,7 +30,7 @@ use crate::session::{self, Route, SessionEvent, SessionHandle};
 use crate::store::{Feature, Grants, Peer, feature_of};
 use crate::stream::{BLUETOOTH_FILE_LIMIT, BLUETOOTH_UPGRADE_ABOVE};
 use crate::tls::ServerPin;
-use crate::transfer::{self, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
+use crate::transfer::{self, ClipPeer, LocalClip, Source, TransferActor, TransferEvent, TransferHandle};
 use crate::transport::Dialer;
 use crate::{Error, close_code_for};
 
@@ -317,14 +317,17 @@ impl Client {
         self.send(id, Message::MirrorStop(MirrorStop { reason })).await
     }
 
-    /// Offers the phone's clipboard to every connected desktop whose clipboard switch is on.
-    pub async fn offer_clip(&self, clip: LocalClip) -> Result<(), Error> {
+    /// Offers the phone's clipboard to every connected desktop whose clipboard switch is on, and keeps it for the
+    /// next one that connects. Returns how many got it now.
+    pub async fn offer_clip(&self, clip: LocalClip) -> Result<usize, Error> {
         let desktops = self.desktops().await?;
-        let connected = desktops
+        let connected: Vec<DeviceId> = desktops
             .into_iter()
             .filter(|desktop| desktop.connected && desktop.peer.grants.clipboard)
-            .map(|desktop| desktop.peer.id);
-        self.transfers.offer_clip(connected.collect(), clip).await
+            .map(|desktop| desktop.peer.id)
+            .collect();
+        let count = connected.len();
+        self.transfers.offer_clip(connected, clip).await.map(|()| count)
     }
 
     /// Writes `mime` of a desktop's clipboard offer into `sink`.
@@ -700,7 +703,8 @@ impl ClientActor {
             old.close(CloseCode::Done);
         }
         // Before finish_upgrades wakes the sends waiting on this move, so none goes out on the closing session.
-        self.transfers.attach(id.clone(), handle.clone()).await;
+        let clip = ClipPeer { granted: desktop.grants.clipboard, items: desktop.has(CLIP_ITEMS) };
+        self.transfers.attach(id.clone(), handle.clone(), clip).await;
         self.retries.remove(&id);
         if via == Via::Bluetooth {
             log::info!("{id}: connected over Bluetooth");

@@ -53,6 +53,10 @@ sealed interface HomeMessage {
         val name: String,
     ) : HomeMessage
 
+    data class ClipboardQueued(
+        val name: String,
+    ) : HomeMessage
+
     data class Failed(
         val failure: LinkFailure,
     ) : HomeMessage
@@ -67,6 +71,7 @@ class HomeViewModel(
     private val refreshing = MutableStateFlow(false)
     private val selectedDesktopId = MutableStateFlow<String?>(null)
     private val _message = MutableStateFlow<HomeMessage?>(null)
+    private val _clearsSynced = MutableStateFlow(clipboard.clearsSynced)
 
     val state: StateFlow<HomeState> =
         combine(
@@ -79,6 +84,9 @@ class HomeViewModel(
             .combine(selectedDesktopId) { state, id -> state.copy(selectedDesktopId = id) }
             .combine(repository.activeTransfers) { state, transfers -> state.copy(activeTransfers = transfers.size) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeState())
+
+    /** "Clear synced clips after 2 minutes"; off by default. */
+    val clearsSynced: StateFlow<Boolean> = _clearsSynced.asStateFlow()
 
     /** The one-line message the screen shows, until [messageShown]. */
     val message: StateFlow<HomeMessage?> = _message.asStateFlow()
@@ -100,6 +108,11 @@ class HomeViewModel(
     }
 
     fun setStayConnected(stay: Boolean) = presence.setStayConnected(stay)
+
+    fun setClearsSynced(on: Boolean) {
+        clipboard.clearsSynced = on
+        _clearsSynced.value = on
+    }
 
     fun selectDesktop(desktop: Desktop) {
         selectedDesktopId.value = desktop.id
@@ -139,7 +152,17 @@ class HomeViewModel(
             return
         }
         // A clipboard offer, not a share: the desktop puts it on its own clipboard instead of in a notification.
-        act(HomeMessage.ClipboardSent(desktop.name)) { clipboard.offer(clip) }
+        if (ClipboardSync.isFromDesktop(clip)) {
+            _message.value = HomeMessage.ClipboardSent(desktop.name)
+            return
+        }
+        viewModelScope.launch {
+            _message.value =
+                clipboard.offer(clip).fold(
+                    { if (it > 0) HomeMessage.ClipboardSent(desktop.name) else HomeMessage.ClipboardQueued(desktop.name) },
+                    { HomeMessage.Failed(it.linkFailure()) },
+                )
+        }
     }
 
     fun sendFiles(

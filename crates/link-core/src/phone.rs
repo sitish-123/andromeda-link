@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use link_proto::message::{
-    BT_PAIRING, CAPABILITIES, CONTROL, FEATURE, FS_STAT, Hello, MESSAGES, Message, PairMethod, SYSTEM,
+    BT_PAIRING, CAPABILITIES, CLIP_ITEMS, CONTROL, FEATURE, FS_STAT, Hello, MESSAGES, Message, PairMethod, SYSTEM,
     WIFI_DIRECT_BY_ADDRESS, bluetooth_address,
 };
 use link_proto::pairing::Secret;
@@ -265,7 +265,8 @@ impl Phone {
     }
 
     fn hello(&self) -> Hello {
-        let features = [WIFI_DIRECT_BY_ADDRESS, FS_STAT, MESSAGES, CONTROL, CAPABILITIES, SYSTEM].map(str::to_owned);
+        let features =
+            [WIFI_DIRECT_BY_ADDRESS, FS_STAT, MESSAGES, CONTROL, CAPABILITIES, SYSTEM, CLIP_ITEMS].map(str::to_owned);
         Hello { version: VERSION, name: self.name.clone(), addresses: features.to_vec() }
     }
 

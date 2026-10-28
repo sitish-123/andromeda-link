@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
@@ -51,6 +52,7 @@ fun SettingsScreen(
     onClipboardSetup: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val clearsSynced by viewModel.clearsSynced.collectAsStateWithLifecycle()
     val theme by rememberAppTheme()
     val context = LocalContext.current
     val version =
@@ -96,6 +98,13 @@ fun SettingsScreen(
                     stringResource(if (autoClipboard) R.string.settings_clipboard_configured else R.string.clipboard_auto_row_hint),
                     Icons.Filled.Edit,
                     onClipboardSetup,
+                )
+                SwitchRow(
+                    title = stringResource(R.string.clipboard_clear_synced),
+                    subtitle = stringResource(R.string.clipboard_clear_synced_hint),
+                    checked = clearsSynced,
+                    onChange = viewModel::setClearsSynced,
+                    icon = Icons.Filled.Delete,
                 )
                 NavRow(
                     stringResource(R.string.notifications_row),

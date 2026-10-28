@@ -9,7 +9,7 @@ use zbus::proxy::SignalStream;
 use zbus::{OwnedFd, Variant};
 use zbus::{OwnedObjectPath, OwnedVariant};
 
-use super::{Event, REMOTE_MIME, choose, offered, read_fd};
+use super::{Event, REMOTE_MIME, plan, read_fd};
 use crate::portal::{CLIPBOARD, Session};
 
 pub struct Portal {
@@ -115,18 +115,18 @@ impl Watcher {
     }
 
     async fn read(&self, mimes: &[String]) -> Option<Event> {
-        let mime = choose(mimes)?;
-        let read = async {
-            let fd: OwnedFd = self.proxy.call("SelectionRead", &(&self.session, mime)).await?;
-            read_fd(fd.into()).await.context("reading the selection")
-        };
-        match read.await {
-            Ok(data) if !data.is_empty() => Some(Event::Local { mimes: offered(mimes, mime), data }),
-            Ok(_) => None,
-            Err(error) => {
-                log::warn!("{error:#}");
-                None
+        let mut types = Vec::new();
+        for names in plan(mimes) {
+            let read = async {
+                let fd: OwnedFd = self.proxy.call("SelectionRead", &(&self.session, &names[0])).await?;
+                read_fd(fd.into()).await.context("reading the selection")
+            };
+            match read.await {
+                Ok(data) if !data.is_empty() => types.push((names, data)),
+                Ok(_) => {}
+                Err(error) => log::warn!("{error:#}"),
             }
         }
+        (!types.is_empty()).then_some(Event::Local { types })
     }
 }

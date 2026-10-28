@@ -69,10 +69,8 @@ class ClipboardReadActivity : Activity() {
 
     private fun send(text: String) {
         val container = (application as LinkApplication).container
-        if (!container.clipboard.isEcho(text)) {
-            CoroutineScope(Dispatchers.Default).launch {
-                container.repository.offerClipText(text).onFailure { Log.w("link", "Sending clipboard: ${it.message}") }
-            }
+        CoroutineScope(Dispatchers.Default).launch {
+            container.clipboard.offerText(text).onFailure { Log.w("link", "Sending clipboard: ${it.message}") }
         }
         finish()
     }

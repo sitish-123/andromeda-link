@@ -9,6 +9,8 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -23,6 +25,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.andromeda.link.core.domain.CallAction
 import org.andromeda.link.core.domain.CallState
+import org.andromeda.link.core.domain.ClipPart
 import org.andromeda.link.core.domain.Desktop
 import org.andromeda.link.core.domain.DesktopCommand
 import org.andromeda.link.core.domain.DesktopPlayer
@@ -51,6 +54,7 @@ import org.andromeda.link.core.domain.Sharing
 import org.andromeda.link.core.domain.TransferEvent
 import org.andromeda.link.core.domain.TransferRecord
 import org.andromeda.link.ffi.BrowseRoot
+import org.andromeda.link.ffi.ClipType
 import org.andromeda.link.ffi.InputAction
 import org.andromeda.link.ffi.InputButton
 import org.andromeda.link.ffi.InputEvent
@@ -63,6 +67,7 @@ import org.andromeda.link.ffi.OutgoingFile
 import org.andromeda.link.ffi.PhoneLibrary
 import org.andromeda.link.ffi.PhoneMessages
 import org.andromeda.link.ffi.generateIdentity
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import org.andromeda.link.ffi.CallAction as FfiCallAction
@@ -146,47 +151,79 @@ class LinkRepository(
             it.setStatus(battery.coerceIn(0, 100).toUByte(), charging, network, signal?.coerceIn(0, 4)?.toUByte(), notificationsOff)
         }
 
-    /** Offers text from this phone's clipboard to every connected desktop. */
-    suspend fun offerClipText(text: String): Result<Unit> = call { it.offerClipText(text) }
-
-    /** Snapshots a clipboard URI while Android's temporary read grant is valid, including providers backed by pipes. */
-    suspend fun offerClipUri(
-        uri: Uri,
-        fallbackMime: String?,
-    ): Result<Unit> =
+    /**
+     * Offers this phone's clip to every connected desktop, or to the next one that connects, and returns how many got
+     * it now. URIs are snapshotted while Android's temporary read grant is valid, including providers backed by pipes.
+     */
+    suspend fun offerClip(parts: List<ClipPart>): Result<Int> =
         withContext(Dispatchers.IO) {
+            val snapshots = mutableListOf<File>()
             try {
-                val mime =
-                    context.contentResolver.getType(uri)?.takeUnless { '*' in it }
-                        ?: fallbackMime?.takeUnless { '*' in it }
-                        ?: throw IOException("The clipboard URI has no concrete MIME type")
-                val snapshot = File.createTempFile("clipboard-", ".bin", context.cacheDir)
-                try {
-                    val input =
-                        context.contentResolver.openInputStream(uri)
-                            ?: throw IOException("The clipboard URI cannot be opened")
-                    input.use {
-                        snapshot.outputStream().use { output ->
-                            val buffer = ByteArray(256 * 1024)
-                            var size = 0L
-                            while (true) {
-                                val read = it.read(buffer)
-                                if (read < 0) break
-                                size += read
-                                if (size > MAX_CLIP_SIZE) throw IOException("The clipboard exceeds 64 MiB")
-                                output.write(buffer, 0, read)
+                val types =
+                    parts.map { part ->
+                        when (part) {
+                            is ClipPart.Text -> ClipType(part.mime, part.text, null)
+                            is ClipPart.Content -> {
+                                val file = File.createTempFile("clipboard-", ".bin", context.cacheDir).also(snapshots::add)
+                                snapshot(part.uri, file)
+                                ClipType(part.mime, null, file.absolutePath)
                             }
                         }
                     }
-                    call { it.offerClipFile(mime, snapshot.absolutePath) }
-                } finally {
-                    if (!snapshot.delete()) Log.w("link", "Could not remove the clipboard snapshot")
-                }
+                call { it.offerClip(types).toInt() }
             } catch (error: IOException) {
                 Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
             } catch (error: SecurityException) {
                 Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
+            } finally {
+                snapshots.forEach { if (!it.delete()) Log.w("link", "Could not remove the clipboard snapshot") }
             }
+        }
+
+    private fun snapshot(
+        uri: Uri,
+        snapshot: File,
+    ) {
+        val input = context.contentResolver.openInputStream(uri) ?: throw IOException("The clipboard URI cannot be opened")
+        input.use {
+            snapshot.outputStream().use { output ->
+                val buffer = ByteArray(256 * 1024)
+                var size = 0L
+                while (true) {
+                    val read = it.read(buffer)
+                    if (read < 0) break
+                    size += read
+                    if (size > MAX_CLIP_SIZE) throw IOException("The clipboard exceeds 64 MiB")
+                    output.write(buffer, 0, read)
+                }
+            }
+        }
+    }
+
+    /** Pulls a text type of a desktop's clip, or null when the pull fails or it is over [limit] bytes. */
+    suspend fun pullClipText(
+        desktopId: String,
+        clipId: Long,
+        mime: String,
+        limit: Int,
+    ): String? =
+        coroutineScope {
+            val (read, write) = ParcelFileDescriptor.createPipe()
+            val pulled = async { pullClip(desktopId, clipId, mime, write.detachFd()) }
+            val bytes =
+                withContext(Dispatchers.IO) {
+                    ParcelFileDescriptor.AutoCloseInputStream(read).use { input ->
+                        val bytes = ByteArrayOutputStream()
+                        val buffer = ByteArray(8 * 1024)
+                        while (bytes.size() <= limit) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            bytes.write(buffer, 0, count)
+                        }
+                        bytes.toByteArray()
+                    }
+                }
+            bytes.takeIf { pulled.await().isSuccess && it.size <= limit }?.decodeToString()
         }
 
     /** Writes one type of a desktop's clipboard into [fd], which the core takes over. */

@@ -6,11 +6,12 @@ use std::fs::File;
 use std::io::Write as _;
 use std::os::unix::fs::{FileExt, FileTypeExt};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use link_proto::clip::{ClipState, Serve};
 use link_proto::message::{ClipOffer, ClipPull, MAX_CLIP_SIZE, MAX_SHARE_LEN, Message, is_text_mime};
 use link_proto::transfer::Budget;
-use ring::digest;
+use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::AsyncWriteExt;
 use tokio::net::unix::pipe;
 use tokio::sync::oneshot;
@@ -23,21 +24,46 @@ use crate::identity::DeviceId;
 use crate::session::SessionHandle;
 use crate::wire::RecvStream;
 
-/// What this side offers: the types in order of preference, and the first type's bytes, inline as text or in a file.
+/// What this side offers: each type with its own bytes, in order of preference. The first `text/plain` type's text
+/// goes inline when short enough.
 pub struct LocalClip {
-    pub mimes: Vec<String>,
-    pub text: Option<String>,
-    pub data: Option<File>,
+    pub types: Vec<(String, ClipBytes)>,
+    /// The origin and copy time (ms since the Unix epoch) of a clip kept across a restart; `None` for a new copy.
+    pub copied: Option<(u64, u64)>,
 }
+
+pub enum ClipBytes {
+    Text(String),
+    File(File),
+}
+
+/// A peer that just connected: whether it holds the clipboard grant, so it gets the kept copy, and whether its hello
+/// carries [`link_proto::message::CLIP_ITEMS`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ClipPeer {
+    pub granted: bool,
+    pub items: bool,
+}
+
+/// A peer's offer older than this side's clip is dropped this long after it connects: both sides offer their kept
+/// clip on connect, and the newer one wins. Later offers are new copies, so clock skew never drops them.
+const CONNECT_WINDOW: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 pub(super) struct Clips {
     peers: HashMap<DeviceId, ClipState>,
-    /// The bytes of this side's latest offer.
-    local: Option<Content>,
-    /// SHA-256 of the last clip applied from a peer.
-    applied: Option<Vec<u8>>,
+    /// Whether each peer takes [`link_proto::message::CLIP_ITEMS`], and when it connected.
+    connected: HashMap<DeviceId, (bool, Instant)>,
+    /// This side's latest copy, kept while no peer is connected and offered on connect.
+    local: Option<Local>,
     pulls: Vec<Pull>,
+}
+
+struct Local {
+    types: Vec<(String, Content)>,
+    inline: Option<String>,
+    origin: u64,
+    at: u64,
 }
 
 #[derive(Clone)]
@@ -61,17 +87,49 @@ impl Clips {
 }
 
 impl LocalClip {
-    fn content(self) -> Result<(Vec<String>, Content, Vec<u8>), Error> {
-        let content = match (self.text, self.data) {
-            (Some(text), _) => Content::Text(text.into()),
-            (None, Some(file)) => {
-                let size = file.metadata()?.len();
-                Content::File(Arc::new(file), size)
+    fn local(self) -> Result<Local, Error> {
+        if self.types.is_empty() {
+            return Err(Error::Unexpected("a clip without content"));
+        }
+        let mut types = Vec::with_capacity(self.types.len());
+        for (mime, bytes) in self.types {
+            let content = match bytes {
+                ClipBytes::Text(text) => Content::Text(text.into()),
+                ClipBytes::File(file) => {
+                    let size = file.metadata()?.len();
+                    Content::File(Arc::new(file), size)
+                }
+            };
+            if content.size() > MAX_CLIP_SIZE {
+                return Err(Error::Unexpected("a clip over 64 MiB"));
             }
-            (None, None) => return Err(Error::Unexpected("a clip without content")),
+            types.push((mime, content));
+        }
+        let inline = types.iter().find(|(mime, _)| is_text_mime(mime)).and_then(|(_, content)| content.text());
+        let (origin, at) = match self.copied {
+            Some(copied) => copied,
+            None => (random_origin()?, now_ms()),
         };
-        let hash = content.hash()?;
-        Ok((self.mimes, content, hash))
+        Ok(Local { types, inline, origin, at })
+    }
+}
+
+impl Local {
+    fn offer(&self, items: bool) -> ClipOffer {
+        let offer = ClipOffer {
+            id: 0,
+            mimes: self.types.iter().map(|(mime, _)| mime.clone()).collect(),
+            size: self.types.first().map_or(0, |(_, content)| content.size()),
+            text: self.inline.clone(),
+            sizes: Some(self.types.iter().map(|(_, content)| content.size()).collect()),
+            origin: Some(self.origin),
+            at: Some(self.at),
+        };
+        if items { offer } else { offer.without_items() }
+    }
+
+    fn content(&self, mime: &str) -> Option<Content> {
+        self.types.iter().find(|(offered, _)| offered == mime).map(|(_, content)| content.clone())
     }
 }
 
@@ -83,58 +141,66 @@ impl Content {
         }
     }
 
-    fn hash(&self) -> Result<Vec<u8>, Error> {
-        let mut context = digest::Context::new(&digest::SHA256);
+    /// Text up to the inline limit; a file is read only when pulled.
+    fn text(&self) -> Option<String> {
         match self {
-            Self::Text(text) => context.update(text.as_bytes()),
-            Self::File(file, size) => {
-                let mut buf = vec![0; CHUNK];
-                let mut offset = 0;
-                while offset < *size {
-                    let read = file.read_at(&mut buf, offset)?;
-                    if read == 0 {
-                        break;
-                    }
-                    context.update(&buf[..read]);
-                    offset += read as u64;
-                }
-            }
+            Self::Text(text) if text.len() <= MAX_SHARE_LEN && !text.is_empty() => Some(text.to_string()),
+            _ => None,
         }
-        Ok(context.finish().as_ref().to_vec())
     }
 }
 
+fn random_origin() -> Result<u64, Error> {
+    let mut bytes = [0; 8];
+    SystemRandom::new().fill(&mut bytes).map_err(|_| Error::Unexpected("no randomness for a clip origin"))?;
+    Ok(u64::from_be_bytes(bytes))
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0))
+}
+
 impl TransferActor {
+    /// Keeps `clip` as this side's latest copy and offers it to `peers`; with none connected, it waits for one.
     pub(super) async fn offer_clip(&mut self, peers: &[DeviceId], clip: LocalClip) -> Result<(), Error> {
-        let (mimes, content, hash) = clip.content()?;
-        if content.size() > MAX_CLIP_SIZE {
-            return Err(Error::Unexpected("a clip over 64 MiB"));
+        let local = clip.local()?;
+        if !local.offer(true).is_valid() {
+            return Err(Error::Unexpected("a clip offer that breaks the rules"));
         }
-        if self.clips.applied.as_ref() == Some(&hash) {
-            log::debug!("the clip came from a peer; not offering it back");
-            return Ok(());
-        }
-        let inline = match &content {
-            Content::Text(text) if text.len() <= MAX_SHARE_LEN && mimes.iter().any(|mime| is_text_mime(mime)) => {
-                Some(text.to_string())
-            }
-            _ => None,
-        };
-        let size = content.size();
-        self.clips.local = Some(content);
+        self.clips.local = Some(local);
         for peer in peers {
-            let offer = self.clips.peers.entry(peer.clone()).or_default().offer(mimes.clone(), size, inline.clone());
-            if !offer.is_valid() {
-                return Err(Error::Unexpected("a clip offer that breaks the rules"));
-            }
-            self.send_to(peer, Message::ClipOffer(offer)).await;
+            self.send_clip(peer).await;
         }
         Ok(())
     }
 
+    /// Offers the kept copy to a peer that just connected, unless that peer's last offer is newer.
+    pub(super) async fn offer_kept_clip(&mut self, peer: &DeviceId, clip: ClipPeer) {
+        self.clips.connected.insert(peer.clone(), (clip.items, Instant::now()));
+        let theirs = self.clips.peers.get(peer).and_then(ClipState::received).and_then(|offer| offer.at).unwrap_or(0);
+        if clip.granted && self.clips.local.as_ref().is_some_and(|local| local.at > theirs) {
+            self.send_clip(peer).await;
+        }
+    }
+
+    async fn send_clip(&mut self, peer: &DeviceId) {
+        let items = self.clips.connected.get(peer).is_some_and(|(items, _)| *items);
+        let Some(local) = &self.clips.local else { return };
+        let offer = self.clips.peers.entry(peer.clone()).or_default().offer(local.offer(items));
+        self.send_to(peer, Message::ClipOffer(offer)).await;
+    }
+
     pub(super) fn on_clip_offer(&mut self, peer: &DeviceId, offer: ClipOffer) {
-        if let Some(text) = &offer.text {
-            self.clips.applied = Some(digest::digest(&digest::SHA256, text.as_bytes()).as_ref().to_vec());
+        if let Some(local) = &self.clips.local {
+            if offer.origin == Some(local.origin) {
+                log::debug!("{peer}: the offer is this side's own clip; dropping it");
+                return;
+            }
+            let connected = self.clips.connected.get(peer).map(|(_, since)| since.elapsed());
+            if connected.is_some_and(|since| since < CONNECT_WINDOW) && offer.at.is_some_and(|at| at < local.at) {
+                log::info!("{peer}: the kept clip it offered is older than this side's; dropping it");
+                return;
+            }
         }
         let event = TransferEvent::ClipOffered {
             from: peer.clone(),
@@ -154,7 +220,7 @@ impl TransferActor {
             self.clips.peers.get(peer).map_or(Err(link_proto::clip::ClipRefused::Stale), |state| state.on_pull(pull));
         let content = match served {
             Ok(Serve::Text(text)) => Some(Content::Text(text.into())),
-            Ok(Serve::Stream { .. }) => self.clips.local.clone(),
+            Ok(Serve::Stream { .. }) => self.clips.local.as_ref().and_then(|local| local.content(&pull.mime)),
             Err(refused) => {
                 log::info!("{peer}: clipboard pull refused: {refused}");
                 None
@@ -217,15 +283,11 @@ impl TransferActor {
         });
     }
 
-    pub(super) fn clip_pulled(&mut self, peer: &DeviceId, header: &ClipPull, result: Result<(u64, Vec<u8>), Error>) {
+    pub(super) fn clip_pulled(&mut self, peer: &DeviceId, header: &ClipPull, result: Result<u64, Error>) {
         let Some(index) = self.clips.pulls.iter().position(|pull| pull.peer == *peer && pull.header == *header) else {
             return;
         };
         let pull = self.clips.pulls.remove(index);
-        let result = result.map(|(bytes, hash)| {
-            self.clips.applied = Some(hash);
-            bytes
-        });
         drop(pull.reply.send(result));
     }
 
@@ -297,10 +359,9 @@ async fn write_sink(sink: File, bytes: &[u8]) -> Result<(), Error> {
     Sink::new(sink)?.write_all(bytes).await
 }
 
-/// Copies a `clip-data` stream into the sink within its budget, returning the byte count and hash.
-async fn copy(mut recv: RecvStream, sink: File, mut budget: Budget) -> Result<(u64, Vec<u8>), Error> {
+/// Copies a `clip-data` stream into the sink within its budget, returning the byte count.
+async fn copy(mut recv: RecvStream, sink: File, mut budget: Budget) -> Result<u64, Error> {
     let mut sink = Sink::new(sink)?;
-    let mut context = digest::Context::new(&digest::SHA256);
     loop {
         let chunk = tokio::time::timeout(STEP_TIMEOUT, recv.read_chunk(CHUNK)).await?;
         let Some(chunk) = chunk.map_err(|_| Error::StreamEnded)? else { break };
@@ -309,7 +370,6 @@ async fn copy(mut recv: RecvStream, sink: File, mut budget: Budget) -> Result<(u
             return Err(Error::Unexpected("clipboard bytes past the offered size"));
         }
         sink.write_all(&chunk).await?;
-        context.update(&chunk);
     }
-    Ok((budget.offset(), context.finish().as_ref().to_vec()))
+    Ok(budget.offset())
 }

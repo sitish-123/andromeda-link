@@ -19,24 +19,23 @@ impl Link {
         log_failure("NotificationAction", self.proxy.notification_action(device, id, action, reply).await);
     }
 
-    /// Whether a connected device holds the clipboard grant, so a new selection is worth sending.
-    pub async fn clipboard_wanted(&self) -> bool {
-        let devices = self.proxy.devices().await.unwrap_or_default();
-        let grants = self.proxy.grants().await.unwrap_or_default();
-        devices.iter().any(|(id, _, connected)| {
-            *connected && grants.get(id).is_some_and(|features| features.iter().any(|feature| feature == "clipboard"))
-        })
-    }
-
-    /// `data` holds the bytes of `mimes[0]`.
-    pub async fn offer_clipboard(&self, mimes: Vec<String>, data: &[u8]) {
+    /// Each type's bytes go in a memfd, under every name it is offered as.
+    pub async fn offer_clipboard(&self, types: Vec<(Vec<String>, Vec<u8>)>) {
         let offer = async {
-            let fd = rustix::fs::memfd_create("link-clipboard", rustix::fs::MemfdFlags::CLOEXEC)?;
-            let mut file = std::fs::File::from(fd);
-            file.write_all(data)?;
-            file.seek(SeekFrom::Start(0))?;
-            let mimes: Vec<&str> = mimes.iter().map(String::as_str).collect();
-            self.proxy.offer_clipboard(&mimes, file.as_fd().into()).await?;
+            let mut files = Vec::with_capacity(types.len());
+            for (names, data) in &types {
+                let fd = rustix::fs::memfd_create("link-clipboard", rustix::fs::MemfdFlags::CLOEXEC)?;
+                let mut file = std::fs::File::from(fd);
+                file.write_all(data)?;
+                file.seek(SeekFrom::Start(0))?;
+                files.push((names, file));
+            }
+            let entries: Vec<(&str, zbus::Fd<'_>)> = files
+                .iter()
+                .flat_map(|(names, file)| names.iter().map(move |name| (name.as_str(), file.as_fd().into())))
+                .collect();
+            let entries: Vec<&(&str, zbus::Fd<'_>)> = entries.iter().collect();
+            self.proxy.offer_clipboard(&entries).await?;
             anyhow::Ok(())
         };
         if let Err(error) = offer.await {

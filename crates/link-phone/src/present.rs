@@ -11,7 +11,7 @@ use link_core::inbox::Inbox;
 use link_core::phone::{Phone, Session};
 use link_core::proto::message::{Message, NetworkKind, Share, ShareKind, Status};
 use link_core::reach::Via;
-use link_core::transfer::{LocalClip, TransferEvent};
+use link_core::transfer::{ClipBytes, LocalClip, TransferEvent};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal::unix::{SignalKind, signal};
@@ -181,13 +181,20 @@ pub fn parse_status(text: &str) -> anyhow::Result<Status> {
     })
 }
 
-/// `clip <path> <mime>...`: offers the file's bytes as the clipboard, never inline, so a pull is what moves them.
+/// `clip <path> <mime>... [+ <path> <mime>...]...`: offers each file's bytes as its types of the clipboard, never
+/// inline, so a pull is what moves them.
 async fn clip_line(client: &Client, rest: &str) -> anyhow::Result<Value> {
-    let mut words = rest.split_whitespace();
-    let path = words.next().context("clip <path> <mime>...")?;
-    let mimes: Vec<String> = words.map(str::to_owned).collect();
-    let data = std::fs::File::open(path).with_context(|| format!("opening {path}"))?;
-    client.offer_clip(LocalClip { mimes: mimes.clone(), text: None, data: Some(data) }).await?;
+    let mut types = Vec::new();
+    for group in rest.split(" + ") {
+        let mut words = group.split_whitespace();
+        let path = words.next().context("clip <path> <mime>... [+ <path> <mime>...]...")?;
+        let data = std::fs::File::open(path).with_context(|| format!("opening {path}"))?;
+        for mime in words {
+            types.push((mime.to_owned(), ClipBytes::File(data.try_clone()?)));
+        }
+    }
+    let mimes: Vec<String> = types.iter().map(|(mime, _)| mime.clone()).collect();
+    client.offer_clip(LocalClip { types, copied: None }).await?;
     Ok(json!({ "event": "clip-sent", "mimes": mimes }))
 }
 

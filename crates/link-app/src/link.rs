@@ -538,7 +538,8 @@ async fn execute(proxy: &Link1Proxy<'static>, events: &UnboundedSender<Event>, c
                 .map_err(|error| failure(error.into()))?;
             let mut file = File::from(fd);
             file.write_all(text.as_bytes()).and_then(|()| file.rewind()).map_err(failure)?;
-            proxy.offer_clipboard(&["text/plain;charset=utf-8", "text/plain"], file.as_fd().into()).await?;
+            let types = ["text/plain;charset=utf-8", "text/plain"].map(|mime| (mime, file.as_fd().into()));
+            proxy.offer_clipboard(&types.iter().collect::<Vec<_>>()).await?;
             let _ = events.send(Event::ClipSent(text));
             Ok(())
         }

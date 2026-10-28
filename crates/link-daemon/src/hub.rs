@@ -10,14 +10,15 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    CAN_VOLUME, CAPABILITIES, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE, FS_STAT, Hello, Hotspot,
-    HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull, Ping, RemoteInput,
-    SYSTEM, Share, Status, SystemCommand, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
+    CAN_VOLUME, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE, FS_STAT,
+    Hello, Hotspot, HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull,
+    Ping, RemoteInput, SYSTEM, Share, Status, SystemCommand, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect,
+    WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
 use link_core::store::{Feature, Peer, Store, StoredCommand, feature_of};
-use link_core::transfer::{Source, Status as TransferStatus, TransferEvent, TransferHandle};
+use link_core::transfer::{ClipPeer, Source, Status as TransferStatus, TransferEvent, TransferHandle};
 use link_core::transport::Puncher;
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -838,8 +839,13 @@ impl Hub {
         }
         self.hotspot_asked.remove(&id);
         self.publish();
-        self.transfers.attach(id.clone(), session.clone()).await;
-        let features = hello.addresses.iter().filter(|entry| entry.starts_with(FEATURE)).cloned().collect();
+        let features: Vec<String> =
+            hello.addresses.iter().filter(|entry| entry.starts_with(FEATURE)).cloned().collect();
+        let clip = ClipPeer {
+            granted: self.store.peer(&id).is_some_and(|peer| peer.grants.clipboard),
+            items: features.iter().any(|feature| feature == CLIP_ITEMS),
+        };
+        self.transfers.attach(id.clone(), session.clone(), clip).await;
         self.features.insert(id.clone(), features);
         if self.phone_has(&id, MESSAGES) {
             let contacts = self.messages.pull_contacts(id.clone());

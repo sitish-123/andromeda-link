@@ -25,7 +25,7 @@ def offer(mime, text):
     os.lseek(fd, 0, os.SEEK_SET)
     fds = Gio.UnixFDList()
     index = fds.append(fd)
-    call("OfferClipboard", "(ash)", ([mime], index), fds, "()")
+    call("OfferClipboard", "(a(sh))", ([(mime, index)],), fds, "()")
 
 
 def pull(device, clip, mime):

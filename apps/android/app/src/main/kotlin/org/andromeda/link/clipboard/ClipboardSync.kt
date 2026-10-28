@@ -4,53 +4,66 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.text.Html
+import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository
+import org.andromeda.link.core.domain.ClipPart
 import org.andromeda.link.core.domain.IncomingClip
-import java.security.MessageDigest
 
 /**
- * Desktop to phone: text is set at once, other types as a `content://` URI [ClipProvider] pulls when an app reads it.
- * A clip set from a desktop is cleared after two minutes unless the clipboard changed since. The hash of the last one
- * set here keeps it from being offered back.
+ * Desktop to phone: text and HTML are set at once, other types as a `content://` URI [ClipProvider] pulls when an app
+ * reads it. A clip set here carries [LABEL], so reading it back never offers it again. With "Clear synced clips" on, a
+ * desktop clip is cleared after two minutes unless the clipboard changed since.
  */
 class ClipboardSync(
     private val context: Context,
     private val repository: LinkRepository,
+    private val history: ClipHistory,
     private val scope: CoroutineScope,
 ) {
     private val clipboard = context.getSystemService(ClipboardManager::class.java)
+    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private var clear: Job? = null
 
-    /** SHA-256 of the last text set from a desktop. */
-    @Volatile
-    var lastApplied: String? = null
-        private set
+    var clearsSynced: Boolean
+        get() = prefs.getBoolean(KEY_CLEAR, false)
+        set(value) = prefs.edit { putBoolean(KEY_CLEAR, value) }
 
     fun start() {
         scope.launch { repository.clips.collect(::apply) }
     }
 
-    /** Whether [text] is what a desktop just set, so sending it would echo. */
-    fun isEcho(text: String): Boolean = hash(text) == lastApplied
+    /**
+     * Sends every item's original content, not a URI coerced to text, and returns how many desktops got it now. Text
+     * items are joined; of other types, the first item of each is sent.
+     */
+    suspend fun offer(clip: ClipData): Result<Int> {
+        if (isFromDesktop(clip)) return Result.success(0)
+        return offer(parts(clip))
+    }
 
-    /** Sends the original content, not a URI coerced to text; our lazy desktop URIs must not be echoed back. */
-    suspend fun offer(clip: ClipData): Result<Unit> {
-        val item = clip.getItemAt(0)
-        item.uri?.let { uri ->
-            if (ClipProvider.owns(uri)) return Result.success(Unit)
-            val mime =
-                (0 until clip.description.mimeTypeCount)
-                    .map { clip.description.getMimeType(it) }
-                    .firstOrNull { '*' !in it }
-            return repository.offerClipUri(uri, mime)
+    /** Sends selected text, as "Send to desktop" does. */
+    suspend fun offerText(text: String): Result<Int> = offer(listOf(ClipPart.Text(TEXT_MIME, text)))
+
+    private suspend fun offer(parts: List<ClipPart>): Result<Int> {
+        if (parts.isEmpty()) return Result.success(0)
+        return repository.offerClip(parts).onSuccess {
+            val text = parts.firstNotNullOfOrNull { (it as? ClipPart.Text)?.takeIf { part -> part.mime == TEXT_MIME }?.text }
+            val html = parts.firstNotNullOfOrNull { (it as? ClipPart.Text)?.takeIf { part -> part.mime == HTML_MIME }?.text }
+            history.add(ClipEntry(System.currentTimeMillis(), false, null, text, html, parts.first().mime))
         }
-        val text = item.coerceToText(context)?.toString()
-        if (text.isNullOrEmpty() || isEcho(text)) return Result.success(Unit)
-        return repository.offerClipText(text)
+    }
+
+    /** Puts a history entry back on the clipboard; one from a desktop keeps [LABEL], so it is not sent back. */
+    fun copyAgain(entry: ClipEntry) {
+        val text = entry.text ?: return
+        val mimes = listOfNotNull(ClipDescription.MIMETYPE_TEXT_PLAIN, entry.html?.let { ClipDescription.MIMETYPE_TEXT_HTML })
+        val label = if (entry.incoming) LABEL else HISTORY_LABEL
+        clipboard.setPrimaryClip(ClipData(ClipDescription(label, mimes.toTypedArray()), ClipData.Item(text, entry.html)))
     }
 
     /** The clipboard changed here; a desktop clip is no longer there to clear. */
@@ -59,29 +72,77 @@ class ClipboardSync(
         clear = null
     }
 
-    private fun apply(clip: IncomingClip) {
-        val data =
-            clip.text?.let { text ->
-                lastApplied = hash(text)
-                ClipData.newPlainText(LABEL, text)
-            } ?: run {
-                val mime = clip.mimes.first()
-                ClipData(ClipDescription(LABEL, arrayOf(mime)), ClipData.Item(ClipProvider.uri(clip.desktopId, clip.clipId, mime)))
+    private fun parts(clip: ClipData): List<ClipPart> {
+        val texts = mutableListOf<String>()
+        var html: String? = null
+        val contents = linkedMapOf<String, ClipPart.Content>()
+        for (index in 0 until clip.itemCount) {
+            val item = clip.getItemAt(index)
+            val uri = item.uri?.takeUnless(ClipProvider::owns)
+            if (item.uri != null && uri == null) continue
+            if (uri != null) {
+                val mime =
+                    context.contentResolver.getType(uri)?.takeUnless { '*' in it }
+                        ?: concreteMimes(clip.description).firstOrNull { !it.startsWith("text/") }
+                if (mime != null) contents.putIfAbsent(mime, ClipPart.Content(mime, uri))
             }
-        clipboard.setPrimaryClip(data)
+            if (html == null) html = item.htmlText
+            val text = item.text?.toString() ?: if (uri == null) item.coerceToText(context)?.toString() else null
+            text?.takeIf { it.isNotEmpty() }?.let(texts::add)
+        }
+        val text = texts.takeIf { it.isNotEmpty() }?.joinToString("\n")?.let { ClipPart.Text(TEXT_MIME, it) }
+        return listOfNotNull(text, html?.let { ClipPart.Text(HTML_MIME, it) }) + contents.values
+    }
+
+    private suspend fun apply(clip: IncomingClip) {
+        val html =
+            if (HTML_MIME in clip.mimes) {
+                repository.pullClipText(clip.desktopId, clip.clipId, HTML_MIME, MAX_HTML_BYTES)
+            } else {
+                null
+            }
+        val text = clip.text ?: html?.let { Html.fromHtml(it, Html.FROM_HTML_MODE_COMPACT).toString() }
+        val other = clip.mimes.firstOrNull { !it.startsWith("text/") } ?: clip.mimes.first().takeIf { text == null }
+        val uri = other?.let { ClipProvider.uri(clip.desktopId, clip.clipId, it) }
+        val mimes =
+            listOfNotNull(
+                text?.let { ClipDescription.MIMETYPE_TEXT_PLAIN },
+                html?.let { ClipDescription.MIMETYPE_TEXT_HTML },
+                other,
+            )
+        clipboard.setPrimaryClip(ClipData(ClipDescription(LABEL, mimes.toTypedArray()), ClipData.Item(text, html, null, uri)))
+        val desktop =
+            repository.desktops.value
+                .firstOrNull { it.id == clip.desktopId }
+                ?.name
+        history.add(ClipEntry(System.currentTimeMillis(), true, desktop, text, html, mimes.firstOrNull() ?: clip.mimes.first()))
         clear?.cancel()
         clear =
-            scope.launch {
-                delay(CLEAR_AFTER_MS)
-                clipboard.clearPrimaryClip()
+            if (clearsSynced) {
+                scope.launch {
+                    delay(CLEAR_AFTER_MS)
+                    clipboard.clearPrimaryClip()
+                }
+            } else {
+                null
             }
     }
 
     companion object {
         const val LABEL = "Andromeda Link"
+        private const val HISTORY_LABEL = "Andromeda Link history"
+        private const val PREFS = "clipboard"
+        private const val KEY_CLEAR = "clear_synced"
+        private const val TEXT_MIME = "text/plain;charset=utf-8"
+        private const val HTML_MIME = "text/html"
         private const val CLEAR_AFTER_MS = 120_000L
 
-        fun hash(text: String): String =
-            MessageDigest.getInstance("SHA-256").digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+        /** Clip data travels through binder, which fails a transaction near 1 MiB. */
+        private const val MAX_HTML_BYTES = 256 * 1024
+
+        fun isFromDesktop(clip: ClipData): Boolean = clip.description.label == LABEL
+
+        private fun concreteMimes(description: ClipDescription): List<String> =
+            (0 until description.mimeTypeCount).map(description::getMimeType).filter { '*' !in it }
     }
 }

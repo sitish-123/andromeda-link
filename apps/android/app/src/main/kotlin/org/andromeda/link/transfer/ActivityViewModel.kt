@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.andromeda.link.clipboard.ClipEntry
+import org.andromeda.link.clipboard.ClipHistory
+import org.andromeda.link.clipboard.ClipboardSync
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.domain.LinkFailure
 import org.andromeda.link.core.domain.linkFailure
@@ -21,8 +24,11 @@ sealed interface ActivityMessage {
 
 class ActivityViewModel(
     private val repository: LinkRepository,
+    private val clipboard: ClipboardSync,
+    history: ClipHistory,
 ) : ViewModel() {
     val transfers = repository.transferActivity
+    val clips = history.entries
     private val _busy = MutableStateFlow<Set<String>>(emptySet())
     private val _message = MutableStateFlow<ActivityMessage?>(null)
     val busy: StateFlow<Set<String>> = _busy.asStateFlow()
@@ -33,6 +39,8 @@ class ActivityViewModel(
     fun decline(id: String) = act(id) { repository.declineTransfer(id) }
 
     fun cancel(id: String) = act(id) { repository.cancelTransfer(id) }
+
+    fun copyAgain(clip: ClipEntry) = clipboard.copyAgain(clip)
 
     fun messageShown() {
         _message.value = null

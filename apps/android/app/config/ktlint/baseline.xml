@@ -18,22 +18,22 @@
     <file name="src/main/kotlin/org/andromeda/link/devices/HomeScreen.kt">
         <error line="83" column="5" source="standard:function-naming" />
         <error line="83" column="5" source="compose:modifier-missing-check" />
-        <error line="137" column="42" source="compose:vm-forwarding-check" />
-        <error line="190" column="25" source="compose:vm-forwarding-check" />
-        <error line="233" column="13" source="standard:function-naming" />
-        <error line="256" column="14" source="standard:function-naming" />
-        <error line="256" column="14" source="compose:multiple-emitters-check" />
-        <error line="256" column="14" source="compose:param-order-check" />
-        <error line="294" column="13" source="standard:function-naming" />
-        <error line="315" column="13" source="standard:function-naming" />
-        <error line="336" column="13" source="standard:function-naming" />
-        <error line="342" column="5" source="compose:lambda-param-event-trailing" />
-        <error line="367" column="13" source="standard:function-naming" />
-        <error line="367" column="13" source="compose:multiple-emitters-check" />
+        <error line="138" column="42" source="compose:vm-forwarding-check" />
+        <error line="191" column="25" source="compose:vm-forwarding-check" />
+        <error line="234" column="13" source="standard:function-naming" />
+        <error line="257" column="14" source="standard:function-naming" />
+        <error line="257" column="14" source="compose:multiple-emitters-check" />
+        <error line="257" column="14" source="compose:param-order-check" />
+        <error line="295" column="13" source="standard:function-naming" />
+        <error line="316" column="13" source="standard:function-naming" />
+        <error line="337" column="13" source="standard:function-naming" />
+        <error line="343" column="5" source="compose:lambda-param-event-trailing" />
+        <error line="368" column="13" source="standard:function-naming" />
+        <error line="368" column="13" source="compose:multiple-emitters-check" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/SettingsScreen.kt">
-        <error line="44" column="5" source="standard:function-naming" />
-        <error line="44" column="5" source="compose:modifier-missing-check" />
+        <error line="45" column="5" source="standard:function-naming" />
+        <error line="45" column="5" source="compose:modifier-missing-check" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/files/PickerSheet.kt">
         <error line="80" column="14" source="standard:function-naming" />
@@ -99,12 +99,13 @@
         <error line="136" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/transfer/ActivityScreen.kt">
-        <error line="66" column="5" source="standard:function-naming" />
-        <error line="66" column="5" source="compose:modifier-missing-check" />
-        <error line="161" column="13" source="standard:function-naming" />
-        <error line="229" column="13" source="standard:function-naming" />
-        <error line="265" column="13" source="standard:function-naming" />
-        <error line="301" column="13" source="standard:function-naming" />
+        <error line="67" column="5" source="standard:function-naming" />
+        <error line="67" column="5" source="compose:modifier-missing-check" />
+        <error line="174" column="13" source="standard:function-naming" />
+        <error line="242" column="13" source="standard:function-naming" />
+        <error line="278" column="13" source="standard:function-naming" />
+        <error line="315" column="13" source="standard:function-naming" />
+        <error line="350" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/ui/LinkApp.kt">
         <error line="62" column="5" source="standard:function-naming" />

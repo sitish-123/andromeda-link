@@ -3,8 +3,8 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read as _;
 use std::os::fd::OwnedFd;
+use std::os::unix::fs::FileExt as _;
 
 use futures_util::StreamExt;
 use link_core::Error;
@@ -16,7 +16,7 @@ use link_core::proto::message::{
     is_text_mime,
 };
 use link_core::store::StoredCommand;
-use link_core::transfer::{LocalClip, Source};
+use link_core::transfer::{ClipBytes, LocalClip, Source};
 use tokio::sync::{mpsc, watch};
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
@@ -154,19 +154,24 @@ impl Link {
         }
     }
 
-    /// Offers the desktop's new clipboard to connected devices holding the clipboard grant. `data` holds the first
-    /// type's bytes; text is sent inline, anything else only when a device pulls it.
-    async fn offer_clipboard(&self, mimes: Vec<String>, data: zbus::OwnedFd) -> Result<(), LinkError> {
-        let file = File::from(OwnedFd::from(data));
-        let size = file.metadata().map_err(|error| LinkError::Rejected(error.to_string()))?.len();
-        let text = if mimes.first().is_some_and(|mime| is_text_mime(mime)) && size <= MAX_SHARE_LEN as u64 {
-            let mut text = String::new();
-            (&file).read_to_string(&mut text).map_err(|error| LinkError::Rejected(error.to_string()))?;
-            Some(text).filter(|text| !text.is_empty())
-        } else {
-            None
-        };
-        let clip = LocalClip { mimes, text, data: Some(file) };
+    /// Offers the desktop's new clipboard to connected devices holding the clipboard grant, or keeps it for the next
+    /// one. Each type comes with its own bytes; short text is sent inline, anything else only when a device pulls it.
+    async fn offer_clipboard(&self, types: Vec<(String, zbus::OwnedFd)>) -> Result<(), LinkError> {
+        let rejected = |error: std::io::Error| LinkError::Rejected(error.to_string());
+        let mut clip = LocalClip { types: Vec::with_capacity(types.len()), copied: None };
+        for (mime, data) in types {
+            let file = File::from(OwnedFd::from(data));
+            let size = file.metadata().map_err(rejected)?.len();
+            let bytes = if is_text_mime(&mime) && size <= MAX_SHARE_LEN as u64 {
+                // At an offset, since aliases may share one memfd.
+                let mut text = vec![0; usize::try_from(size).unwrap_or(MAX_SHARE_LEN)];
+                file.read_exact_at(&mut text, 0).map_err(rejected)?;
+                ClipBytes::Text(String::from_utf8(text).map_err(|error| LinkError::Rejected(error.to_string()))?)
+            } else {
+                ClipBytes::File(file)
+            };
+            clip.types.push((mime, bytes));
+        }
         let peers = self.hub.clipboard_peers().await;
         self.hub.transfers().offer_clip(peers, clip).await.map_err(|error| LinkError::Rejected(error.to_string()))
     }

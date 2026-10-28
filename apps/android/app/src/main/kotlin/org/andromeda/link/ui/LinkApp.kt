@@ -74,7 +74,7 @@ fun LinkApp(
     val pairing = viewModel { PairingViewModel(container.repository) }
     val picker = viewModel { PickerViewModel(container.files) }
     val onboarding = viewModel { OnboardingViewModel(container.application, container.mirror, container.ringer) }
-    val activity = viewModel { ActivityViewModel(container.repository) }
+    val activity = viewModel { ActivityViewModel(container.repository, container.clipboard, container.clipHistory) }
     val pick by picker.state.collectAsStateWithLifecycle()
     val setup by onboarding.state.collectAsStateWithLifecycle()
     // Grants change in Settings and over adb, so they are rechecked whenever the app returns.

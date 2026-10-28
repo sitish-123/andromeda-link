@@ -230,6 +230,9 @@
     <string name="onboarding_bluetooth_title">Stay connected without Wi-Fi</string>
     <string name="onboarding_bluetooth_body">When your phone and desktop aren\'t on the same Wi-Fi, Link talks over Bluetooth instead: messages, the clipboard, notifications, and calls. For bigger files it starts a private hotspot the desktop joins for a moment; it uses no mobile data. Android asks once for nearby devices.</string>
     <string name="clipboard_sent">On %1$s\'s clipboard</string>
+    <string name="clipboard_queued">Will send when %1$s connects</string>
+    <string name="clipboard_clear_synced">Clear synced clips after 2 minutes</string>
+    <string name="clipboard_clear_synced_hint">A clip from a desktop leaves this phone\'s clipboard unless you copy something else first.</string>
     <string name="onboarding_texts_title">Texts on your desktop</string>
     <string name="onboarding_texts_body">Optional. Read and answer this phone\'s texts from your desktop. Link reads them only for a desktop whose Contacts and texts switch is on, and sends a text only when you send it there.</string>
     <string name="onboarding_clipboard_title">Copy here, paste there</string>
@@ -266,6 +269,10 @@
     <string name="home_clipboard_setup">Set up automatic clipboard</string>
     <string name="activity_from">From %1$s</string>
     <string name="activity_sent_to">Sent to %1$s</string>
+    <string name="activity_clipboard">Clipboard</string>
+    <string name="activity_clip_sent">Sent</string>
+    <string name="activity_clip_other">%1$s clip</string>
+    <string name="activity_copy_again">Copy again</string>
     <plurals name="activity_files">
         <item quantity="one">%1$d file</item>
         <item quantity="other">%1$d files</item>

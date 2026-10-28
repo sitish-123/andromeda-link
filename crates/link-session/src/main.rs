@@ -9,8 +9,6 @@ mod notify;
 mod portal;
 mod volume;
 
-use std::hash::{DefaultHasher, Hash, Hasher};
-
 use anyhow::Context;
 use futures_util::StreamExt;
 use tokio::signal::unix::{SignalKind, signal};
@@ -90,24 +88,14 @@ async fn report_volume(link: &link::Link, volume: &volume::Volume) {
     }
 }
 
-/// Sends a new selection to phones, unless it is the one sent last, or serves a paste of `remote`, the phone clip
-/// the selection holds as (device id, clip id).
-fn on_clipboard(link: &link::Link, event: clipboard::Event, sent: &mut u64, remote: Option<(String, u64)>) {
+/// Gives a new selection to the daemon, which sends it to phones now or on connect, or serves a paste of `remote`,
+/// the phone clip the selection holds as (device id, clip id). A phone clip's own selection never comes back here.
+fn on_clipboard(link: &link::Link, event: clipboard::Event, remote: Option<(String, u64)>) {
     match event {
-        clipboard::Event::Local { mimes, data } => {
-            let mut hasher = DefaultHasher::new();
-            data.hash(&mut hasher);
-            let hash = hasher.finish();
-            if hash != *sent {
-                *sent = hash;
-                // In a task: a large offer must not hold up a paste the loop has to serve meanwhile.
-                let link = link.clone();
-                tokio::spawn(async move {
-                    if link.clipboard_wanted().await {
-                        link.offer_clipboard(mimes, &data).await;
-                    }
-                });
-            }
+        clipboard::Event::Local { types } => {
+            // In a task: a large offer must not hold up a paste the loop has to serve meanwhile.
+            let link = link.clone();
+            tokio::spawn(async move { link.offer_clipboard(types).await });
         }
         clipboard::Event::Paste { mime, sink, done } => {
             let link = link.clone();
@@ -177,8 +165,6 @@ async fn main() -> anyhow::Result<()> {
     report(&link, &capabilities, volume.as_ref()).await;
     // The phone clip the selection serves, as (device id, clip id).
     let mut remote: Option<(String, u64)> = None;
-    // The last selection sent, so a re-read of the same one is not sent again.
-    let mut sent = 0u64;
     log::info!("running");
     loop {
         tokio::select! {
@@ -214,17 +200,13 @@ async fn main() -> anyhow::Result<()> {
                 let mimes: Vec<String> = args.mimes.iter().map(|&mime| mime.to_owned()).collect();
                 if let Some(backend) = clipboard.as_mut() {
                     match backend.offer_remote(&mimes).await {
-                        Ok(()) => {
-                            remote = Some((device, id));
-                            // The phone's clip replaced the last copy, so copying that again must send it again.
-                            sent = 0;
-                        }
+                        Ok(()) => remote = Some((device, id)),
                         Err(error) => log::warn!("taking the selection for {device}'s clip: {error}"),
                     }
                 }
             }
             event = next_clipboard(&mut clipboard) => match event {
-                Ok(event) => on_clipboard(&link, event, &mut sent, remote.clone()),
+                Ok(event) => on_clipboard(&link, event, remote.clone()),
                 // The unit restarts the service, which connects the backends again.
                 Err(error) => return Err(error.context("the clipboard backend stopped")),
             },

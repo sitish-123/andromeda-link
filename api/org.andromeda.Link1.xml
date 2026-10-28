@@ -118,11 +118,11 @@
       <arg name="feature" type="s" direction="in"/>
       <arg name="granted" type="b" direction="in"/>
     </method>
-    <!-- The desktop's clipboard changed: offers it to connected devices holding the clipboard grant. data holds the
-         first type's bytes (a memfd); text goes inline, anything else only when a device pulls it. -->
+    <!-- The desktop's clipboard changed: offers it to connected devices holding the clipboard grant, or to the next
+         one that connects. types holds each type in order of preference with its bytes (a memfd; aliases may share
+         one); the first text/plain type goes inline, anything else only when a device pulls it. -->
     <method name="OfferClipboard">
-      <arg name="mimes" type="as" direction="in"/>
-      <arg name="data" type="h" direction="in"/>
+      <arg name="types" type="a(sh)" direction="in"/>
     </method>
     <!-- Writes type mime of a device's ClipboardOffered clip into sink (a paste target's pipe) and returns the byte
          count. Errors: .NotConnected, .Failed (a stale offer, a timeout, bytes past the offered size). -->

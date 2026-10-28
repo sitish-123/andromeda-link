@@ -7,3 +7,18 @@ data class IncomingClip(
     val mimes: List<String>,
     val text: String?,
 )
+
+/** One type of a phone clip: inline text, or a URI snapshotted while Android's read grant is valid. */
+sealed interface ClipPart {
+    val mime: String
+
+    data class Text(
+        override val mime: String,
+        val text: String,
+    ) : ClipPart
+
+    data class Content(
+        override val mime: String,
+        val uri: android.net.Uri,
+    ) : ClipPart
+}

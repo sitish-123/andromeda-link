@@ -15,7 +15,7 @@ use link_core::proto::CloseCode;
 use link_core::proto::message::{self, Contact, Message, MessagesRefusal, Share, Text, TransferId};
 use link_core::proto::pairing::PairingError;
 use link_core::store::{self, Peer};
-use link_core::transfer::{LocalClip, Source, TransferEvent};
+use link_core::transfer::{ClipBytes, LocalClip, Source, TransferEvent};
 use link_core::uri::PairingUri;
 use tokio::sync::{Mutex, mpsc};
 
@@ -47,6 +47,14 @@ impl From<link_core::Error> for LinkError {
             other => Self::Failed { reason: other.to_string() },
         }
     }
+}
+
+/// One type of a phone clip: its text, or a snapshot file of its bytes.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ClipType {
+    pub mime: String,
+    pub text: Option<String>,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -1021,31 +1029,33 @@ impl LinkClient {
         self.run(async move { client.set_status(status).await }).await
     }
 
-    /// Offers text from the phone's clipboard to every connected desktop, inline.
-    pub async fn offer_clip_text(&self, text: String) -> Result<(), LinkError> {
+    /// Offers the phone's clipboard to every connected desktop, or to the next one that connects, and returns how
+    /// many got it now. A file type's snapshot stays open for later pulls, so the app may unlink it once this returns.
+    pub async fn offer_clip(&self, types: Vec<ClipType>) -> Result<u32, LinkError> {
+        let mut clip = LocalClip { types: Vec::with_capacity(types.len()), copied: None };
+        for ClipType { mime, text, path } in types {
+            let bytes = match (text, path) {
+                (Some(text), _) => ClipBytes::Text(text),
+                (None, Some(path)) => ClipBytes::File(File::open(path).map_err(link_core::Error::from)?),
+                (None, None) => return Err(link_core::Error::Unexpected("a clip type without content").into()),
+            };
+            clip.types.push((mime, bytes));
+        }
         let client = self.client.clone();
-        let clip = LocalClip { mimes: vec!["text/plain;charset=utf-8".to_owned()], text: Some(text), data: None };
-        self.run(async move { client.offer_clip(clip).await }).await
-    }
-
-    /// Offers a private snapshot of a phone clipboard URI. The file stays open for later pulls, so the app may
-    /// unlink its snapshot once this returns.
-    pub async fn offer_clip_file(&self, mime: String, path: String) -> Result<(), LinkError> {
-        let client = self.client.clone();
-        let data = File::open(path).map_err(link_core::Error::from)?;
-        let clip = LocalClip { mimes: vec![mime], text: None, data: Some(data) };
-        self.run(async move { client.offer_clip(clip).await }).await
+        self.run(async move { client.offer_clip(clip).await.map(|count| u32::try_from(count).unwrap_or(u32::MAX)) })
+            .await
     }
 
     /// Writes `mime` of a desktop's clipboard offer into `fd`, which the client takes over (a pipe's write end a
     /// content provider hands out), and returns the byte count.
     pub async fn pull_clip(&self, desktop_id: String, clip_id: u64, mime: String, fd: i32) -> Result<u64, LinkError> {
-        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
         if fd < 0 {
             return Err(LinkError::Rejected { reason: "not a file descriptor".to_owned() });
         }
         // SAFETY: the app hands over a descriptor it detached and no longer uses, so nothing else owns or closes it.
+        // Taken before any other check, so an early error still closes it and the reader sees the end.
         let sink = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
         self.run(async move { client.pull_clip(id, clip_id, mime, sink).await }).await
     }
 

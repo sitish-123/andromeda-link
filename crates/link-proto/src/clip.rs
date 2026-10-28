@@ -32,10 +32,10 @@ pub struct ClipState {
 }
 
 impl ClipState {
-    /// A new offer that replaces this side's previous one.
-    pub fn offer(&mut self, mimes: Vec<String>, size: u64, text: Option<String>) -> ClipOffer {
+    /// A new offer that replaces this side's previous one; its `id` is set here.
+    pub fn offer(&mut self, offer: ClipOffer) -> ClipOffer {
         self.next_id += 1;
-        let offer = ClipOffer { id: self.next_id, mimes, size, text };
+        let offer = ClipOffer { id: self.next_id, ..offer };
         self.sent = Some(offer.clone());
         offer
     }
@@ -43,12 +43,10 @@ impl ClipState {
     /// Whether and from what the peer's pull is answered.
     pub fn on_pull(&self, pull: &ClipPull) -> Result<Serve, ClipRefused> {
         let offer = self.sent.as_ref().filter(|offer| offer.id == pull.id).ok_or(ClipRefused::Stale)?;
-        if !offer.mimes.contains(&pull.mime) {
-            return Err(ClipRefused::NoSuchType);
-        }
+        let size = offer.size_of(&pull.mime).ok_or(ClipRefused::NoSuchType)?;
         Ok(match &offer.text {
             Some(text) if crate::message::is_text_mime(&pull.mime) => Serve::Text(text.clone()),
-            _ => Serve::Stream { size: offer.size },
+            _ => Serve::Stream { size },
         })
     }
 
@@ -64,13 +62,10 @@ impl ClipState {
     /// Starts pulling `mime` of the peer's offer `id`: from its inline text, or with a `clip-pull` to send.
     pub fn pull(&mut self, id: u64, mime: &str) -> Result<Serve, ClipRefused> {
         let offer = self.received.as_ref().filter(|offer| offer.id == id).ok_or(ClipRefused::Stale)?;
-        if !offer.mimes.iter().any(|offered| offered == mime) {
-            return Err(ClipRefused::NoSuchType);
-        }
+        let size = offer.size_of(mime).ok_or(ClipRefused::NoSuchType)?;
         if let Some(text) = offer.text.as_ref().filter(|_| crate::message::is_text_mime(mime)) {
             return Ok(Serve::Text(text.clone()));
         }
-        let size = offer.size;
         self.pulling.push(ClipPull { id, mime: mime.to_owned() });
         Ok(Serve::Stream { size })
     }
@@ -79,7 +74,12 @@ impl ClipState {
     pub fn on_data(&mut self, header: &ClipPull) -> Result<Budget, ClipRefused> {
         let index = self.pulling.iter().position(|pull| pull == header).ok_or(ClipRefused::NotPulled)?;
         self.pulling.remove(index);
-        let size = self.received.as_ref().filter(|offer| offer.id == header.id).map_or(0, |offer| offer.size);
+        let size = self
+            .received
+            .as_ref()
+            .filter(|offer| offer.id == header.id)
+            .and_then(|offer| offer.size_of(&header.mime))
+            .unwrap_or(0);
         Ok(Budget::new(size))
     }
 }
@@ -136,8 +136,13 @@ mod tests {
     #[test]
     fn only_the_latest_offer_and_its_types_are_served() {
         let mut state = ClipState::default();
-        let first = state.offer(mimes(&["image/png"]), 10, None);
-        let second = state.offer(mimes(&["text/plain", "image/png"]), 5, Some("hello".to_owned()));
+        let first = state.offer(ClipOffer { mimes: mimes(&["image/png"]), size: 10, ..ClipOffer::default() });
+        let second = state.offer(ClipOffer {
+            mimes: mimes(&["text/plain", "image/png"]),
+            size: 5,
+            text: Some("hello".to_owned()),
+            ..ClipOffer::default()
+        });
         let pull = |id, mime: &str| ClipPull { id, mime: mime.to_owned() };
         assert_eq!(state.on_pull(&pull(first.id, "image/png")), Err(ClipRefused::Stale));
         assert_eq!(state.on_pull(&pull(second.id, "image/jpeg")), Err(ClipRefused::NoSuchType));
@@ -150,11 +155,28 @@ mod tests {
         let mut state = ClipState::default();
         let header = ClipPull { id: 7, mime: "image/png".to_owned() };
         assert!(matches!(state.on_data(&header), Err(ClipRefused::NotPulled)));
-        state.on_offer(ClipOffer { id: 7, mimes: mimes(&["image/png"]), size: 3, text: None });
+        state.on_offer(ClipOffer { id: 7, mimes: mimes(&["image/png"]), size: 3, ..ClipOffer::default() });
         assert_eq!(state.pull(8, "image/png"), Err(ClipRefused::Stale));
         assert_eq!(state.pull(7, "image/png"), Ok(Serve::Stream { size: 3 }));
         let Ok(mut budget) = state.on_data(&header) else { panic!("an answered pull was refused") };
         assert!(budget.take(4).is_err());
         assert!(matches!(state.on_data(&header), Err(ClipRefused::NotPulled)));
+    }
+
+    #[test]
+    fn each_type_is_pulled_with_its_own_size() {
+        let mut state = ClipState::default();
+        state.on_offer(ClipOffer {
+            id: 1,
+            mimes: mimes(&["text/html", "image/png"]),
+            size: 3,
+            sizes: Some(vec![3, 9]),
+            ..ClipOffer::default()
+        });
+        assert_eq!(state.pull(1, "image/png"), Ok(Serve::Stream { size: 9 }));
+        let Ok(mut budget) = state.on_data(&ClipPull { id: 1, mime: "image/png".to_owned() }) else {
+            panic!("an answered pull was refused")
+        };
+        assert!(budget.take(9).is_ok());
     }
 }

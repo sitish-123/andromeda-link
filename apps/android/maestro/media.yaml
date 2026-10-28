@@ -3,6 +3,10 @@ appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false
+# READ_LOGS is sometimes granted during the run (cause not found); Android then asks before the log reader starts.
+- tapOn:
+    text: "Don.t allow"
+    optional: true
 - scrollUntilVisible:
     element: "Media"
 - tapOn: "Media"

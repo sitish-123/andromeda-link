@@ -2,8 +2,8 @@
 <baseline version="1.0">
     <file name="src/main/kotlin/org/andromeda/link/LinkApplication.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="52" column="20" source="standard:class-signature" />
-        <error line="52" column="48" source="standard:class-signature" />
+        <error line="53" column="20" source="standard:class-signature" />
+        <error line="53" column="48" source="standard:class-signature" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/MainActivity.kt">
         <error line="34" column="43" source="standard:function-signature" />

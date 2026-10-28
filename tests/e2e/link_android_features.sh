@@ -163,6 +163,14 @@ maestro "$FLOWS/media.yaml"
 wait_for 10 "the app's Pause did not reach the desktop player" grep -qx PlayPause "$OUT/player-calls.txt"
 record '{"step":"desktop-media-on-phone","player":"E2E Player","command":"PlayPause"}'
 
+# The desktop's player is also an Android media session (system media card, lock screen), paused as the app left it.
+# Android routes media keys only to a session that plays audio on the phone, so a key cannot reach it.
+session() { adb shell dumpsys media_session | grep -A12 "link-desktop-"; }
+wait_for 10 "no Android media session for the desktop: $(session | head -5)" eval 'session | grep -q "Desk Session"'
+wait_for 10 "the desktop session is not paused: $(session | grep state=)" eval 'session | grep -q "state=PAUSED"'
+session | grep -E "state=|description=" | head -2 > "$OUT/desktop-session.txt"
+record '{"step":"desktop-media-session","session":"link-desktop","state":"paused"}'
+
 
 alarm_volume() { adb shell cmd media_session volume --stream 4 --get 2> /dev/null | sed -n 's/.*volume is \([0-9]*\).*/\1/p' | tr -d '\r'; }
 zen() { adb shell settings get global zen_mode | tr -d '\r'; }

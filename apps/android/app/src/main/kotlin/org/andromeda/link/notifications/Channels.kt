@@ -11,6 +11,7 @@ object Channels {
     const val TRANSFERS = "transfers"
     const val RING = "ring"
     const val SCREEN = "screen"
+    const val DESKTOP_MEDIA = "desktop-media"
 
     fun create(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -25,6 +26,9 @@ object Channels {
         )
         manager.createNotificationChannel(
             NotificationChannel(SCREEN, context.getString(R.string.channel_screen), NotificationManager.IMPORTANCE_HIGH),
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(DESKTOP_MEDIA, context.getString(R.string.channel_desktop_media), NotificationManager.IMPORTANCE_LOW),
         )
         // Silent itself: the ring plays on the alarm stream, and the channel only carries Stop.
         manager.createNotificationChannel(

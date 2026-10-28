@@ -24,6 +24,7 @@ import org.andromeda.link.core.data.Messaging
 import org.andromeda.link.core.data.PhoneContacts
 import org.andromeda.link.core.data.PhoneTexts
 import org.andromeda.link.files.MediaAccess
+import org.andromeda.link.media.DesktopMedia
 import org.andromeda.link.media.PhoneMedia
 import org.andromeda.link.files.PhoneFiles
 import org.andromeda.link.notifications.Channels
@@ -60,6 +61,7 @@ class AppContainer(val application: Application) {
     private val status = StatusReporter(application, repository, scope)
     val mirror = NotificationMirror(application, repository, scope)
     val media = PhoneMedia(application, repository, scope)
+    private val desktopMedia = DesktopMedia(application, repository, scope)
     val ringer = Ringer(application, repository, scope)
     val screen = ScreenMirror(application, repository, scope)
     val calls = Calls(application, repository, scope)
@@ -76,6 +78,7 @@ class AppContainer(val application: Application) {
         status.start()
         mirror.start()
         media.start()
+        desktopMedia.start()
         scope.launch { repository.setMessages(Messaging(contacts, texts)) }
         ringer.start()
         screen.start()

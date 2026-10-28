@@ -96,7 +96,9 @@ class PhoneMedia(
     }
 
     private fun follow(active: List<MediaController>) {
-        val byPlayer = active.distinctBy { it.packageName }.associateBy { it.packageName }
+        // This app's own sessions show desktops' players; reporting them would send them back where they came from.
+        val others = active.filter { it.packageName != context.packageName }
+        val byPlayer = others.distinctBy { it.packageName }.associateBy { it.packageName }
         for (player in followed.keys.toList()) {
             if (byPlayer[player]?.sessionToken != followed[player]?.controller?.sessionToken) drop(player)
         }

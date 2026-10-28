@@ -11,8 +11,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.clipboard.ClipboardSync
+import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.domain.Desktop
 import org.andromeda.link.core.domain.LinkFailure
 import org.andromeda.link.core.domain.linkFailure
@@ -29,17 +29,33 @@ data class HomeState(
     val activeTransfers: Int = 0,
 ) {
     /** The desktop the hero shows: a connected one first. */
-    val primary: Desktop? get() = desktops.firstOrNull { it.id == selectedDesktopId }
-        ?: desktops.firstOrNull { it.connected } ?: desktops.firstOrNull()
+    val primary: Desktop? get() =
+        desktops.firstOrNull { it.id == selectedDesktopId }
+            ?: desktops.firstOrNull { it.connected } ?: desktops.firstOrNull()
 }
 
 sealed interface HomeMessage {
-    data class Paired(val name: String) : HomeMessage
-    data class Sent(val name: String) : HomeMessage
-    data class FilesSending(val name: String) : HomeMessage
+    data class Paired(
+        val name: String,
+    ) : HomeMessage
+
+    data class Sent(
+        val name: String,
+    ) : HomeMessage
+
+    data class FilesSending(
+        val name: String,
+    ) : HomeMessage
+
     data object ClipboardEmpty : HomeMessage
-    data class ClipboardSent(val name: String) : HomeMessage
-    data class Failed(val failure: LinkFailure) : HomeMessage
+
+    data class ClipboardSent(
+        val name: String,
+    ) : HomeMessage
+
+    data class Failed(
+        val failure: LinkFailure,
+    ) : HomeMessage
 }
 
 class HomeViewModel(
@@ -52,16 +68,17 @@ class HomeViewModel(
     private val selectedDesktopId = MutableStateFlow<String?>(null)
     private val _message = MutableStateFlow<HomeMessage?>(null)
 
-    val state: StateFlow<HomeState> = combine(
-        repository.desktops,
-        presence.stayConnected,
-        repository.ringingDesktops,
-        mirror.granted,
-        refreshing,
-    ) { desktops, stay, ringing, granted, busy -> HomeState(desktops, stay, ringing, granted, busy) }
-        .combine(selectedDesktopId) { state, id -> state.copy(selectedDesktopId = id) }
-        .combine(repository.activeTransfers) { state, transfers -> state.copy(activeTransfers = transfers.size) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeState())
+    val state: StateFlow<HomeState> =
+        combine(
+            repository.desktops,
+            presence.stayConnected,
+            repository.ringingDesktops,
+            mirror.granted,
+            refreshing,
+        ) { desktops, stay, ringing, granted, busy -> HomeState(desktops, stay, ringing, granted, busy) }
+            .combine(selectedDesktopId) { state, id -> state.copy(selectedDesktopId = id) }
+            .combine(repository.activeTransfers) { state, transfers -> state.copy(activeTransfers = transfers.size) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeState())
 
     /** The one-line message the screen shows, until [messageShown]. */
     val message: StateFlow<HomeMessage?> = _message.asStateFlow()
@@ -75,14 +92,18 @@ class HomeViewModel(
         viewModelScope.launch {
             refreshing.value = true
             repository.refresh()
-            state.value.desktops.filterNot { it.connected }.forEach { repository.connect(it.id) }
+            state.value.desktops
+                .filterNot { it.connected }
+                .forEach { repository.connect(it.id) }
             refreshing.value = false
         }
     }
 
     fun setStayConnected(stay: Boolean) = presence.setStayConnected(stay)
 
-    fun selectDesktop(desktop: Desktop) { selectedDesktopId.value = desktop.id }
+    fun selectDesktop(desktop: Desktop) {
+        selectedDesktopId.value = desktop.id
+    }
 
     fun connect(desktop: Desktop) {
         if (refreshing.value) return
@@ -100,11 +121,18 @@ class HomeViewModel(
 
     fun notificationsAllowed() = presence.notificationsAllowed()
 
-    fun ring(desktop: Desktop, on: Boolean) = act { repository.ringDesktop(desktop.id, on) }
+    fun ring(
+        desktop: Desktop,
+        on: Boolean,
+    ) = act { repository.ringDesktop(desktop.id, on) }
 
     /** Offers the current clipboard content; the app may read it only while in front. */
-    fun sendClipboard(desktop: Desktop, clip: ClipData?) {
-        if (clip == null || clip.itemCount == 0 ||
+    fun sendClipboard(
+        desktop: Desktop,
+        clip: ClipData?,
+    ) {
+        if (clip == null ||
+            clip.itemCount == 0 ||
             (clip.getItemAt(0).uri == null && clip.getItemAt(0).text.isNullOrBlank())
         ) {
             _message.value = HomeMessage.ClipboardEmpty
@@ -114,7 +142,10 @@ class HomeViewModel(
         act(HomeMessage.ClipboardSent(desktop.name)) { clipboard.offer(clip) }
     }
 
-    fun sendFiles(desktop: Desktop, uris: List<String>) {
+    fun sendFiles(
+        desktop: Desktop,
+        uris: List<String>,
+    ) {
         if (uris.isNotEmpty()) act(HomeMessage.FilesSending(desktop.name)) { repository.sendFiles(desktop.id, uris) }
     }
 
@@ -124,7 +155,10 @@ class HomeViewModel(
 
     fun messageShown() = _message.update { null }
 
-    private fun act(onSuccess: HomeMessage? = null, block: suspend () -> Result<*>) {
+    private fun act(
+        onSuccess: HomeMessage? = null,
+        block: suspend () -> Result<*>,
+    ) {
         viewModelScope.launch {
             val failure = block().exceptionOrNull()
             _message.value = failure?.let { HomeMessage.Failed(it.linkFailure()) } ?: onSuccess ?: _message.value

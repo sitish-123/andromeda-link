@@ -79,26 +79,35 @@ fun ActivityScreen(viewModel: ActivityViewModel) {
             openFailure = context.getString(R.string.failure_other, error.message.orEmpty())
         }
     }
-    val toast = openFailure ?: when (val shown = message) {
-        is ActivityMessage.Failed -> shown.failure.text(context.resources)
-        ActivityMessage.Expired -> stringResource(R.string.activity_expired)
-        null -> null
-    }
-    val shown = transfers.filter {
-        when (filter) {
-            Filter.All -> true
-            Filter.Received -> it.incoming == true
-            Filter.Sent -> it.incoming == false
+    val toast =
+        openFailure ?: when (val shown = message) {
+            is ActivityMessage.Failed -> shown.failure.text(context.resources)
+            ActivityMessage.Expired -> stringResource(R.string.activity_expired)
+            null -> null
         }
-    }
+    val shown =
+        transfers.filter {
+            when (filter) {
+                Filter.All -> true
+                Filter.Received -> it.incoming == true
+                Filter.Sent -> it.incoming == false
+            }
+        }
     val downloads = stringResource(R.string.activity_downloads)
     Screen(
         stringResource(R.string.activity_title),
         toast = toast,
-        onToastShown = { openFailure = null; viewModel.messageShown() },
+        onToastShown = {
+            openFailure = null
+            viewModel.messageShown()
+        },
         actions = {
             Box(
-                Modifier.padding(end = Space.s8).size(Size.touch).clip(Radius.pill).background(LinkTheme.colors.surfaceTertiary)
+                Modifier
+                    .padding(end = Space.s8)
+                    .size(Size.touch)
+                    .clip(Radius.pill)
+                    .background(LinkTheme.colors.surfaceTertiary)
                     .clickable(role = Role.Button) { open { Intent(DownloadManager.ACTION_VIEW_DOWNLOADS) } }
                     .semantics { contentDescription = downloads },
                 contentAlignment = Alignment.Center,
@@ -134,7 +143,8 @@ fun ActivityScreen(viewModel: ActivityViewModel) {
                 item(key = "day-$day") { Readout(dayLabel(day), modifier = Modifier.padding(start = Space.s4, top = Space.s12)) }
                 items(records, key = { it.transferId }) { transfer ->
                     TransferCard(
-                        transfer, transfer.transferId in busy,
+                        transfer,
+                        transfer.transferId in busy,
                         { viewModel.accept(transfer.transferId) },
                         { viewModel.decline(transfer.transferId) },
                         { viewModel.cancel(transfer.transferId) },
@@ -162,18 +172,24 @@ private fun TransferCard(
     val desktop = transfer.desktopName.ifEmpty { stringResource(R.string.app_name) }
     var expanded by rememberSaveable(transfer.transferId) { mutableStateOf(false) }
     // A received file is openable once it is published; a sent one from where it was read.
-    val rows = if (incoming && transfer.saved.isNotEmpty()) {
-        transfer.saved.map { saved -> FileRow(saved.name, transfer.files.firstOrNull { it.name == saved.name }?.size, saved.uri) }
-    } else {
-        transfer.files.map { FileRow(it.name, it.size, if (incoming) null else it.uri) }
-    }
+    val rows =
+        if (incoming && transfer.saved.isNotEmpty()) {
+            transfer.saved.map { saved -> FileRow(saved.name, transfer.files.firstOrNull { it.name == saved.name }?.size, saved.uri) }
+        } else {
+            transfer.files.map { FileRow(it.name, it.size, if (incoming) null else it.uri) }
+        }
     DashboardCard(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(top = Space.s8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s12)) {
+        Row(
+            Modifier.padding(top = Space.s8),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.s12),
+        ) {
             IconChip(if (incoming) LinkIcons.Download else LinkIcons.Upload)
             Column(Modifier.weight(1f)) {
                 Label(
                     stringResource(if (incoming) R.string.activity_from else R.string.activity_sent_to, desktop),
-                    LinkTheme.type.titleMedium, maxLines = 1,
+                    LinkTheme.type.titleMedium,
+                    maxLines = 1,
                 )
                 Readout(
                     listOfNotNull(
@@ -188,10 +204,11 @@ private fun TransferCard(
         }
         when (transfer.status) {
             "transferring" -> Progress(transfer, busy, onCancel)
-            "offered" -> Row(Modifier.padding(top = Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
-                PillButton(stringResource(R.string.transfer_accept), onAccept, Modifier.weight(1f), enabled = !busy)
-                PillButton(stringResource(R.string.transfer_decline), onDecline, Modifier.weight(1f), PillKind.Tonal, enabled = !busy)
-            }
+            "offered" ->
+                Row(Modifier.padding(top = Space.s4), horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
+                    PillButton(stringResource(R.string.transfer_accept), onAccept, Modifier.weight(1f), enabled = !busy)
+                    PillButton(stringResource(R.string.transfer_decline), onDecline, Modifier.weight(1f), PillKind.Tonal, enabled = !busy)
+                }
         }
         Column(Modifier.padding(top = Space.s4, bottom = Space.s4), verticalArrangement = Arrangement.spacedBy(Space.s4)) {
             rows.take(if (expanded) rows.size else COLLAPSED).forEach { row -> FileLine(row, onOpen) }
@@ -202,15 +219,24 @@ private fun TransferCard(
     }
 }
 
-private data class FileRow(val name: String, val size: Long?, val uri: String?)
+private data class FileRow(
+    val name: String,
+    val size: Long?,
+    val uri: String?,
+)
 
 @Composable
-private fun FileLine(row: FileRow, onOpen: (String) -> Unit) {
+private fun FileLine(
+    row: FileRow,
+    onOpen: (String) -> Unit,
+) {
     val colors = LinkTheme.colors
     val context = LocalContext.current
     val uri = row.uri
     Row(
-        Modifier.fillMaxWidth().clip(Radius.list)
+        Modifier
+            .fillMaxWidth()
+            .clip(Radius.list)
             .then(if (uri != null) Modifier.clickable(role = Role.Button) { onOpen(uri) } else Modifier)
             .padding(vertical = Space.s6),
         verticalAlignment = Alignment.CenterVertically,
@@ -236,14 +262,26 @@ private fun FileLine(row: FileRow, onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun Progress(transfer: TransferRecord, busy: Boolean, onCancel: () -> Unit) {
+private fun Progress(
+    transfer: TransferRecord,
+    busy: Boolean,
+    onCancel: () -> Unit,
+) {
     val colors = LinkTheme.colors
     val context = LocalContext.current
     val fraction = if (transfer.total <= 0) 0f else (transfer.bytes.toDouble() / transfer.total).toFloat().coerceIn(0f, 1f)
-    Row(Modifier.padding(top = Space.s4), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s12)) {
+    Row(
+        Modifier.padding(top = Space.s4),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.s12),
+    ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s6)) {
             Box(
-                Modifier.fillMaxWidth().height(Space.s4).clip(Radius.pill).background(colors.surfacePrimary)
+                Modifier
+                    .fillMaxWidth()
+                    .height(Space.s4)
+                    .clip(Radius.pill)
+                    .background(colors.surfacePrimary)
                     .semantics { progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f) },
             ) { Box(Modifier.fillMaxWidth(fraction).height(Space.s4).background(colors.accent)) }
             Readout(
@@ -262,36 +300,39 @@ private fun Progress(transfer: TransferRecord, busy: Boolean, onCancel: () -> Un
 @Composable
 private fun StatusTag(status: String) {
     val colors = LinkTheme.colors
-    val (label, color) = when (status) {
-        "offered" -> R.string.activity_awaiting_short to colors.warning
-        "transferring" -> R.string.activity_moving_short to colors.accentText
-        "done" -> R.string.activity_done to colors.success
-        "declined" -> R.string.activity_declined to colors.textTertiary
-        "cancelled" -> R.string.activity_cancelled to colors.textTertiary
-        "too-large" -> R.string.activity_too_large to colors.error
-        "no-space" -> R.string.activity_no_space to colors.error
-        "busy" -> R.string.activity_busy to colors.error
-        else -> R.string.activity_failed to colors.error
-    }
+    val (label, color) =
+        when (status) {
+            "offered" -> R.string.activity_awaiting_short to colors.warning
+            "transferring" -> R.string.activity_moving_short to colors.accentText
+            "done" -> R.string.activity_done to colors.success
+            "declined" -> R.string.activity_declined to colors.textTertiary
+            "cancelled" -> R.string.activity_cancelled to colors.textTertiary
+            "too-large" -> R.string.activity_too_large to colors.error
+            "no-space" -> R.string.activity_no_space to colors.error
+            "busy" -> R.string.activity_busy to colors.error
+            else -> R.string.activity_failed to colors.error
+        }
     Readout(stringResource(label), color)
 }
 
 @Composable
-private fun dayLabel(day: Long): String = when (day) {
-    day(System.currentTimeMillis()) -> stringResource(R.string.activity_today)
-    day(System.currentTimeMillis() - DateUtils.DAY_IN_MILLIS) -> stringResource(R.string.activity_yesterday)
-    else -> DateUtils.formatDateTime(LocalContext.current, day, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_WEEKDAY)
-}
+private fun dayLabel(day: Long): String =
+    when (day) {
+        day(System.currentTimeMillis()) -> stringResource(R.string.activity_today)
+        day(System.currentTimeMillis() - DateUtils.DAY_IN_MILLIS) -> stringResource(R.string.activity_yesterday)
+        else -> DateUtils.formatDateTime(LocalContext.current, day, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_WEEKDAY)
+    }
 
 /** Local midnight of [time], so a day's transfers group together. */
-private fun day(time: Long): Long = java.util.Calendar.getInstance().run {
-    timeInMillis = time
-    set(java.util.Calendar.HOUR_OF_DAY, 0)
-    set(java.util.Calendar.MINUTE, 0)
-    set(java.util.Calendar.SECOND, 0)
-    set(java.util.Calendar.MILLISECOND, 0)
-    timeInMillis
-}
+private fun day(time: Long): Long =
+    java.util.Calendar.getInstance().run {
+        timeInMillis = time
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+        timeInMillis
+    }
 
 private fun extension(name: String): String = name.substringAfterLast('.', "").take(4).ifEmpty { "file" }
 

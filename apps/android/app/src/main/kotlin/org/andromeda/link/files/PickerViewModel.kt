@@ -28,7 +28,9 @@ data class PickerState(
 )
 
 /** Home's recent-photos row and the picker sheet share one selection, so a pick in either sends with the other. */
-class PickerViewModel(private val files: PhoneFiles) : ViewModel() {
+class PickerViewModel(
+    private val files: PhoneFiles,
+) : ViewModel() {
     private val _state = MutableStateFlow(PickerState())
     val state: StateFlow<PickerState> = _state.asStateFlow()
 
@@ -54,17 +56,24 @@ class PickerViewModel(private val files: PhoneFiles) : ViewModel() {
 
     fun select(tab: PickerTab) = _state.update { it.copy(tab = tab) }
 
-    fun toggle(item: PhoneItem) = _state.update { state ->
-        val next = if (item.key in state.selected) state.selected - item.key else state.selected + (item.key to item)
-        state.copy(selected = next)
-    }
+    fun toggle(item: PhoneItem) =
+        _state.update { state ->
+            val next = if (item.key in state.selected) state.selected - item.key else state.selected + (item.key to item)
+            state.copy(selected = next)
+        }
 
     fun clear() = _state.update { it.copy(selected = emptyMap(), open = false) }
 
     fun openFolder(folder: File) {
         viewModelScope.launch {
             val entries = files.list(folder)
-            val path = folder.relativeToOrNull(files.root)?.invariantSeparatorsPath.orEmpty().split('/').filter(String::isNotEmpty)
+            val path =
+                folder
+                    .relativeToOrNull(files.root)
+                    ?.invariantSeparatorsPath
+                    .orEmpty()
+                    .split('/')
+                    .filter(String::isNotEmpty)
             _state.update { it.copy(folder = folder, path = path, entries = entries) }
         }
     }
@@ -77,5 +86,8 @@ class PickerViewModel(private val files: PhoneFiles) : ViewModel() {
         return true
     }
 
-    suspend fun thumbnail(item: PhoneItem, px: Int) = files.thumbnail(item, px)
+    suspend fun thumbnail(
+        item: PhoneItem,
+        px: Int,
+    ) = files.thumbnail(item, px)
 }

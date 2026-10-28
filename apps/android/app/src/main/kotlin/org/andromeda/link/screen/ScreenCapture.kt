@@ -53,7 +53,11 @@ class ScreenCapture : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         if (intent?.action == ACTION_STOP) {
             finish(tellDesktop = true, reason = "stopped on the phone")
             return START_NOT_STICKY
@@ -66,13 +70,17 @@ class ScreenCapture : Service() {
         }
         this.desktop = desktop
         val repository = (application as LinkApplication).container.repository
-        val name = repository.desktops.value.firstOrNull { it.id == desktop }?.name ?: desktop
+        val name =
+            repository.desktops.value
+                .firstOrNull { it.id == desktop }
+                ?.name ?: desktop
         // Android requires the foreground service before it hands out the projection.
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
         instance = this
         running = true
-        val projection = getSystemService(MediaProjectionManager::class.java)
-            .getMediaProjection(intent.getIntExtra(EXTRA_CODE, 0), data)
+        val projection =
+            getSystemService(MediaProjectionManager::class.java)
+                .getMediaProjection(intent.getIntExtra(EXTRA_CODE, 0), data)
         if (projection == null) {
             finish(tellDesktop = true, reason = "Android refused the capture")
             return START_NOT_STICKY
@@ -88,27 +96,39 @@ class ScreenCapture : Service() {
         return START_NOT_STICKY
     }
 
-    private suspend fun capture(desktop: String, projection: MediaProjection) {
+    private suspend fun capture(
+        desktop: String,
+        projection: MediaProjection,
+    ) {
         val (width, height) = videoSize()
-        val codec = try {
-            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
-                configure(videoFormat(this, width, height), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val codec =
+            try {
+                MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply {
+                    configure(videoFormat(this, width, height), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "no H.264 encoder: ${error.message}")
+                return finish(tellDesktop = true, reason = "the phone has no H.264 encoder for ${width}x$height")
             }
-        } catch (error: Exception) {
-            Log.w(TAG, "no H.264 encoder: ${error.message}")
-            return finish(tellDesktop = true, reason = "the phone has no H.264 encoder for ${width}x$height")
-        }
         val surface = codec.createInputSurface()
         codec.start()
         this.codec = codec
-        display = projection.createVirtualDisplay(
-            "Link mirror", width, height, resources.displayMetrics.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, null,
-        )
+        display =
+            projection.createVirtualDisplay(
+                "Link mirror",
+                width,
+                height,
+                resources.displayMetrics.densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                surface,
+                null,
+                null,
+            )
         val repository = (application as LinkApplication).container.repository
-        val stream = repository.startMirror(desktop, width, height).getOrElse {
-            return finish(tellDesktop = false, reason = null)
-        }
+        val stream =
+            repository.startMirror(desktop, width, height).getOrElse {
+                return finish(tellDesktop = false, reason = null)
+            }
         this.stream = stream
         val audio = MirrorAudio(this, projection)
         this.audio = audio
@@ -116,36 +136,43 @@ class ScreenCapture : Service() {
         drain(codec, stream)
     }
 
-    private fun videoFormat(codec: MediaCodec, width: Int, height: Int) =
-        MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, MAX_BITRATE)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_EVERY_S)
-            setInteger(MediaFormat.KEY_PRIORITY, 0)
-            setInteger(MediaFormat.KEY_LATENCY, 1)
-            setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
-            // A still screen sends nothing otherwise, and the desktop would wait on a frame the encoder holds back.
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-            // Qualcomm encoders take their low-latency mode only by this vendor key; others ignore it.
-            setInteger("vendor.qti-ext-enc-low-latency.enable", 1)
-            val modes = codec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).encoderCapabilities
-            if (modes.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)) {
-                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            }
+    private fun videoFormat(
+        codec: MediaCodec,
+        width: Int,
+        height: Int,
+    ) = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+        setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+        setInteger(MediaFormat.KEY_BIT_RATE, MAX_BITRATE)
+        setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+        setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, KEYFRAME_EVERY_S)
+        setInteger(MediaFormat.KEY_PRIORITY, 0)
+        setInteger(MediaFormat.KEY_LATENCY, 1)
+        setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+        // A still screen sends nothing otherwise, and the desktop would wait on a frame the encoder holds back.
+        setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, REPEAT_AFTER_US)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+        // Qualcomm encoders take their low-latency mode only by this vendor key; others ignore it.
+        setInteger("vendor.qti-ext-enc-low-latency.enable", 1)
+        val modes = codec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).encoderCapabilities
+        if (modes.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)) {
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
         }
+    }
 
-    private suspend fun drain(codec: MediaCodec, stream: MirrorStream) {
+    private suspend fun drain(
+        codec: MediaCodec,
+        stream: MirrorStream,
+    ) {
         val info = MediaCodec.BufferInfo()
         val rate = MirrorRate(MAX_BITRATE, MIN_BITRATE)
         var config: ByteArray? = null
         while (!stopping) {
-            val index = try {
-                codec.dequeueOutputBuffer(info, DEQUEUE_TIMEOUT_US)
-            } catch (_: IllegalStateException) {
-                break
-            }
+            val index =
+                try {
+                    codec.dequeueOutputBuffer(info, DEQUEUE_TIMEOUT_US)
+                } catch (_: IllegalStateException) {
+                    break
+                }
             if (index < 0) continue
             val bytes = ByteArray(info.size)
             codec.getOutputBuffer(index)?.apply {
@@ -177,7 +204,10 @@ class ScreenCapture : Service() {
         }
     }
 
-    private fun setBitrate(codec: MediaCodec, bitrate: Int) {
+    private fun setBitrate(
+        codec: MediaCodec,
+        bitrate: Int,
+    ) {
         try {
             codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrate) })
         } catch (error: IllegalStateException) {
@@ -187,12 +217,14 @@ class ScreenCapture : Service() {
 
     /** The screen scaled to at most [MAX_SHORT_SIDE] on its short side, in multiples of 16 as encoders want. */
     private fun videoSize(): Pair<Int, Int> {
-        val (width, height) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
-        } else {
-            resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-        }
+        val (width, height) =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
+            } else {
+                resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+            }
         val scale = minOf(1.0, MAX_SHORT_SIDE.toDouble() / minOf(width, height))
+
         fun fit(side: Int) = (side * scale).toInt() / ALIGN * ALIGN
         return fit(width) to fit(height)
     }
@@ -205,7 +237,10 @@ class ScreenCapture : Service() {
         }
     }
 
-    private fun finish(tellDesktop: Boolean, reason: String?) {
+    private fun finish(
+        tellDesktop: Boolean,
+        reason: String?,
+    ) {
         if (stopping) return
         stopping = true
         audio?.stop()
@@ -231,19 +266,23 @@ class ScreenCapture : Service() {
         super.onDestroy()
     }
 
-    private fun notification(name: String) = NotificationCompat.Builder(this, Channels.SCREEN)
-        .setSmallIcon(R.drawable.ic_stat_link)
-        .setContentTitle(getString(R.string.screen_mirroring, name))
-        .setOngoing(true)
-        .setSilent(true)
-        .addAction(
-            0,
-            getString(R.string.screen_stop),
-            PendingIntent.getService(
-                this, 0, Intent(this, ScreenCapture::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
-            ),
-        )
-        .build()
+    private fun notification(name: String) =
+        NotificationCompat
+            .Builder(this, Channels.SCREEN)
+            .setSmallIcon(R.drawable.ic_stat_link)
+            .setContentTitle(getString(R.string.screen_mirroring, name))
+            .setOngoing(true)
+            .setSilent(true)
+            .addAction(
+                0,
+                getString(R.string.screen_stop),
+                PendingIntent.getService(
+                    this,
+                    0,
+                    Intent(this, ScreenCapture::class.java).setAction(ACTION_STOP),
+                    PendingIntent.FLAG_IMMUTABLE,
+                ),
+            ).build()
 
     companion object {
         @Volatile
@@ -253,11 +292,17 @@ class ScreenCapture : Service() {
         @Volatile
         private var instance: ScreenCapture? = null
 
-        fun start(context: Context, desktop: String, code: Int, data: Intent) {
-            val intent = Intent(context, ScreenCapture::class.java)
-                .putExtra(ScreenMirror.EXTRA_DESKTOP, desktop)
-                .putExtra(EXTRA_CODE, code)
-                .putExtra(EXTRA_DATA, data)
+        fun start(
+            context: Context,
+            desktop: String,
+            code: Int,
+            data: Intent,
+        ) {
+            val intent =
+                Intent(context, ScreenCapture::class.java)
+                    .putExtra(ScreenMirror.EXTRA_DESKTOP, desktop)
+                    .putExtra(EXTRA_CODE, code)
+                    .putExtra(EXTRA_DATA, data)
             context.startForegroundService(intent)
         }
 
@@ -266,7 +311,10 @@ class ScreenCapture : Service() {
         }
 
         /** The desktop stopped; nothing is sent back to it. */
-        fun stop(context: Context, desktop: String) {
+        fun stop(
+            context: Context,
+            desktop: String,
+        ) {
             val capture = instance ?: return
             if (capture.desktop == desktop) Handler(context.mainLooper).post { capture.finish(tellDesktop = false, reason = null) }
         }

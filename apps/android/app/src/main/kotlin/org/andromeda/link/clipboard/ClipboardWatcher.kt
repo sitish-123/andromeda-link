@@ -6,13 +6,13 @@ import android.os.Build
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
-import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
+import java.io.IOException
 
 /**
  * Phone to desktop, automatic, as KDE Connect does it: Android lets only the focused app read the clipboard, but it
@@ -70,8 +70,13 @@ class ClipboardWatcher(
         start()
     }
 
-    private fun mayAsk(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || LogAccess.quiet() ||
-        ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    private fun mayAsk(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            LogAccess.quiet() ||
+            ProcessLifecycleOwner
+                .get()
+                .lifecycle.currentState
+                .isAtLeast(Lifecycle.State.STARTED)
 
     fun stop() {
         wanted = false

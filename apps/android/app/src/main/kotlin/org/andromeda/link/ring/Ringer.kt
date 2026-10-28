@@ -31,7 +31,11 @@ import org.andromeda.link.notifications.Channels
  * or for 2 minutes. Do Not Disturb lets alarms through unless the user blocked them; before Android 15 DND access also
  * lifts it for the ring. What it changed is put back.
  */
-class Ringer(private val context: Context, private val repository: LinkRepository, private val scope: CoroutineScope) {
+class Ringer(
+    private val context: Context,
+    private val repository: LinkRepository,
+    private val scope: CoroutineScope,
+) {
     private val audio = context.getSystemService(AudioManager::class.java)
     private val notifications = context.getSystemService(NotificationManager::class.java)
     private val main = Handler(Looper.getMainLooper())
@@ -72,22 +76,25 @@ class Ringer(private val context: Context, private val repository: LinkRepositor
         }
         restoreVolume = audio.getStreamVolume(AudioManager.STREAM_ALARM)
         audio.setStreamVolume(AudioManager.STREAM_ALARM, audio.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
-        val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        player = runCatching {
-            MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build(),
-                )
-                setDataSource(context, sound)
-                isLooping = true
-                prepare()
-                start()
-            }
-        }.onFailure { Log.w(TAG, "ringing: ${it.message}") }.getOrNull()
+        val sound =
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        player =
+            runCatching {
+                MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes
+                            .Builder()
+                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build(),
+                    )
+                    setDataSource(context, sound)
+                    isLooping = true
+                    prepare()
+                    start()
+                }
+            }.onFailure { Log.w(TAG, "ringing: ${it.message}") }.getOrNull()
         _ringing.value = true
         main.postDelayed(::stop, LIMIT_MS)
         showStop()
@@ -112,22 +119,26 @@ class Ringer(private val context: Context, private val repository: LinkRepositor
     }
 
     private fun showStop() {
-        val stop = PendingIntent.getBroadcast(
-            context,
-            0,
-            Intent(context, StopRingReceiver::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(context, Channels.RING)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle(context.getString(R.string.ring_title))
-            .setContentText(context.getString(R.string.ring_text))
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setOngoing(true)
-            .setContentIntent(stop)
-            .addAction(0, context.getString(R.string.ring_stop), stop)
-            .build()
+        val stop =
+            PendingIntent.getBroadcast(
+                context,
+                0,
+                Intent(context, StopRingReceiver::class.java),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+        val notification =
+            NotificationCompat
+                .Builder(context, Channels.RING)
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setContentTitle(context.getString(R.string.ring_title))
+                .setContentText(context.getString(R.string.ring_text))
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOngoing(true)
+                .setContentIntent(stop)
+                .addAction(0, context.getString(R.string.ring_stop), stop)
+                .build()
         runCatching { NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification) }
     }
 
@@ -140,7 +151,10 @@ class Ringer(private val context: Context, private val repository: LinkRepositor
 
 /** The Stop action of the ringing notification. */
 class StopRingReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
         (context.applicationContext as LinkApplication).container.ringer.stop()
     }
 }

@@ -2,7 +2,6 @@ package org.andromeda.link.control
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlin.math.roundToInt
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,12 +12,16 @@ import org.andromeda.link.core.domain.LinkFailure
 import org.andromeda.link.core.domain.RemoteInput
 import org.andromeda.link.core.domain.RemoteKey
 import org.andromeda.link.core.domain.linkFailure
+import kotlin.math.roundToInt
 
 /**
  * The phone as one desktop's touchpad and keyboard. Moves and scrolls add up and go once a frame, so a fast finger
  * stays under the desktop's input rate; everything goes out in the order it happened.
  */
-class RemoteViewModel(private val repository: LinkRepository, private val desktopId: String) : ViewModel() {
+class RemoteViewModel(
+    private val repository: LinkRepository,
+    private val desktopId: String,
+) : ViewModel() {
     private val outbox = Channel<RemoteInput>(Channel.UNLIMITED)
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var moveX = 0f
@@ -43,14 +46,20 @@ class RemoteViewModel(private val repository: LinkRepository, private val deskto
     }
 
     /** By (dx, dy) of the phone's pixels. */
-    fun move(dx: Float, dy: Float) {
+    fun move(
+        dx: Float,
+        dy: Float,
+    ) {
         moveX += dx * POINTER_SPEED
         moveY += dy * POINTER_SPEED
         wake.trySend(Unit)
     }
 
     /** Fingers moved by (dx, dy) of the phone's pixels; the content follows them. */
-    fun scroll(dx: Float, dy: Float) {
+    fun scroll(
+        dx: Float,
+        dy: Float,
+    ) {
         scrollX -= dx
         scrollY -= dy
         wake.trySend(Unit)
@@ -64,7 +73,10 @@ class RemoteViewModel(private val repository: LinkRepository, private val deskto
     fun key(key: RemoteKey) = send(RemoteInput.Key(key))
 
     /** What changed in the typing field: removed characters as Backspace, then the added text. */
-    fun typed(before: String, after: String) {
+    fun typed(
+        before: String,
+        after: String,
+    ) {
         val kept = before.commonPrefixWith(after).length
         repeat(before.length - kept) { key(RemoteKey.Backspace) }
         if (after.length > kept) send(RemoteInput.Text(after.substring(kept)))

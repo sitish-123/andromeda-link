@@ -6,7 +6,9 @@ sealed interface MirrorCommand {
     val desktopId: String
 
     /** Show Android's capture prompt; start on consent, or refuse. */
-    data class Requested(override val desktopId: String) : MirrorCommand
+    data class Requested(
+        override val desktopId: String,
+    ) : MirrorCommand
 
     data class Input(
         override val desktopId: String,
@@ -20,9 +22,14 @@ sealed interface MirrorCommand {
     ) : MirrorCommand
 
     /** The desktop lost a frame: encode a keyframe next. */
-    data class Keyframe(override val desktopId: String) : MirrorCommand
+    data class Keyframe(
+        override val desktopId: String,
+    ) : MirrorCommand
 
-    data class Stopped(override val desktopId: String, val reason: String?) : MirrorCommand
+    data class Stopped(
+        override val desktopId: String,
+        val reason: String?,
+    ) : MirrorCommand
 }
 
 enum class MirrorAction { Tap, LongPress, Swipe, Scroll, Back, Home, Recents, Text }
@@ -32,10 +39,18 @@ const val MIRROR_UNIT = 10_000
 /** The video stream to one desktop, from [org.andromeda.link.core.data.LinkRepository.startMirror]. */
 interface MirrorStream {
     /** One H.264 access unit, Annex B; suspends while the network is behind. */
-    suspend fun send(ptsUs: Long, keyframe: Boolean, config: Boolean, data: ByteArray): Result<Unit>
+    suspend fun send(
+        ptsUs: Long,
+        keyframe: Boolean,
+        config: Boolean,
+        data: ByteArray,
+    ): Result<Unit>
 
     /** One Opus packet of 48 kHz stereo. */
-    suspend fun sendAudio(ptsUs: Long, data: ByteArray): Result<Unit>
+    suspend fun sendAudio(
+        ptsUs: Long,
+        data: ByteArray,
+    ): Result<Unit>
 
     suspend fun finish()
 }

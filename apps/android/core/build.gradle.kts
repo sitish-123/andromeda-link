@@ -66,11 +66,17 @@ val uniffiBindings by tasks.registering(Exec::class) {
     inputs.file(library)
     outputs.dir(bindings)
     commandLine(
-        linkDir.resolve("target/debug/uniffi-bindgen").absolutePath, "generate",
-        "--library", library.absolutePath,
-        "--config", linkDir.resolve("crates/link-ffi/uniffi.toml").absolutePath,
-        "--language", "kotlin", "--no-format",
-        "--out-dir", bindings.get().asFile.absolutePath,
+        linkDir.resolve("target/debug/uniffi-bindgen").absolutePath,
+        "generate",
+        "--library",
+        library.absolutePath,
+        "--config",
+        linkDir.resolve("crates/link-ffi/uniffi.toml").absolutePath,
+        "--language",
+        "kotlin",
+        "--no-format",
+        "--out-dir",
+        bindings.get().asFile.absolutePath,
     )
 }
 

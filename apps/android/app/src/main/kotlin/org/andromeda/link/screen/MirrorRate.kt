@@ -5,7 +5,10 @@ package org.andromeda.link.screen
  * connection is behind, so loss or a slow link shows up as lag: the time from capture to queued, minus the
  * smallest such time seen, which cancels the clocks' offset.
  */
-class MirrorRate(private val max: Int, private val min: Int) {
+class MirrorRate(
+    private val max: Int,
+    private val min: Int,
+) {
     var bitrate = max
         private set
 
@@ -23,7 +26,11 @@ class MirrorRate(private val max: Int, private val min: Int) {
      * One unit queued at [nowUs] that was captured at [ptsUs]; returns the new bitrate when it changes. A keyframe
      * ends skipping.
      */
-    fun sent(ptsUs: Long, nowUs: Long, keyframe: Boolean): Int? {
+    fun sent(
+        ptsUs: Long,
+        nowUs: Long,
+        keyframe: Boolean,
+    ): Int? {
         if (keyframe) skipping = false
         val transit = nowUs - ptsUs
         floorUs = minOf(floorUs, transit)
@@ -39,11 +46,12 @@ class MirrorRate(private val max: Int, private val min: Int) {
         windowStartUs = nowUs
         windowWorstUs = 0
         if (worst > CALM_LAG_US) calmSinceUs = nowUs
-        val next = when {
-            worst > BEHIND_LAG_US && nowUs - lastChangeUs > HOLD_US -> maxOf(min, bitrate * DOWN_PERCENT / 100)
-            nowUs - calmSinceUs > CALM_US && nowUs - lastChangeUs > CALM_US -> minOf(max, bitrate * UP_PERCENT / 100)
-            else -> return null
-        }
+        val next =
+            when {
+                worst > BEHIND_LAG_US && nowUs - lastChangeUs > HOLD_US -> maxOf(min, bitrate * DOWN_PERCENT / 100)
+                nowUs - calmSinceUs > CALM_US && nowUs - lastChangeUs > CALM_US -> minOf(max, bitrate * UP_PERCENT / 100)
+                else -> return null
+            }
         if (next == bitrate) return null
         bitrate = next
         lastChangeUs = nowUs

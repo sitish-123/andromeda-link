@@ -26,14 +26,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.andromeda.link.R
 import org.andromeda.link.core.domain.Desktop
 import org.andromeda.link.ui.components.DashboardCard
+import org.andromeda.link.ui.components.DashboardSection
 import org.andromeda.link.ui.components.Footnote
 import org.andromeda.link.ui.components.LinkIcons
-import org.andromeda.link.ui.components.Readout
-import org.andromeda.link.ui.components.DashboardSection
-import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.NavRow
-import org.andromeda.link.ui.components.PillButton
-import org.andromeda.link.ui.components.PillKind
+import org.andromeda.link.ui.components.Readout
 import org.andromeda.link.ui.components.Screen
 import org.andromeda.link.ui.components.SlidingPillControl
 import org.andromeda.link.ui.components.SwitchRow
@@ -56,9 +53,13 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val theme by rememberAppTheme()
     val context = LocalContext.current
-    val version = remember(context) {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
-    }
+    val version =
+        remember(context) {
+            context.packageManager
+                .getPackageInfo(context.packageName, 0)
+                .versionName
+                .orEmpty()
+        }
     Screen(stringResource(R.string.settings_title)) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.page),
@@ -70,7 +71,8 @@ fun SettingsScreen(
                     NavRow(
                         desktop.name,
                         stringResource(if (desktop.connected) R.string.connected else R.string.not_connected),
-                        LinkIcons.Computer, { onDesktop(desktop) },
+                        LinkIcons.Computer,
+                        { onDesktop(desktop) },
                     )
                 }
                 NavRow(stringResource(R.string.pair_action), null, Icons.Filled.Add, onPair)
@@ -92,12 +94,14 @@ fun SettingsScreen(
                 NavRow(
                     stringResource(R.string.clipboard_auto_row),
                     stringResource(if (autoClipboard) R.string.settings_clipboard_configured else R.string.clipboard_auto_row_hint),
-                    Icons.Filled.Edit, onClipboardSetup,
+                    Icons.Filled.Edit,
+                    onClipboardSetup,
                 )
                 NavRow(
                     stringResource(R.string.notifications_row),
                     stringResource(if (state.mirrorGranted) R.string.notifications_row_on else R.string.notifications_row_off),
-                    Icons.Filled.Notifications, onNotifications,
+                    Icons.Filled.Notifications,
+                    onNotifications,
                 )
                 NavRow(stringResource(R.string.setup_title), stringResource(R.string.setup_row_hint), Icons.Filled.Lock, onSetup)
             }

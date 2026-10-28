@@ -11,7 +11,10 @@ import org.andromeda.link.LinkApplication
 
 /** Accept, Decline, and Cancel on a transfer notification. */
 class TransferReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
         val transferId = intent.getStringExtra(EXTRA_TRANSFER) ?: return
         val repository = (context.applicationContext as LinkApplication).container.repository
         if (intent.action == DECLINE) {

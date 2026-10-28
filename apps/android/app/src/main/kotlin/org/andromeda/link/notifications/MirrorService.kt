@@ -1,5 +1,6 @@
 package org.andromeda.link.notifications
 
+import android.content.ComponentName
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import org.andromeda.link.LinkApplication
@@ -16,12 +17,17 @@ class MirrorService : NotificationListenerService() {
         container.media.attach()
     }
 
+    /** Android unbinds a listener under memory pressure too; while access holds, it binds again on this request. */
     override fun onListenerDisconnected() {
         container.mirror.detach(this)
         container.media.detach()
+        requestRebind(ComponentName(this, MirrorService::class.java))
     }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification, rankingMap: RankingMap) = container.mirror.posted(sbn, rankingMap)
+    override fun onNotificationPosted(
+        sbn: StatusBarNotification,
+        rankingMap: RankingMap,
+    ) = container.mirror.posted(sbn, rankingMap)
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) = container.mirror.removed(sbn)
 }

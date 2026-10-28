@@ -22,7 +22,10 @@ object LinkTheme {
 }
 
 @Composable
-fun LinkTheme(dark: Boolean = preferredDarkTheme(), content: @Composable () -> Unit) {
+fun LinkTheme(
+    dark: Boolean = preferredDarkTheme(),
+    content: @Composable () -> Unit,
+) {
     val colors = if (dark) DarkColors else LightColors
     val view = LocalView.current
     if (!view.isInEditMode) {

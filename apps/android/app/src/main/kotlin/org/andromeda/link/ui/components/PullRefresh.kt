@@ -32,38 +32,53 @@ import kotlin.math.roundToInt
  * threshold refreshes, and the orb works until [refreshing] is false.
  */
 @Composable
-fun PullRefresh(refreshing: Boolean, onRefresh: () -> Unit, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+fun PullRefresh(
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
     val threshold = with(LocalDensity.current) { 72.dp.toPx() }
     val pull = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
-    val connection = remember(threshold) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y >= 0 || pull.value <= 0f) return Offset.Zero
-                val used = maxOf(available.y, -pull.value)
-                scope.launch { pull.snapTo(pull.value + used) }
-                return Offset(0f, used)
-            }
+    val connection =
+        remember(threshold) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (available.y >= 0 || pull.value <= 0f) return Offset.Zero
+                    val used = maxOf(available.y, -pull.value)
+                    scope.launch { pull.snapTo(pull.value + used) }
+                    return Offset(0f, used)
+                }
 
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (available.y <= 0 || source != NestedScrollSource.UserInput) return Offset.Zero
-                scope.launch { pull.snapTo((pull.value + available.y * RESISTANCE).coerceAtMost(threshold * 1.5f)) }
-                return Offset(0f, available.y)
-            }
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource,
+                ): Offset {
+                    if (available.y <= 0 || source != NestedScrollSource.UserInput) return Offset.Zero
+                    scope.launch { pull.snapTo((pull.value + available.y * RESISTANCE).coerceAtMost(threshold * 1.5f)) }
+                    return Offset(0f, available.y)
+                }
 
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (pull.value >= threshold) onRefresh()
-                if (pull.value > 0f) pull.animateTo(0f, tween(Motion.NORMAL, easing = Motion.smoothEnter))
-                return Velocity.Zero
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    if (pull.value >= threshold) onRefresh()
+                    if (pull.value > 0f) pull.animateTo(0f, tween(Motion.NORMAL, easing = Motion.smoothEnter))
+                    return Velocity.Zero
+                }
             }
         }
-    }
     LaunchedEffect(refreshing) { if (!refreshing) pull.animateTo(0f, tween(Motion.NORMAL)) }
     Box(modifier.nestedScroll(connection)) {
         content()
         val shown = if (refreshing) threshold else pull.value
         Box(
-            Modifier.fillMaxWidth().padding(top = Space.s8)
+            Modifier
+                .fillMaxWidth()
+                .padding(top = Space.s8)
                 .offset { IntOffset(0, (shown - threshold).roundToInt()) }
                 .alpha((shown / threshold).coerceIn(0f, 1f)),
             contentAlignment = Alignment.TopCenter,

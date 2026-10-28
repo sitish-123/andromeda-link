@@ -9,15 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.TextAutoSize
-import androidx.compose.ui.unit.sp
-import org.andromeda.link.ui.components.Node
-import org.andromeda.link.ui.components.Readout
-import org.andromeda.link.ui.components.TetherRow
-import org.andromeda.link.ui.components.Wire
-import org.andromeda.link.ui.components.WireMotion
-import org.andromeda.link.ui.components.rememberWireMotion
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,15 +23,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,15 +39,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,19 +60,18 @@ import org.andromeda.link.files.PickerState
 import org.andromeda.link.files.PickerTab
 import org.andromeda.link.files.PickerViewModel
 import org.andromeda.link.files.sendLabel
-import org.andromeda.link.ui.components.CenteredText
 import org.andromeda.link.ui.components.Glyph
-import org.andromeda.link.ui.components.IconChip
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.LinkIcons
-import org.andromeda.link.ui.components.NavRow
+import org.andromeda.link.ui.components.Node
 import org.andromeda.link.ui.components.PillButton
 import org.andromeda.link.ui.components.PillKind
 import org.andromeda.link.ui.components.PullRefresh
+import org.andromeda.link.ui.components.Readout
 import org.andromeda.link.ui.components.Screen
-import org.andromeda.link.ui.components.DashboardCard
-import org.andromeda.link.ui.components.DashboardSection
-import org.andromeda.link.ui.components.StatusBadge
+import org.andromeda.link.ui.components.TetherRow
+import org.andromeda.link.ui.components.Wire
+import org.andromeda.link.ui.components.rememberWireMotion
 import org.andromeda.link.ui.text
 import org.andromeda.link.ui.theme.LinkTheme
 import org.andromeda.link.ui.theme.Radius
@@ -110,30 +98,33 @@ fun HomeScreen(
     val pick by picker.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val resources = context.resources
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.notificationsAllowed()
-    }
+    val notificationPermission =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) viewModel.notificationsAllowed()
+        }
     val paired = state.desktops.isNotEmpty()
     // Asked once a desktop is paired, the first moment one can send this phone anything to notify about.
     LaunchedEffect(paired) {
-        val needed = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
+        val needed =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
         if (paired && needed) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
     LifecycleResumeEffect(Unit) {
         picker.refresh()
         onPauseOrDispose {}
     }
-    val toast = when (val shown = message) {
-        is HomeMessage.Paired -> resources.getString(R.string.paired_with, shown.name)
-        is HomeMessage.Sent -> resources.getString(R.string.share_sent, shown.name)
-        is HomeMessage.FilesSending -> resources.getString(R.string.share_files_sending, shown.name)
-        HomeMessage.ClipboardEmpty -> resources.getString(R.string.clipboard_empty)
-        is HomeMessage.ClipboardSent -> resources.getString(R.string.clipboard_sent, shown.name)
-        is HomeMessage.Failed -> shown.failure.text(resources)
-        null -> null
-    }
+    val toast =
+        when (val shown = message) {
+            is HomeMessage.Paired -> resources.getString(R.string.paired_with, shown.name)
+            is HomeMessage.Sent -> resources.getString(R.string.share_sent, shown.name)
+            is HomeMessage.FilesSending -> resources.getString(R.string.share_files_sending, shown.name)
+            HomeMessage.ClipboardEmpty -> resources.getString(R.string.clipboard_empty)
+            is HomeMessage.ClipboardSent -> resources.getString(R.string.clipboard_sent, shown.name)
+            is HomeMessage.Failed -> shown.failure.text(resources)
+            null -> null
+        }
     val primary = state.primary
     val send = {
         primary?.let { viewModel.sendFiles(it, pick.selected.keys.toList()) }
@@ -163,33 +154,65 @@ fun HomeScreen(
                 TetherRow(wire, motion, Node.Dot, nodeAt = 40.dp) {
                     val ringing = primary.id in state.ringing
                     Row(Modifier.padding(top = Space.s8), horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
-                        QuickTile(LinkIcons.Clipboard, stringResource(R.string.action_clipboard), primary.sharing.clipboard, false, Modifier.weight(1f)) {
-                            if (!primary.sharing.clipboard) onDesktop(primary)
-                            else viewModel.sendClipboard(primary, context.getSystemService(ClipboardManager::class.java).primaryClip)
+                        QuickTile(
+                            LinkIcons.Clipboard,
+                            stringResource(R.string.action_clipboard),
+                            primary.sharing.clipboard,
+                            false,
+                            Modifier.weight(1f),
+                        ) {
+                            if (!primary.sharing.clipboard) {
+                                onDesktop(primary)
+                            } else {
+                                viewModel.sendClipboard(primary, context.getSystemService(ClipboardManager::class.java).primaryClip)
+                            }
                         }
                         QuickTile(
-                            LinkIcons.Ring, stringResource(if (ringing) R.string.ring_desktop_stop else R.string.action_ring),
-                            primary.sharing.ring, ringing, Modifier.weight(1f),
+                            LinkIcons.Ring,
+                            stringResource(if (ringing) R.string.ring_desktop_stop else R.string.action_ring),
+                            primary.sharing.ring,
+                            ringing,
+                            Modifier.weight(1f),
                         ) { if (primary.sharing.ring) viewModel.ring(primary, !ringing) else onDesktop(primary) }
-                        QuickTile(Icons.Filled.PlayArrow, stringResource(R.string.action_media), primary.sharing.media, false, Modifier.weight(1f)) {
+                        QuickTile(
+                            Icons.Filled.PlayArrow,
+                            stringResource(R.string.action_media),
+                            primary.sharing.media,
+                            false,
+                            Modifier.weight(1f),
+                        ) {
                             if (primary.sharing.media) onMedia() else onDesktop(primary)
                         }
                     }
                 }
                 TetherRow(wire, motion, Node.Ring, nodeAt = 20.dp) {
-                    if (primary.sharing.files) SendTray(primary, pick, picker, send)
-                    else Label(stringResource(R.string.home_files_disabled), LinkTheme.type.headlineMedium)
+                    if (primary.sharing.files) {
+                        SendTray(primary, pick, picker, send)
+                    } else {
+                        Label(stringResource(R.string.home_files_disabled), LinkTheme.type.headlineMedium)
+                    }
                 }
                 TetherRow(wire, motion, Node.Phone, last = true, nodeAt = 30.dp, onClick = onActivity) {
                     Readout(
-                        if (state.activeTransfers > 0) stringResource(R.string.readout_moving, state.activeTransfers)
-                        else stringResource(R.string.readout_idle),
+                        if (state.activeTransfers > 0) {
+                            stringResource(R.string.readout_moving, state.activeTransfers)
+                        } else {
+                            stringResource(R.string.readout_idle)
+                        },
                         if (state.activeTransfers > 0 && lit) LinkTheme.colors.accentText else LinkTheme.colors.textTertiary,
                     )
-                    Label(stringResource(R.string.home_this_phone), LinkTheme.type.headlineLarge, modifier = Modifier.padding(top = Space.s4))
+                    Label(
+                        stringResource(R.string.home_this_phone),
+                        LinkTheme.type.headlineLarge,
+                        modifier = Modifier.padding(top = Space.s4),
+                    )
                     Label(stringResource(R.string.home_activity_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
                     if (setupNeeded) SetupLine(stringResource(R.string.setup_banner), onSetup)
-                    if (primary.sharing.clipboard && !autoClipboard) SetupLine(stringResource(R.string.home_clipboard_setup), onClipboardSetup)
+                    if (primary.sharing.clipboard &&
+                        !autoClipboard
+                    ) {
+                        SetupLine(stringResource(R.string.home_clipboard_setup), onClipboardSetup)
+                    }
                 }
                 Spacer(Modifier.height(Space.s32))
             }
@@ -197,12 +220,13 @@ fun HomeScreen(
     }
 }
 
-private fun Desktop.wire(reaching: Boolean): Wire = when {
-    connected && bluetooth -> Wire.Bluetooth
-    connected -> Wire.WiFi
-    reaching -> Wire.Searching
-    else -> Wire.Down
-}
+private fun Desktop.wire(reaching: Boolean): Wire =
+    when {
+        connected && bluetooth -> Wire.Bluetooth
+        connected -> Wire.WiFi
+        reaching -> Wire.Searching
+        else -> Wire.Down
+    }
 
 /** Nothing paired: the line hangs from the phone toward an empty, dashed desktop, and scanning closes it. */
 @Composable
@@ -212,7 +236,9 @@ private fun EmptyLine(onPair: () -> Unit) {
         Readout(stringResource(R.string.empty_desktop), LinkTheme.colors.textTertiary)
         Label(stringResource(R.string.empty_scan_title), LinkTheme.type.hero, modifier = Modifier.padding(top = Space.s8))
         Label(
-            stringResource(R.string.empty_scan_body), LinkTheme.type.bodyLarge, LinkTheme.colors.textSecondary,
+            stringResource(R.string.empty_scan_body),
+            LinkTheme.type.bodyLarge,
+            LinkTheme.colors.textSecondary,
             Modifier.padding(top = Space.s12),
         )
         PillButton(stringResource(R.string.scan_action), onPair, Modifier.padding(top = Space.s24).fillMaxWidth())
@@ -227,14 +253,20 @@ private fun EmptyLine(onPair: () -> Unit) {
 
 /** The desktop as the line's top end: its transport as a readout, its name set large, and the one way forward. */
 @Composable
-internal fun DesktopHeader(desktop: Desktop, busy: Boolean = false, onConnect: () -> Unit, onOpen: (() -> Unit)?) {
+internal fun DesktopHeader(
+    desktop: Desktop,
+    busy: Boolean = false,
+    onConnect: () -> Unit,
+    onOpen: (() -> Unit)?,
+) {
     val colors = LinkTheme.colors
-    val readout = when {
-        desktop.connected && desktop.bluetooth -> stringResource(R.string.readout_bluetooth)
-        desktop.connected -> stringResource(R.string.readout_wifi)
-        busy -> stringResource(R.string.readout_searching)
-        else -> stringResource(R.string.readout_offline, lastSeen(desktop.lastSeen))
-    }
+    val readout =
+        when {
+            desktop.connected && desktop.bluetooth -> stringResource(R.string.readout_bluetooth)
+            desktop.connected -> stringResource(R.string.readout_wifi)
+            busy -> stringResource(R.string.readout_searching)
+            else -> stringResource(R.string.readout_offline, lastSeen(desktop.lastSeen))
+        }
     Row(verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f)) {
             Readout(readout, if (desktop.connected) colors.accentText else colors.textTertiary)
@@ -243,8 +275,12 @@ internal fun DesktopHeader(desktop: Desktop, busy: Boolean = false, onConnect: (
         if (onOpen != null) {
             val label = stringResource(R.string.desktop_open)
             Box(
-                Modifier.size(Size.touch).clip(Radius.pill).border(1.dp, colors.borderPrimary, Radius.pill)
-                    .clickable(role = Role.Button, onClick = onOpen).semantics { contentDescription = label },
+                Modifier
+                    .size(Size.touch)
+                    .clip(Radius.pill)
+                    .border(1.dp, colors.borderPrimary, Radius.pill)
+                    .clickable(role = Role.Button, onClick = onOpen)
+                    .semantics { contentDescription = label },
                 contentAlignment = Alignment.Center,
             ) { Glyph(Icons.Filled.Settings, colors.textSecondary, Size.icon - 4.dp) }
         }
@@ -255,12 +291,17 @@ internal fun DesktopHeader(desktop: Desktop, busy: Boolean = false, onConnect: (
 }
 
 @Composable
-private fun DesktopSwitcher(desktops: List<Desktop>, primary: Desktop, onSelect: (Desktop) -> Unit) {
+private fun DesktopSwitcher(
+    desktops: List<Desktop>,
+    primary: Desktop,
+    onSelect: (Desktop) -> Unit,
+) {
     LazyRow(Modifier.padding(top = Space.s16), horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
         items(desktops, key = { it.id }) { desktop ->
             val active = desktop.id == primary.id
             Box(
-                Modifier.clip(Radius.pill)
+                Modifier
+                    .clip(Radius.pill)
                     .border(1.dp, if (active) LinkTheme.colors.accent else LinkTheme.colors.borderPrimary, Radius.pill)
                     .selectable(active, role = Role.Tab) { onSelect(desktop) }
                     .padding(horizontal = Space.s16, vertical = Space.s10),
@@ -271,9 +312,15 @@ private fun DesktopSwitcher(desktops: List<Desktop>, primary: Desktop, onSelect:
 
 /** Something left to set up, at the phone's end of the line: a warning dot, what it is, and a way there. */
 @Composable
-private fun SetupLine(text: String, onClick: () -> Unit) {
+private fun SetupLine(
+    text: String,
+    onClick: () -> Unit,
+) {
     Row(
-        Modifier.padding(top = Space.s8).clip(Radius.pill).clickable(role = Role.Button, onClick = onClick)
+        Modifier
+            .padding(top = Space.s8)
+            .clip(Radius.pill)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = Space.s8),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.s8),
@@ -286,10 +333,18 @@ private fun SetupLine(text: String, onClick: () -> Unit) {
 
 /** One of the three things you do to the desktop in a tap; lit while it is happening, dimmed when not shared. */
 @Composable
-private fun QuickTile(icon: ImageVector, label: String, shared: Boolean, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun QuickTile(
+    icon: ImageVector,
+    label: String,
+    shared: Boolean,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     val colors = LinkTheme.colors
     Column(
-        modifier.clip(Radius.list)
+        modifier
+            .clip(Radius.list)
             .background(if (active) colors.accent else colors.surfaceTertiary)
             .clickable(role = Role.Button, onClick = onClick)
             .alpha(if (shared) 1f else 0.45f)
@@ -299,23 +354,35 @@ private fun QuickTile(icon: ImageVector, label: String, shared: Boolean, active:
         Glyph(icon, if (active) colors.onAccent else colors.textPrimary, Size.icon - 2.dp)
         // Large font scales would clip the label in a third of the width, so it shrinks to fit instead.
         BasicText(
-            label, style = LinkTheme.type.titleMedium.copy(color = if (active) colors.onAccent else colors.textPrimary),
-            maxLines = 1, autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = LinkTheme.type.titleMedium.fontSize),
+            label,
+            style = LinkTheme.type.titleMedium.copy(color = if (active) colors.onAccent else colors.textPrimary),
+            maxLines = 1,
+            autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = LinkTheme.type.titleMedium.fontSize),
         )
     }
 }
 
 /** Where things leave the phone: recent photos to tap, the picker's tabs, and Send once anything is picked. */
 @Composable
-private fun SendTray(desktop: Desktop, pick: PickerState, picker: PickerViewModel, onSend: () -> Unit) {
+private fun SendTray(
+    desktop: Desktop,
+    pick: PickerState,
+    picker: PickerViewModel,
+    onSend: () -> Unit,
+) {
     val colors = LinkTheme.colors
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { picker.refresh() }
     Label(stringResource(R.string.home_send_title), LinkTheme.type.headlineMedium)
     Label(stringResource(R.string.home_send_target, desktop.name), LinkTheme.type.bodyMedium, colors.textSecondary)
     if (pick.access == MediaAccess.None) {
         Row(
-            Modifier.padding(top = Space.s12).fillMaxWidth().clip(Radius.list).background(colors.surfaceTertiary)
-                .clickable { ask.launch(PhoneFiles.mediaPermissions) }.padding(Space.s16),
+            Modifier
+                .padding(top = Space.s12)
+                .fillMaxWidth()
+                .clip(Radius.list)
+                .background(colors.surfaceTertiary)
+                .clickable { ask.launch(PhoneFiles.mediaPermissions) }
+                .padding(Space.s16),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Label(stringResource(R.string.recent_allow), LinkTheme.type.bodyMedium, colors.textSecondary, Modifier.weight(1f))

@@ -28,7 +28,9 @@ enum class Grant { NotificationAccess, DoNotDisturb, PostNotifications, Battery,
 /** Grants the setup banner does not ask for: automatic clipboard needs a computer once, and texts are a choice. */
 private val OPTIONAL = setOf(Grant.Texts, Grant.AutoClipboard)
 
-data class OnboardingState(val granted: Set<Grant> = emptySet()) {
+data class OnboardingState(
+    val granted: Set<Grant> = emptySet(),
+) {
     val complete: Boolean get() = granted.containsAll(Grant.entries - OPTIONAL)
 }
 
@@ -40,9 +42,10 @@ class OnboardingViewModel(
 ) : ViewModel() {
     private val checked = MutableStateFlow(check())
 
-    val state: StateFlow<OnboardingState> = combine(checked, mirror.granted) { others, listener ->
-        OnboardingState(if (listener) others + Grant.NotificationAccess else others - Grant.NotificationAccess)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, OnboardingState(checked.value))
+    val state: StateFlow<OnboardingState> =
+        combine(checked, mirror.granted) { others, listener ->
+            OnboardingState(if (listener) others + Grant.NotificationAccess else others - Grant.NotificationAccess)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, OnboardingState(checked.value))
 
     fun refresh() {
         checked.value = check()
@@ -57,58 +60,66 @@ class OnboardingViewModel(
     fun adbCommand(): String = "adb shell pm grant ${application.packageName} android.permission.READ_LOGS"
 
     /** The runtime permissions a grant asks for; empty for one given in Settings. */
-    fun permissions(grant: Grant): Array<String> = when (grant) {
-        Grant.PostNotifications -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            arrayOf(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            emptyArray()
+    fun permissions(grant: Grant): Array<String> =
+        when (grant) {
+            Grant.PostNotifications ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    emptyArray()
+                }
+            Grant.Calls -> CALL_PERMISSIONS
+            Grant.Texts -> arrayOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)
+            Grant.Bluetooth ->
+                when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                        arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.NEARBY_WIFI_DEVICES)
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                        arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
+                    // The local-only hotspot needs location before Android 13.
+                    else -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+            else -> emptyArray()
         }
-        Grant.Calls -> CALL_PERMISSIONS
-        Grant.Texts -> arrayOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)
-        Grant.Bluetooth -> when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
-                arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.NEARBY_WIFI_DEVICES)
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-                arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION)
-            // The local-only hotspot needs location before Android 13.
-            else -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        else -> emptyArray()
-    }
 
     /** The Settings page that gives a grant, for those not asked at runtime. */
     @SuppressLint("BatteryLife")
-    fun settings(grant: Grant, mirrorSettings: Intent): Intent? = when (grant) {
-        Grant.NotificationAccess -> mirrorSettings
-        Grant.DoNotDisturb -> ringer.dndSettings()
-        // Stay connected is a foreground service Android would otherwise stop to save power; the exemption is the
-        // documented way for a companion app to keep it, and the page explains it first.
-        Grant.Battery -> Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${application.packageName}"))
-        Grant.AutoClipboard -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${application.packageName}"))
-        else -> null
-    }?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    fun settings(
+        grant: Grant,
+        mirrorSettings: Intent,
+    ): Intent? =
+        when (grant) {
+            Grant.NotificationAccess -> mirrorSettings
+            Grant.DoNotDisturb -> ringer.dndSettings()
+            // Stay connected is a foreground service Android would otherwise stop to save power; the exemption is the
+            // documented way for a companion app to keep it, and the page explains it first.
+            Grant.Battery -> Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${application.packageName}"))
+            Grant.AutoClipboard -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${application.packageName}"))
+            else -> null
+        }?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    private fun check(): Set<Grant> = buildSet {
-        if (ringer.dndGranted()) add(Grant.DoNotDisturb)
-        if (permissions(Grant.PostNotifications).all(::held)) add(Grant.PostNotifications)
-        if (application.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(application.packageName)) {
-            add(Grant.Battery)
+    private fun check(): Set<Grant> =
+        buildSet {
+            if (ringer.dndGranted()) add(Grant.DoNotDisturb)
+            if (permissions(Grant.PostNotifications).all(::held)) add(Grant.PostNotifications)
+            if (application.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(application.packageName)) {
+                add(Grant.Battery)
+            }
+            if (CALL_PERMISSIONS.all(::held)) add(Grant.Calls)
+            if (permissions(Grant.Bluetooth).all(::held)) add(Grant.Bluetooth)
+            if (permissions(Grant.Texts).all(::held)) add(Grant.Texts)
+            if (ClipboardWatcher.granted(application)) add(Grant.AutoClipboard)
         }
-        if (CALL_PERMISSIONS.all(::held)) add(Grant.Calls)
-        if (permissions(Grant.Bluetooth).all(::held)) add(Grant.Bluetooth)
-        if (permissions(Grant.Texts).all(::held)) add(Grant.Texts)
-        if (ClipboardWatcher.granted(application)) add(Grant.AutoClipboard)
-    }
 
-    private fun held(permission: String) =
-        ContextCompat.checkSelfPermission(application, permission) == PackageManager.PERMISSION_GRANTED
+    private fun held(permission: String) = ContextCompat.checkSelfPermission(application, permission) == PackageManager.PERMISSION_GRANTED
 
     private companion object {
-        val CALL_PERMISSIONS = arrayOf(
-            Manifest.permission.READ_PHONE_STATE,
-            Manifest.permission.READ_CALL_LOG,
-            Manifest.permission.READ_CONTACTS,
-            Manifest.permission.ANSWER_PHONE_CALLS,
-        )
+        val CALL_PERMISSIONS =
+            arrayOf(
+                Manifest.permission.READ_PHONE_STATE,
+                Manifest.permission.READ_CALL_LOG,
+                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.ANSWER_PHONE_CALLS,
+            )
     }
 }

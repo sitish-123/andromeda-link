@@ -33,9 +33,13 @@ class ImageClipboardActivity : Activity() {
 
 class ImageClipboardProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
+
     override fun getType(uri: Uri): String = "image/png"
 
-    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+    override fun openFile(
+        uri: Uri,
+        mode: String,
+    ): ParcelFileDescriptor {
         require(mode == "r" && uri.path == "/clipboard.png")
         val input = File(requireNotNull(context).filesDir, "clipboard.png").inputStream()
         val (read, write) = ParcelFileDescriptor.createPipe()
@@ -47,8 +51,29 @@ class ImageClipboardProvider : ContentProvider() {
         return read
     }
 
-    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, sort: String?): Cursor? = null
-    override fun insert(uri: Uri, values: ContentValues?): Uri? = null
-    override fun delete(uri: Uri, selection: String?, args: Array<out String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?): Int = 0
+    override fun query(
+        uri: Uri,
+        projection: Array<out String>?,
+        selection: String?,
+        args: Array<out String>?,
+        sort: String?,
+    ): Cursor? = null
+
+    override fun insert(
+        uri: Uri,
+        values: ContentValues?,
+    ): Uri? = null
+
+    override fun delete(
+        uri: Uri,
+        selection: String?,
+        args: Array<out String>?,
+    ): Int = 0
+
+    override fun update(
+        uri: Uri,
+        values: ContentValues?,
+        selection: String?,
+        args: Array<out String>?,
+    ): Int = 0
 }

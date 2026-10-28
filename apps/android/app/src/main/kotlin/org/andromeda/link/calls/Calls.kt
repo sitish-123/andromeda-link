@@ -25,7 +25,11 @@ import org.andromeda.link.core.domain.truncateUtf8
  * The phone's calls for desktops: each state change from [CallStateReceiver], with the number when Android gives it
  * (`READ_CALL_LOG`) and the contact's name when the app may read contacts. Desktops mute the ringer or decline.
  */
-class Calls(private val context: Context, private val repository: LinkRepository, private val scope: CoroutineScope) {
+class Calls(
+    private val context: Context,
+    private val repository: LinkRepository,
+    private val scope: CoroutineScope,
+) {
     private val audio = context.getSystemService(AudioManager::class.java)
     private var state = CallState.Idle
     private var muted = false
@@ -34,7 +38,10 @@ class Calls(private val context: Context, private val repository: LinkRepository
         scope.launch { repository.callActions.collect(::act) }
     }
 
-    fun changed(next: CallState, number: String?) {
+    fun changed(
+        next: CallState,
+        number: String?,
+    ) {
         state = next
         if (next == CallState.Idle && muted) {
             audio.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_UNMUTE, 0)
@@ -70,13 +77,13 @@ class Calls(private val context: Context, private val repository: LinkRepository
         if (!granted(Manifest.permission.READ_CONTACTS)) return null
         val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
         return runCatching {
-            context.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)
+            context.contentResolver
+                .query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)
                 ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
         }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
-    private fun granted(permission: String) =
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    private fun granted(permission: String) = ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
     private companion object {
         const val TAG = "Calls"
@@ -89,13 +96,17 @@ class Calls(private val context: Context, private val repository: LinkRepository
  */
 class CallStateReceiver : BroadcastReceiver() {
     @Suppress("DEPRECATION")
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
-        val state = when (intent.getStringExtra(TelephonyManager.EXTRA_STATE)) {
-            TelephonyManager.EXTRA_STATE_RINGING -> CallState.Ringing
-            TelephonyManager.EXTRA_STATE_OFFHOOK -> CallState.Active
-            else -> CallState.Idle
-        }
+        val state =
+            when (intent.getStringExtra(TelephonyManager.EXTRA_STATE)) {
+                TelephonyManager.EXTRA_STATE_RINGING -> CallState.Ringing
+                TelephonyManager.EXTRA_STATE_OFFHOOK -> CallState.Active
+                else -> CallState.Idle
+            }
         val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
         (context.applicationContext as LinkApplication).container.calls.changed(state, number)
     }

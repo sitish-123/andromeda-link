@@ -50,13 +50,19 @@ class OfferActivity : ComponentActivity() {
         setContent {
             LinkTheme {
                 Box(
-                    Modifier.fillMaxSize().background(LinkTheme.colors.surfaceOverlay)
+                    Modifier
+                        .fillMaxSize()
+                        .background(LinkTheme.colors.surfaceOverlay)
                         .clickable(remember { MutableInteractionSource() }, indication = null, onClick = ::finish),
                     contentAlignment = Alignment.BottomCenter,
                 ) {
                     val card = remember { MutableInteractionSource() }
                     SoftCard(
-                        Modifier.fillMaxWidth().navigationBarsPadding().padding(Space.s12).clickable(card, indication = null) {},
+                        Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(Space.s12)
+                            .clickable(card, indication = null) {},
                     ) {
                         Label(title, LinkTheme.type.headlineMedium)
                         Column(Modifier.padding(top = Space.s16), verticalArrangement = Arrangement.spacedBy(Space.s8)) {

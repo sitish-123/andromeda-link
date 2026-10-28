@@ -4,13 +4,13 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
-import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.domain.IncomingClip
+import java.security.MessageDigest
 
 /**
  * Desktop to phone: text is set at once, other types as a `content://` URI [ClipProvider] pulls when an app reads it.
@@ -42,8 +42,10 @@ class ClipboardSync(
         val item = clip.getItemAt(0)
         item.uri?.let { uri ->
             if (ClipProvider.owns(uri)) return Result.success(Unit)
-            val mime = (0 until clip.description.mimeTypeCount)
-                .map { clip.description.getMimeType(it) }.firstOrNull { '*' !in it }
+            val mime =
+                (0 until clip.description.mimeTypeCount)
+                    .map { clip.description.getMimeType(it) }
+                    .firstOrNull { '*' !in it }
             return repository.offerClipUri(uri, mime)
         }
         val text = item.coerceToText(context)?.toString()
@@ -58,19 +60,21 @@ class ClipboardSync(
     }
 
     private fun apply(clip: IncomingClip) {
-        val data = clip.text?.let { text ->
-            lastApplied = hash(text)
-            ClipData.newPlainText(LABEL, text)
-        } ?: run {
-            val mime = clip.mimes.first()
-            ClipData(ClipDescription(LABEL, arrayOf(mime)), ClipData.Item(ClipProvider.uri(clip.desktopId, clip.clipId, mime)))
-        }
+        val data =
+            clip.text?.let { text ->
+                lastApplied = hash(text)
+                ClipData.newPlainText(LABEL, text)
+            } ?: run {
+                val mime = clip.mimes.first()
+                ClipData(ClipDescription(LABEL, arrayOf(mime)), ClipData.Item(ClipProvider.uri(clip.desktopId, clip.clipId, mime)))
+            }
         clipboard.setPrimaryClip(data)
         clear?.cancel()
-        clear = scope.launch {
-            delay(CLEAR_AFTER_MS)
-            clipboard.clearPrimaryClip()
-        }
+        clear =
+            scope.launch {
+                delay(CLEAR_AFTER_MS)
+                clipboard.clearPrimaryClip()
+            }
     }
 
     companion object {

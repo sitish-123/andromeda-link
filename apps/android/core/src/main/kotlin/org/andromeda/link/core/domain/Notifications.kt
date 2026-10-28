@@ -1,6 +1,10 @@
 package org.andromeda.link.core.domain
 
-data class NotificationButton(val id: String, val label: String, val reply: Boolean)
+data class NotificationButton(
+    val id: String,
+    val label: String,
+    val reply: Boolean,
+)
 
 /** A phone notification to mirror; the Rust core refuses one over the limits in `ARCHITECTURE.md`. */
 class PhoneNotification(
@@ -11,6 +15,8 @@ class PhoneNotification(
     /** PNG. */
     val icon: ByteArray?,
     val actions: List<NotificationButton>,
+    /** `FLAG_ONLY_ALERT_ONCE`: an update replaces the desktop's copy without a sound. */
+    val alertOnce: Boolean = false,
 )
 
 /** What a desktop asks of a mirrored notification. */
@@ -18,10 +24,17 @@ sealed interface NotificationCommand {
     val desktopId: String
     val id: String
 
-    data class Action(override val desktopId: String, override val id: String, val action: String, val replyText: String?) :
-        NotificationCommand
+    data class Action(
+        override val desktopId: String,
+        override val id: String,
+        val action: String,
+        val replyText: String?,
+    ) : NotificationCommand
 
-    data class Dismiss(override val desktopId: String, override val id: String) : NotificationCommand
+    data class Dismiss(
+        override val desktopId: String,
+        override val id: String,
+    ) : NotificationCommand
 }
 
 /** Limits from `ARCHITECTURE.md`, in UTF-8 bytes; the sender truncates to them. */

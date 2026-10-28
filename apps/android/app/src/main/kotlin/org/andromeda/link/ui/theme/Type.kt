@@ -10,13 +10,14 @@ import androidx.compose.ui.unit.sp
 import org.andromeda.link.R
 
 /** Source Sans 3 (SIL OFL 1.1, bundled with its license in assets/licenses). */
-val SourceSans = FontFamily(
-    Font(R.font.source_sans_3_regular, FontWeight.Normal),
-    Font(R.font.source_sans_3_medium, FontWeight.Medium),
-    Font(R.font.source_sans_3_semibold, FontWeight.SemiBold),
-    Font(R.font.source_sans_3_bold, FontWeight.Bold),
-    Font(R.font.source_sans_3_bold, FontWeight.ExtraBold),
-)
+val SourceSans =
+    FontFamily(
+        Font(R.font.source_sans_3_regular, FontWeight.Normal),
+        Font(R.font.source_sans_3_medium, FontWeight.Medium),
+        Font(R.font.source_sans_3_semibold, FontWeight.SemiBold),
+        Font(R.font.source_sans_3_bold, FontWeight.Bold),
+        Font(R.font.source_sans_3_bold, FontWeight.ExtraBold),
+    )
 
 /** The type roles: a small phone scale where body text is 14 sp. */
 @Immutable
@@ -42,7 +43,12 @@ data class LinkType(
 )
 
 /** `tracking` is in px at the role's size, as the tokens give it; Compose wants em. */
-private fun role(size: Int, weight: FontWeight, height: Float, tracking: Float) = TextStyle(
+private fun role(
+    size: Int,
+    weight: FontWeight,
+    height: Float,
+    tracking: Float,
+) = TextStyle(
     fontFamily = SourceSans,
     fontWeight = weight,
     fontSize = size.sp,

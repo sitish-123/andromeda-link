@@ -6,7 +6,9 @@ import android.content.Context
 import org.andromeda.link.R
 
 object Channels {
-    const val PRESENCE = "presence"
+    /** A new id: Android keeps the importance of a channel it already made. */
+    const val PRESENCE = "presence-min"
+    private const val OLD_PRESENCE = "presence"
     const val SHARES = "shares"
     const val TRANSFERS = "transfers"
     const val RING = "ring"
@@ -15,8 +17,9 @@ object Channels {
 
     fun create(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
+        manager.deleteNotificationChannel(OLD_PRESENCE)
         manager.createNotificationChannel(
-            NotificationChannel(PRESENCE, context.getString(R.string.channel_presence), NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(PRESENCE, context.getString(R.string.channel_presence), NotificationManager.IMPORTANCE_MIN),
         )
         manager.createNotificationChannel(
             NotificationChannel(SHARES, context.getString(R.string.channel_shares), NotificationManager.IMPORTANCE_HIGH),

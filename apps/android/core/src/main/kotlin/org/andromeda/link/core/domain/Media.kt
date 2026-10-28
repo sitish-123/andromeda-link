@@ -21,20 +21,37 @@ data class MediaPlayer(
     val can: Set<MediaCommandKind>,
     val receivedAt: Long = 0,
 ) {
-    override fun equals(other: Any?): Boolean = other is MediaPlayer && player == other.player &&
-        name == other.name && state == other.state && title == other.title && artist == other.artist &&
-        album == other.album && lengthMs == other.lengthMs && positionMs == other.positionMs &&
-        volume == other.volume && can == other.can && receivedAt == other.receivedAt &&
-        artwork.contentEquals(other.artwork)
+    override fun equals(other: Any?): Boolean =
+        other is MediaPlayer &&
+            player == other.player &&
+            name == other.name &&
+            state == other.state &&
+            title == other.title &&
+            artist == other.artist &&
+            album == other.album &&
+            lengthMs == other.lengthMs &&
+            positionMs == other.positionMs &&
+            volume == other.volume &&
+            can == other.can &&
+            receivedAt == other.receivedAt &&
+            artwork.contentEquals(other.artwork)
 
     override fun hashCode(): Int = player.hashCode() * 31 + title.hashCode()
 }
 
 /** A desktop's player as this phone shows it. */
-data class DesktopPlayer(val desktopId: String, val player: MediaPlayer)
+data class DesktopPlayer(
+    val desktopId: String,
+    val player: MediaPlayer,
+)
 
 /** What a desktop asks of this phone's player. */
-data class PhoneMediaCommand(val desktopId: String, val player: String, val command: MediaCommandKind, val value: Long?)
+data class PhoneMediaCommand(
+    val desktopId: String,
+    val player: String,
+    val command: MediaCommandKind,
+    val value: Long?,
+)
 
 object MediaLimits {
     const val PLAYER = 64
@@ -43,4 +60,7 @@ object MediaLimits {
 }
 
 /** A desktop's output volume, as its link-session reports it. */
-data class DesktopVolume(val percent: Int, val muted: Boolean)
+data class DesktopVolume(
+    val percent: Int,
+    val muted: Boolean,
+)

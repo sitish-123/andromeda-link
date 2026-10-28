@@ -1,6 +1,7 @@
 package org.andromeda.link.media
 
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,9 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,8 +48,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.os.SystemClock
-import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import org.andromeda.link.R
 import org.andromeda.link.core.domain.MediaCommandKind
@@ -65,10 +64,14 @@ import org.andromeda.link.ui.theme.LinkTheme
 import org.andromeda.link.ui.theme.Radius
 import org.andromeda.link.ui.theme.Size
 import org.andromeda.link.ui.theme.Space
+import kotlin.math.roundToInt
 
 /** Every connected desktop's players as soft cards: artwork, track, progress, and transport pills. */
 @Composable
-fun MediaScreen(viewModel: MediaViewModel, onBack: () -> Unit) {
+fun MediaScreen(
+    viewModel: MediaViewModel,
+    onBack: () -> Unit,
+) {
     val players by viewModel.players.collectAsStateWithLifecycle()
     Screen(title = stringResource(R.string.media_title), onBack = onBack) {
         if (players.isEmpty()) {
@@ -84,7 +87,9 @@ fun MediaScreen(viewModel: MediaViewModel, onBack: () -> Unit) {
         }
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Space.page, vertical = Space.s8),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(horizontal = Space.page, vertical = Space.s8),
             verticalArrangement = Arrangement.spacedBy(Space.section),
         ) {
             items(players, key = { it.desktopId + it.player.player }) { shown -> PlayerCard(shown, viewModel) }
@@ -93,7 +98,10 @@ fun MediaScreen(viewModel: MediaViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun PlayerCard(shown: ShownPlayer, viewModel: MediaViewModel) {
+private fun PlayerCard(
+    shown: ShownPlayer,
+    viewModel: MediaViewModel,
+) {
     val player = shown.player
     val colors = LinkTheme.colors
     val playing = player.state == PlaybackState.Playing
@@ -115,7 +123,11 @@ private fun PlayerCard(shown: ShownPlayer, viewModel: MediaViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val can = player.can
-            RoundControl(Icons.AutoMirrored.Filled.KeyboardArrowLeft, stringResource(R.string.media_previous), MediaCommandKind.Previous in can) {
+            RoundControl(
+                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                stringResource(R.string.media_previous),
+                MediaCommandKind.Previous in can,
+            ) {
                 viewModel.command(shown, MediaCommandKind.Previous)
             }
             PillButton(
@@ -184,7 +196,11 @@ private fun Progress(
 }
 
 @Composable
-private fun VolumeRow(label: String, percent: Int, onSet: (Int) -> Unit) {
+private fun VolumeRow(
+    label: String,
+    percent: Int,
+    onSet: (Int) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(top = Space.s12)) {
         Label("$label  $percent%", LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary, maxLines = 1)
         DragBar(percent / 100f, label, enabled = true) { onSet((it * 100).roundToInt()) }
@@ -196,29 +212,35 @@ private fun VolumeRow(label: String, percent: Int, onSet: (Int) -> Unit) {
  * while it moves. Accessibility services set it through its progress range.
  */
 @Composable
-private fun DragBar(value: Float, label: String, enabled: Boolean, onDone: (Float) -> Unit) {
+private fun DragBar(
+    value: Float,
+    label: String,
+    enabled: Boolean,
+    onDone: (Float) -> Unit,
+) {
     val colors = LinkTheme.colors
     val done by rememberUpdatedState(onDone)
     var dragging by remember { mutableStateOf<Float?>(null) }
     var width by remember { mutableIntStateOf(1) }
     val shown = (dragging ?: value).coerceIn(0f, 1f)
     val at = { x: Float -> (x / width).coerceIn(0f, 1f) }
-    val input = if (enabled) {
-        Modifier
-            .pointerInput(Unit) { detectTapGestures { done(at(it.x)) } }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragging = at(it.x) },
-                    onDragEnd = {
-                        dragging?.let(done)
-                        dragging = null
-                    },
-                    onDragCancel = { dragging = null },
-                ) { change, _ -> dragging = at(change.position.x) }
-            }
-    } else {
-        Modifier
-    }
+    val input =
+        if (enabled) {
+            Modifier
+                .pointerInput(Unit) { detectTapGestures { done(at(it.x)) } }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragging = at(it.x) },
+                        onDragEnd = {
+                            dragging?.let(done)
+                            dragging = null
+                        },
+                        onDragCancel = { dragging = null },
+                    ) { change, _ -> dragging = at(change.position.x) }
+                }
+        } else {
+            Modifier
+        }
     Box(
         Modifier
             .fillMaxWidth()
@@ -233,12 +255,23 @@ private fun DragBar(value: Float, label: String, enabled: Boolean, onDone: (Floa
                         true
                     }
                 }
-            }
-            .then(input),
+            }.then(input),
         contentAlignment = Alignment.CenterStart,
     ) {
-        Box(Modifier.fillMaxWidth().height(6.dp).clip(Radius.pill).background(colors.surfaceTertiary))
-        Box(Modifier.fillMaxWidth(shown).height(6.dp).clip(Radius.pill).background(colors.accent))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(Radius.pill)
+                .background(colors.surfaceTertiary),
+        )
+        Box(
+            Modifier
+                .fillMaxWidth(shown)
+                .height(6.dp)
+                .clip(Radius.pill)
+                .background(colors.accent),
+        )
         if (enabled) {
             Box(Modifier.fillMaxWidth(shown), contentAlignment = Alignment.CenterEnd) {
                 Box(Modifier.size(16.dp).clip(Radius.pill).background(colors.accent))
@@ -248,10 +281,18 @@ private fun DragBar(value: Float, label: String, enabled: Boolean, onDone: (Floa
 }
 
 @Composable
-private fun RoundControl(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun RoundControl(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
     val colors = LinkTheme.colors
     Box(
-        Modifier.size(Size.touch).clip(Radius.pill).background(colors.surfaceTertiary)
+        Modifier
+            .size(Size.touch)
+            .clip(Radius.pill)
+            .background(colors.surfaceTertiary)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,

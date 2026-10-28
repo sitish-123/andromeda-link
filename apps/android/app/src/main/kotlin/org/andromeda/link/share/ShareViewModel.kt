@@ -18,25 +18,47 @@ import org.andromeda.link.core.domain.shareKindOf
 
 sealed interface ShareState {
     data object Loading : ShareState
-    data class Choose(val desktops: List<Desktop>) : ShareState
-    data class Sending(val desktop: Desktop) : ShareState
+
+    data class Choose(
+        val desktops: List<Desktop>,
+    ) : ShareState
+
+    data class Sending(
+        val desktop: Desktop,
+    ) : ShareState
 }
 
 /** What the share target received: text (sent as a link when it is one), or files behind content URIs. */
 sealed interface SharePayload {
-    data class Text(val text: String) : SharePayload
-    data class Files(val uris: List<String>) : SharePayload
+    data class Text(
+        val text: String,
+    ) : SharePayload
+
+    data class Files(
+        val uris: List<String>,
+    ) : SharePayload
 }
 
 sealed interface ShareOutcome {
-    data class Sent(val desktop: Desktop, val files: Boolean) : ShareOutcome
+    data class Sent(
+        val desktop: Desktop,
+        val files: Boolean,
+    ) : ShareOutcome
+
     data object NoDesktop : ShareOutcome
+
     data object Cancelled : ShareOutcome
-    data class Failed(val failure: LinkFailure) : ShareOutcome
+
+    data class Failed(
+        val failure: LinkFailure,
+    ) : ShareOutcome
 }
 
 /** Sends one share: to the only paired desktop at once, or to the one the user picks. */
-class ShareViewModel(private val repository: LinkRepository, private val payload: SharePayload) : ViewModel() {
+class ShareViewModel(
+    private val repository: LinkRepository,
+    private val payload: SharePayload,
+) : ViewModel() {
     private val _state = MutableStateFlow<ShareState>(ShareState.Loading)
     private val outcomeChannel = Channel<ShareOutcome>(Channel.BUFFERED)
 
@@ -58,15 +80,17 @@ class ShareViewModel(private val repository: LinkRepository, private val payload
     fun send(desktop: Desktop) {
         _state.value = ShareState.Sending(desktop)
         viewModelScope.launch {
-            val result = when (payload) {
-                is SharePayload.Text -> {
-                    val kind = shareKindOf(payload.text.trim())
-                    repository.share(desktop.id, kind, if (kind == ShareKind.Link) payload.text.trim() else payload.text)
+            val result =
+                when (payload) {
+                    is SharePayload.Text -> {
+                        val kind = shareKindOf(payload.text.trim())
+                        repository.share(desktop.id, kind, if (kind == ShareKind.Link) payload.text.trim() else payload.text)
+                    }
+                    is SharePayload.Files -> repository.sendFiles(desktop.id, payload.uris).map {}
                 }
-                is SharePayload.Files -> repository.sendFiles(desktop.id, payload.uris).map {}
-            }
-            val outcome = result.exceptionOrNull()?.let { ShareOutcome.Failed(it.linkFailure()) }
-                ?: ShareOutcome.Sent(desktop, payload is SharePayload.Files)
+            val outcome =
+                result.exceptionOrNull()?.let { ShareOutcome.Failed(it.linkFailure()) }
+                    ?: ShareOutcome.Sent(desktop, payload is SharePayload.Files)
             outcomeChannel.send(outcome)
         }
     }

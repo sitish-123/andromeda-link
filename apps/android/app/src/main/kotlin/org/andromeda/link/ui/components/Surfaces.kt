@@ -36,17 +36,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.addOutline
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.semantics.Role
@@ -78,16 +70,27 @@ fun Label(
 }
 
 @Composable
-fun Glyph(icon: ImageVector, tint: Color = LinkTheme.colors.textPrimary, size: Dp = Size.icon, modifier: Modifier = Modifier) {
+fun Glyph(
+    icon: ImageVector,
+    tint: Color = LinkTheme.colors.textPrimary,
+    size: Dp = Size.icon,
+    modifier: Modifier = Modifier,
+) {
     Image(rememberVectorPainter(icon), contentDescription = null, modifier = modifier.size(size), colorFilter = ColorFilter.tint(tint))
 }
 
 /** A press shrinks the surface slightly, as the soft-tech card does. */
 @Composable
-private fun Modifier.pressScale(source: MutableInteractionSource, scale: Float = 0.99f): Modifier {
+private fun Modifier.pressScale(
+    source: MutableInteractionSource,
+    scale: Float = 0.99f,
+): Modifier {
     val pressed by source.collectIsPressedAsState()
     val current by animateFloatAsState(if (pressed) scale else 1f, tween(Motion.BUTTON_PRESS, easing = Motion.enter), label = "press")
-    return graphicsLayer { scaleX = current; scaleY = current }
+    return graphicsLayer {
+        scaleX = current
+        scaleY = current
+    }
 }
 
 /** The canonical container: a hairline outline on the page itself, so structure comes from line, not lift. */
@@ -102,19 +105,30 @@ fun SoftCard(
     val source = remember { MutableInteractionSource() }
     val shape = Radius.hero
     Column(
-        modifier = modifier
-            .then(if (onClick != null) Modifier.pressScale(source) else Modifier)
-            .clip(shape)
-            .border(1.dp, colors.borderPrimary, shape)
-            .then(if (onClick != null) Modifier.clickable(source, indication = LocalIndication.current, onClick = onClick) else Modifier)
-            .padding(padding),
+        modifier =
+            modifier
+                .then(if (onClick != null) Modifier.pressScale(source) else Modifier)
+                .clip(shape)
+                .border(1.dp, colors.borderPrimary, shape)
+                .then(
+                    if (onClick !=
+                        null
+                    ) {
+                        Modifier.clickable(source, indication = LocalIndication.current, onClick = onClick)
+                    } else {
+                        Modifier
+                    },
+                ).padding(padding),
         content = content,
     )
 }
 
 /** The screen's one lead element: outlined in the accent, the only colored outline on a screen. */
 @Composable
-fun HeroSurface(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun HeroSurface(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val shape = Radius.hero
     Column(
         modifier = modifier.clip(shape).border(1.5.dp, LinkTheme.colors.accent, shape).padding(Space.s24),
@@ -146,8 +160,12 @@ fun Screen(
             ) {
                 if (onBack != null) {
                     Box(
-                        modifier = Modifier.size(Size.touch).clip(Radius.pill).clickable(role = Role.Button, onClick = onBack)
-                            .semantics { contentDescription = "Back" },
+                        modifier =
+                            Modifier
+                                .size(Size.touch)
+                                .clip(Radius.pill)
+                                .clickable(role = Role.Button, onClick = onBack)
+                                .semantics { contentDescription = "Back" },
                         contentAlignment = Alignment.Center,
                     ) { Glyph(Icons.AutoMirrored.Filled.ArrowBack) }
                 } else {
@@ -165,7 +183,11 @@ fun Screen(
 
 /** One line at the bottom in a pill, for a few seconds. */
 @Composable
-private fun ToastHost(message: String?, onShown: () -> Unit, modifier: Modifier) {
+private fun ToastHost(
+    message: String?,
+    onShown: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     LaunchedEffect(message) {
         if (message != null) {
             delay(TOAST_MS)
@@ -180,7 +202,9 @@ private fun ToastHost(message: String?, onShown: () -> Unit, modifier: Modifier)
     ) {
         val colors = LinkTheme.colors
         Box(
-            Modifier.clip(Radius.pill).background(colors.textPrimary)
+            Modifier
+                .clip(Radius.pill)
+                .background(colors.textPrimary)
                 .padding(horizontal = Space.s20, vertical = Space.s14),
         ) {
             Label(message.orEmpty(), LinkTheme.type.titleMedium, colors.textInverse)
@@ -192,8 +216,16 @@ private const val TOAST_MS = 4_000L
 
 /** A section header: title, and a quieter note after it. */
 @Composable
-fun SectionHeader(title: String, note: String? = null, modifier: Modifier = Modifier) {
-    Row(modifier.padding(bottom = Space.block), horizontalArrangement = Arrangement.spacedBy(Space.s8), verticalAlignment = Alignment.Bottom) {
+fun SectionHeader(
+    title: String,
+    note: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.padding(bottom = Space.block),
+        horizontalArrangement = Arrangement.spacedBy(Space.s8),
+        verticalAlignment = Alignment.Bottom,
+    ) {
         Label(title, LinkTheme.type.titleLarge)
         if (note != null) Label(note, LinkTheme.type.bodySmall, LinkTheme.colors.textSecondary)
     }

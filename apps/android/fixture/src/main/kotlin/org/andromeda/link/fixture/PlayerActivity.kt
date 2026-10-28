@@ -24,17 +24,24 @@ class PlayerActivity : Activity() {
         super.onCreate(savedInstanceState)
         intent.getStringExtra("title")?.let { title = it }
         session = MediaSession(this, "link-fixture")
-        session.setCallback(object : MediaSession.Callback() {
-            override fun onPlay() = obey("play") { playing = true }
-            override fun onPause() = obey("pause") { playing = false }
-            override fun onSkipToNext() = obey("next") {
-                title = "Emulator Song, part 2"
-                position = 0
-                publishMetadata()
-            }
-            override fun onSkipToPrevious() = obey("previous") {}
-            override fun onSeekTo(pos: Long) = obey("seek $pos") { position = pos }
-        })
+        session.setCallback(
+            object : MediaSession.Callback() {
+                override fun onPlay() = obey("play") { playing = true }
+
+                override fun onPause() = obey("pause") { playing = false }
+
+                override fun onSkipToNext() =
+                    obey("next") {
+                        title = "Emulator Song, part 2"
+                        position = 0
+                        publishMetadata()
+                    }
+
+                override fun onSkipToPrevious() = obey("previous") {}
+
+                override fun onSeekTo(pos: Long) = obey("seek $pos") { position = pos }
+            },
+        )
         publishMetadata()
         publishState()
         session.isActive = true
@@ -45,7 +52,10 @@ class PlayerActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun obey(command: String, change: () -> Unit) {
+    private fun obey(
+        command: String,
+        change: () -> Unit,
+    ) {
         Log.i(TAG, command)
         change()
         publishState()
@@ -55,7 +65,8 @@ class PlayerActivity : Activity() {
         val px = intent.getIntExtra("art", 64)
         val art = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(0, 215, 255)) }
         session.setMetadata(
-            MediaMetadata.Builder()
+            MediaMetadata
+                .Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, title)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, "The Emulators")
                 .putString(MediaMetadata.METADATA_KEY_ALBUM, "Link E2E")
@@ -66,11 +77,13 @@ class PlayerActivity : Activity() {
     }
 
     private fun publishState() {
-        val actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
-            PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_SEEK_TO
+        val actions =
+            PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
+                PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_SEEK_TO
         val state = if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         session.setPlaybackState(
-            PlaybackState.Builder()
+            PlaybackState
+                .Builder()
                 .setActions(actions)
                 .setState(state, position, if (playing) 1f else 0f, SystemClock.elapsedRealtime())
                 .build(),

@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,28 +33,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size as Box2
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import org.andromeda.link.R
 import org.andromeda.link.ui.theme.LinkTheme
 import org.andromeda.link.ui.theme.Motion
 import org.andromeda.link.ui.theme.Radius
 import org.andromeda.link.ui.theme.Space
+import androidx.compose.ui.geometry.Size as Box2
 
 /** How the line between phone and desktop is drawn: the transport, read at a glance. */
 enum class Wire { WiFi, Bluetooth, Searching, Down }
@@ -62,7 +61,11 @@ enum class Wire { WiFi, Bluetooth, Searching, Down }
 enum class Node { None, Dot, Ring, Desktop, Phone, Alert, Empty }
 
 /** The line's moving parts: dash phase for a link still forming, and a pulse travelling up while files move. */
-class WireMotion(val phase: State<Float>, val pulse: State<Float>, val moving: Boolean)
+class WireMotion(
+    val phase: State<Float>,
+    val pulse: State<Float>,
+    val moving: Boolean,
+)
 
 @Composable
 fun rememberWireMotion(moving: Boolean): WireMotion {
@@ -98,7 +101,8 @@ fun TetherRow(
     val alert = colors.warning
     // Drawn behind the row, so the wire spans whatever height the content takes without measuring it twice.
     Row(
-        modifier.fillMaxWidth()
+        modifier
+            .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .drawBehind {
                 val x = (Space.s8 + GUTTER / 2).toPx()
@@ -127,11 +131,22 @@ fun TetherRow(
                         val tl = Offset(x - w / 2, y - h / 2)
                         drawRoundRect(page, tl, Box2(w, h), CornerRadius(6.dp.toPx()))
                         drawRoundRect(
-                            if (node == Node.Empty) colors.textTertiary else ink, tl, Box2(w, h), CornerRadius(6.dp.toPx()),
-                            style = Stroke(
-                                1.5.dp.toPx(),
-                                pathEffect = if (node == Node.Empty) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())) else null,
-                            ),
+                            if (node == Node.Empty) colors.textTertiary else ink,
+                            tl,
+                            Box2(w, h),
+                            CornerRadius(6.dp.toPx()),
+                            style =
+                                Stroke(
+                                    1.5.dp.toPx(),
+                                    pathEffect =
+                                        if (node ==
+                                            Node.Empty
+                                        ) {
+                                            PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
+                                        } else {
+                                            null
+                                        },
+                                ),
                         )
                         if (node == Node.Desktop) drawCircle(line, 3.dp.toPx(), Offset(x, y))
                     }
@@ -148,33 +163,53 @@ fun TetherRow(
     }
 }
 
-private fun DrawScope.drawWire(wire: Wire, color: Color, x: Float, top: Float, bottom: Float, phase: Float) {
+private fun DrawScope.drawWire(
+    wire: Wire,
+    color: Color,
+    x: Float,
+    top: Float,
+    bottom: Float,
+    phase: Float,
+) {
     if (bottom <= top) return
     val width = (if (wire == Wire.WiFi) 2.5f else 2f).dp.toPx()
-    val dash = when (wire) {
-        Wire.WiFi -> null
-        Wire.Bluetooth -> floatArrayOf(10.dp.toPx(), 6.dp.toPx())
-        Wire.Searching, Wire.Down -> floatArrayOf(2.dp.toPx(), 6.dp.toPx())
-    }
+    val dash =
+        when (wire) {
+            Wire.WiFi -> null
+            Wire.Bluetooth -> floatArrayOf(10.dp.toPx(), 6.dp.toPx())
+            Wire.Searching, Wire.Down -> floatArrayOf(2.dp.toPx(), 6.dp.toPx())
+        }
     // A forming link crawls upward; an idle one stays still.
     val offset = if (wire == Wire.Searching || wire == Wire.Bluetooth) phase * (dash?.sum() ?: 0f) else 0f
     drawLine(
-        color.copy(alpha = if (wire == Wire.Down) 0.5f else 1f), Offset(x, top), Offset(x, bottom), width,
-        StrokeCap.Round, dash?.let { PathEffect.dashPathEffect(it, offset) },
+        color.copy(alpha = if (wire == Wire.Down) 0.5f else 1f),
+        Offset(x, top),
+        Offset(x, bottom),
+        width,
+        StrokeCap.Round,
+        dash?.let { PathEffect.dashPathEffect(it, offset) },
     )
 }
 
 /** The bottom bar: icon over label per tab, and one soft pill behind the selected tab that slides to the next. */
 @Composable
-fun PillNav(selected: Int, labels: List<String>, icons: List<ImageVector>, onSelect: (Int) -> Unit) {
+fun PillNav(
+    selected: Int,
+    labels: List<String>,
+    icons: List<ImageVector>,
+    onSelect: (Int) -> Unit,
+) {
     val colors = LinkTheme.colors
     val position by animateFloatAsState(
-        selected.toFloat(), spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow), label = "pill",
+        selected.toFloat(),
+        spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
+        label = "pill",
     )
     val bubble = colors.accent.copy(alpha = if (colors.dark) 0.18f else 0.12f)
     val rule = colors.borderPrimary
     Box(
-        Modifier.fillMaxWidth()
+        Modifier
+            .fillMaxWidth()
             .drawBehind { drawLine(rule, Offset.Zero, Offset(size.width, 0f), 1.dp.toPx()) }
             .navigationBarsPadding()
             .padding(horizontal = Space.s12, vertical = Space.s6),
@@ -183,7 +218,9 @@ fun PillNav(selected: Int, labels: List<String>, icons: List<ImageVector>, onSel
             val step = size.width / labels.size
             val inset = 6.dp.toPx()
             drawRoundRect(
-                bubble, Offset(position * step + inset, 0f), Box2(step - inset * 2, size.height),
+                bubble,
+                Offset(position * step + inset, 0f),
+                Box2(step - inset * 2, size.height),
                 CornerRadius(size.height / 2),
             )
         }
@@ -193,7 +230,10 @@ fun PillNav(selected: Int, labels: List<String>, icons: List<ImageVector>, onSel
                 val tint by animateColorAsState(if (active) colors.accentText else colors.textTertiary, tween(Motion.FAST), label = "tab")
                 val description = stringResource(R.string.navigation_tab, label)
                 Column(
-                    Modifier.weight(1f).height(56.dp).clip(Radius.pill)
+                    Modifier
+                        .weight(1f)
+                        .height(56.dp)
+                        .clip(Radius.pill)
                         .selectable(active, role = Role.Tab) { onSelect(index) }
                         .semantics { contentDescription = description },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -212,10 +252,18 @@ fun PillNav(selected: Int, labels: List<String>, icons: List<ImageVector>, onSel
  * knob, and the wire is lit up to it. A stop is tappable.
  */
 @Composable
-fun StopTrack(count: Int, current: Int, done: (Int) -> Boolean, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun StopTrack(
+    count: Int,
+    current: Int,
+    done: (Int) -> Boolean,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = LinkTheme.colors
     val position by animateFloatAsState(
-        current.toFloat(), spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow), label = "stop",
+        current.toFloat(),
+        spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow),
+        label = "stop",
     )
     val track = colors.borderPrimary
     val lit = colors.accent
@@ -231,8 +279,11 @@ fun StopTrack(count: Int, current: Int, done: (Int) -> Boolean, onSelect: (Int) 
             repeat(count) { index ->
                 val x = first + index * step
                 drawCircle(page, 7.dp.toPx(), Offset(x, y))
-                if (done(index)) drawCircle(lit, 4.5.dp.toPx(), Offset(x, y))
-                else drawCircle(track, 4.dp.toPx(), Offset(x, y), style = Stroke(1.5.dp.toPx()))
+                if (done(index)) {
+                    drawCircle(lit, 4.5.dp.toPx(), Offset(x, y))
+                } else {
+                    drawCircle(track, 4.dp.toPx(), Offset(x, y), style = Stroke(1.5.dp.toPx()))
+                }
             }
             drawCircle(lit, 9.dp.toPx(), Offset(knob, y), style = Stroke(2.dp.toPx()))
         }
@@ -253,7 +304,11 @@ fun Hairline(modifier: Modifier = Modifier) {
 
 /** A short uppercase mono readout: transport, counts, states. */
 @Composable
-fun Readout(text: String, color: Color = LinkTheme.colors.textSecondary, modifier: Modifier = Modifier) {
+fun Readout(
+    text: String,
+    color: Color = LinkTheme.colors.textSecondary,
+    modifier: Modifier = Modifier,
+) {
     Label(text.uppercase(), LinkTheme.type.mono, color, modifier, maxLines = 1)
 }
 

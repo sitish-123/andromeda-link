@@ -1,10 +1,14 @@
 package org.andromeda.link.presence
 
+import android.Manifest
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
+import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -16,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository
 
@@ -37,21 +42,34 @@ class Presence(
     val stayConnected: StateFlow<Boolean> = _stayConnected.asStateFlow()
 
     fun start() {
-        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) {
-                foreground.value = true
-                // The service may start only from the foreground, so a process restarted in the background waits here.
-                syncService()
-            }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    foreground.value = true
+                    // The service may start only from the foreground, so a process restarted in the background waits here.
+                    syncService()
+                }
 
-            override fun onStop(owner: LifecycleOwner) {
-                foreground.value = false
-            }
-        })
+                override fun onStop(owner: LifecycleOwner) {
+                    foreground.value = false
+                }
+            },
+        )
         scope.launch {
             combine(foreground, _stayConnected) { visible, stay -> visible || stay }
                 .distinctUntilChanged()
                 .collect { repository.setPresent(it) }
+        }
+        scope.launch {
+            repository.desktops.map { desktops -> desktops.map { it.name to it.connected } }.distinctUntilChanged().collect {
+                val allowed =
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        ContextCompat.checkSelfPermission(application, Manifest.permission.POST_NOTIFICATIONS) ==
+                        PackageManager.PERMISSION_GRANTED
+                if (!_stayConnected.value || !allowed) return@collect
+                val notification = PresenceService.notification(application, repository.desktops.value)
+                runCatching { NotificationManagerCompat.from(application).notify(PresenceService.NOTIFICATION_ID, notification) }
+            }
         }
         // A session on the old network looks alive until it times out; going absent and back redials at once.
         application.getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(

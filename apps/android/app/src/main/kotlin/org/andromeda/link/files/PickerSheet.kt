@@ -77,12 +77,19 @@ import org.andromeda.link.ui.theme.Space
 
 /** The in-app picker: Photos, Videos, and Files over one selection, and a send bar once anything is picked. */
 @Composable
-fun BoxScope.PickerSheet(viewModel: PickerViewModel, state: PickerState, desktopName: String, onSend: () -> Unit) {
+fun BoxScope.PickerSheet(
+    viewModel: PickerViewModel,
+    state: PickerState,
+    desktopName: String,
+    onSend: () -> Unit,
+) {
     BackHandler(state.open) { if (state.tab != PickerTab.Files || !viewModel.up()) viewModel.close() }
     val colors = LinkTheme.colors
     AnimatedVisibility(state.open, enter = fadeIn(tween(Motion.FAST)), exit = fadeOut(tween(Motion.FADE_OUT))) {
         Box(
-            Modifier.fillMaxSize().background(colors.surfaceOverlay)
+            Modifier
+                .fillMaxSize()
+                .background(colors.surfaceOverlay)
                 .clickable(remember { MutableInteractionSource() }, indication = null, onClick = viewModel::close),
         )
     }
@@ -93,22 +100,37 @@ fun BoxScope.PickerSheet(viewModel: PickerViewModel, state: PickerState, desktop
         exit = slideOutVertically(tween(Motion.FAST, easing = Motion.exit)) { it },
     ) {
         Column(
-            Modifier.fillMaxWidth().fillMaxHeight(SHEET_HEIGHT)
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(SHEET_HEIGHT)
                 .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
                 .background(if (colors.dark) colors.surfaceSecondary else colors.surfacePrimary)
                 .clickable(remember { MutableInteractionSource() }, indication = null) {}
                 .navigationBarsPadding(),
         ) {
             Box(
-                Modifier.padding(top = Space.s8).align(Alignment.CenterHorizontally).size(36.dp, 4.dp)
-                    .clip(Radius.pill).background(colors.borderPrimary),
+                Modifier
+                    .padding(top = Space.s8)
+                    .align(Alignment.CenterHorizontally)
+                    .size(36.dp, 4.dp)
+                    .clip(Radius.pill)
+                    .background(colors.borderPrimary),
             )
             Row(Modifier.padding(start = Space.page, end = Space.s8, top = Space.s8), verticalAlignment = Alignment.CenterVertically) {
-                Label(stringResource(R.string.picker_title, desktopName), LinkTheme.type.headlineMedium, modifier = Modifier.weight(1f), maxLines = 1)
+                Label(
+                    stringResource(R.string.picker_title, desktopName),
+                    LinkTheme.type.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
                 IconButton(Icons.Filled.Close, viewModel::close)
             }
             SlidingPillControl(
-                listOf(stringResource(R.string.picker_photos), stringResource(R.string.picker_videos), stringResource(R.string.picker_files)),
+                listOf(
+                    stringResource(R.string.picker_photos),
+                    stringResource(R.string.picker_videos),
+                    stringResource(R.string.picker_files),
+                ),
                 selected = state.tab.ordinal,
                 onSelect = { viewModel.select(PickerTab.entries[it]) },
                 modifier = Modifier.padding(horizontal = Space.page, vertical = Space.s12).fillMaxWidth(),
@@ -126,10 +148,18 @@ fun BoxScope.PickerSheet(viewModel: PickerViewModel, state: PickerState, desktop
 }
 
 @Composable
-private fun MediaGrid(viewModel: PickerViewModel, state: PickerState, items: List<PhoneItem>) {
+private fun MediaGrid(
+    viewModel: PickerViewModel,
+    state: PickerState,
+    items: List<PhoneItem>,
+) {
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
     if (state.access == MediaAccess.None) {
-        Grant(stringResource(R.string.picker_media_title), stringResource(R.string.picker_media_hint), stringResource(R.string.picker_media_allow)) {
+        Grant(
+            stringResource(R.string.picker_media_title),
+            stringResource(R.string.picker_media_hint),
+            stringResource(R.string.picker_media_allow),
+        ) {
             ask.launch(PhoneFiles.mediaPermissions)
         }
         return
@@ -137,10 +167,17 @@ private fun MediaGrid(viewModel: PickerViewModel, state: PickerState, items: Lis
     Column {
         if (state.access == MediaAccess.Partial) {
             Row(
-                Modifier.fillMaxWidth().clickable { ask.launch(PhoneFiles.mediaPermissions) }
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { ask.launch(PhoneFiles.mediaPermissions) }
                     .padding(horizontal = Space.page, vertical = Space.s8),
             ) {
-                Label(stringResource(R.string.picker_partial), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary, Modifier.weight(1f))
+                Label(
+                    stringResource(R.string.picker_partial),
+                    LinkTheme.type.bodyMedium,
+                    LinkTheme.colors.textSecondary,
+                    Modifier.weight(1f),
+                )
                 Label(stringResource(R.string.picker_partial_more), LinkTheme.type.titleSmall, LinkTheme.colors.accentText)
             }
         }
@@ -155,18 +192,30 @@ private fun MediaGrid(viewModel: PickerViewModel, state: PickerState, items: Lis
             verticalArrangement = Arrangement.spacedBy(Space.s4),
         ) {
             items(items, key = { it.key }) { item ->
-                MediaTile(item, state.selected.keys.indexOf(item.key), viewModel::thumbnail, Modifier.fillMaxWidth()) { viewModel.toggle(item) }
+                MediaTile(
+                    item,
+                    state.selected.keys.indexOf(item.key),
+                    viewModel::thumbnail,
+                    Modifier.fillMaxWidth(),
+                ) { viewModel.toggle(item) }
             }
         }
     }
 }
 
 @Composable
-private fun FileList(viewModel: PickerViewModel, state: PickerState) {
+private fun FileList(
+    viewModel: PickerViewModel,
+    state: PickerState,
+) {
     val context = LocalContext.current
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { viewModel.refresh() }
     if (!state.allFiles) {
-        Grant(stringResource(R.string.picker_files_title), stringResource(R.string.picker_files_hint), stringResource(R.string.picker_files_allow)) {
+        Grant(
+            stringResource(R.string.picker_files_title),
+            stringResource(R.string.picker_files_hint),
+            stringResource(R.string.picker_files_allow),
+        ) {
             if (Build.VERSION.SDK_INT >= 30) {
                 context.startActivity(
                     Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}")),
@@ -196,7 +245,8 @@ private fun FileList(viewModel: PickerViewModel, state: PickerState) {
             items(entries, key = { it.key }) { item ->
                 val selected = item.key in state.selected
                 Row(
-                    Modifier.fillMaxWidth()
+                    Modifier
+                        .fillMaxWidth()
                         .clickable { item.folder?.let(viewModel::openFolder) ?: viewModel.toggle(item) }
                         .background(if (selected) LinkTheme.colors.accent.copy(alpha = 0.10f) else Color.Transparent)
                         .padding(horizontal = Space.page, vertical = Space.s10),
@@ -207,7 +257,11 @@ private fun FileList(viewModel: PickerViewModel, state: PickerState) {
                     Column(Modifier.weight(1f)) {
                         Label(item.name, LinkTheme.type.titleMedium, maxLines = 1)
                         if (item.folder == null) {
-                            Label(Formatter.formatShortFileSize(context, item.size), LinkTheme.type.bodySmall, LinkTheme.colors.textSecondary)
+                            Label(
+                                Formatter.formatShortFileSize(context, item.size),
+                                LinkTheme.type.bodySmall,
+                                LinkTheme.colors.textSecondary,
+                            )
                         }
                     }
                     if (selected) CheckBadge(null)
@@ -218,7 +272,10 @@ private fun FileList(viewModel: PickerViewModel, state: PickerState) {
 }
 
 @Composable
-private fun FileIcon(item: PhoneItem, thumbnail: suspend (PhoneItem, Int) -> ImageBitmap?) {
+private fun FileIcon(
+    item: PhoneItem,
+    thumbnail: suspend (PhoneItem, Int) -> ImageBitmap?,
+) {
     val colors = LinkTheme.colors
     val box = Modifier.size(Size.iconContainer).clip(Radius.small)
     if (item.visual) {
@@ -242,7 +299,11 @@ fun MediaTile(
     val colors = LinkTheme.colors
     val selected = order >= 0
     Box(
-        modifier.aspectRatio(1f).clip(Radius.small).background(colors.surfaceTertiary).clickable(onClick = onClick)
+        modifier
+            .aspectRatio(1f)
+            .clip(Radius.small)
+            .background(colors.surfaceTertiary)
+            .clickable(onClick = onClick)
             .then(if (selected) Modifier.border(3.dp, colors.accent, Radius.small) else Modifier),
     ) {
         Thumbnail(item, THUMB_DP, thumbnail, Modifier.fillMaxSize())
@@ -254,7 +315,12 @@ fun MediaTile(
 }
 
 @Composable
-private fun Thumbnail(item: PhoneItem, size: Dp, thumbnail: suspend (PhoneItem, Int) -> ImageBitmap?, modifier: Modifier) {
+private fun Thumbnail(
+    item: PhoneItem,
+    size: Dp,
+    thumbnail: suspend (PhoneItem, Int) -> ImageBitmap?,
+    modifier: Modifier = Modifier,
+) {
     val px = with(LocalDensity.current) { size.roundToPx() }
     val bitmap by produceState<ImageBitmap?>(null, item.key, px) { value = thumbnail(item, px) }
     Box(modifier) {
@@ -263,16 +329,25 @@ private fun Thumbnail(item: PhoneItem, size: Dp, thumbnail: suspend (PhoneItem, 
 }
 
 @Composable
-private fun CheckBadge(number: Int?, modifier: Modifier = Modifier) {
+private fun CheckBadge(
+    number: Int?,
+    modifier: Modifier = Modifier,
+) {
     val colors = LinkTheme.colors
     Box(modifier.size(24.dp).clip(Radius.pill).background(colors.accent), contentAlignment = Alignment.Center) {
-        if (number == null) Glyph(Icons.Filled.Check, colors.onAccent, Size.iconSmall)
-        else Label(number.toString(), LinkTheme.type.labelLarge, colors.onAccent)
+        if (number == null) {
+            Glyph(Icons.Filled.Check, colors.onAccent, Size.iconSmall)
+        } else {
+            Label(number.toString(), LinkTheme.type.labelLarge, colors.onAccent)
+        }
     }
 }
 
 @Composable
-private fun SendBar(state: PickerState, onSend: () -> Unit) {
+private fun SendBar(
+    state: PickerState,
+    onSend: () -> Unit,
+) {
     PillButton(sendLabel(state.selected), onSend, Modifier.fillMaxWidth().padding(horizontal = Space.page, vertical = Space.s12))
 }
 
@@ -296,7 +371,12 @@ private fun Hint(text: String) {
 }
 
 @Composable
-private fun Grant(title: String, body: String, action: String, onAllow: () -> Unit) {
+private fun Grant(
+    title: String,
+    body: String,
+    action: String,
+    onAllow: () -> Unit,
+) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = Space.page, vertical = Space.s32),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -308,13 +388,20 @@ private fun Grant(title: String, body: String, action: String, onAllow: () -> Un
 }
 
 @Composable
-private fun IconButton(icon: ImageVector, onClick: () -> Unit) {
+private fun IconButton(
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
     Box(Modifier.size(Size.touch).clip(Radius.pill).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Glyph(icon, LinkTheme.colors.textSecondary)
     }
 }
 
-private fun glyph(name: String, path: String) = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
+private fun glyph(
+    name: String,
+    path: String,
+) = ImageVector
+    .Builder(name, 24.dp, 24.dp, 24f, 24f)
     .addPath(PathParser().parsePathString(path).toNodes(), fill = SolidColor(Color.Black))
     .build()
 

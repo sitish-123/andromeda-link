@@ -1,10 +1,17 @@
 package org.andromeda.link.core.domain
 
 /** [uri] is where a sent file was read from, so the history can open it again; null for received offers. */
-data class OfferedFile(val name: String, val size: Long, val uri: String? = null)
+data class OfferedFile(
+    val name: String,
+    val size: Long,
+    val uri: String? = null,
+)
 
 /** A received file, published in Downloads. */
-data class SavedFile(val name: String, val uri: String)
+data class SavedFile(
+    val name: String,
+    val uri: String,
+)
 
 /** One transfer in the history; [time] is when it was first seen, in Unix milliseconds. */
 data class TransferRecord(
@@ -30,7 +37,11 @@ sealed interface TransferEvent {
         val files: List<OfferedFile>,
     ) : TransferEvent
 
-    data class Progress(override val transferId: String, val bytes: Long, val total: Long) : TransferEvent
+    data class Progress(
+        override val transferId: String,
+        val bytes: Long,
+        val total: Long,
+    ) : TransferEvent
 
     /** [status] is done, failed, declined, no-space, too-large, busy, or cancelled. */
     data class Finished(

@@ -31,7 +31,10 @@ data class DeviceState(
 }
 
 /** One desktop: this phone's switches for it, reconnecting, and unpairing. */
-class DeviceViewModel(private val repository: LinkRepository, private val desktopId: String) : ViewModel() {
+class DeviceViewModel(
+    private val repository: LinkRepository,
+    private val desktopId: String,
+) : ViewModel() {
     private val busy = MutableStateFlow(false)
     private val failure = MutableStateFlow<LinkFailure?>(null)
     private val _unpaired = MutableStateFlow(false)
@@ -56,7 +59,10 @@ class DeviceViewModel(private val repository: LinkRepository, private val deskto
     /** True once the desktop is unpaired, so the screen leaves. */
     val unpaired: StateFlow<Boolean> = _unpaired
 
-    fun setSharing(feature: Feature, on: Boolean) = act { repository.setSharing(desktopId, feature, on) }
+    fun setSharing(
+        feature: Feature,
+        on: Boolean,
+    ) = act { repository.setSharing(desktopId, feature, on) }
 
     /** Dials now instead of waiting for the next redial. */
     fun connect() = act { repository.connect(desktopId) }

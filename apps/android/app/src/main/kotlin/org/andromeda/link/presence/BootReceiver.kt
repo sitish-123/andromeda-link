@@ -7,7 +7,10 @@ import androidx.core.content.ContextCompat
 
 /** Restarts [PresenceService] after a reboot or an app update when "Stay connected" is on. */
 class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
         if (intent.action !in ACTIONS || !Presence.isStayConnected(context)) return
         ContextCompat.startForegroundService(context, Intent(context, PresenceService::class.java))
     }

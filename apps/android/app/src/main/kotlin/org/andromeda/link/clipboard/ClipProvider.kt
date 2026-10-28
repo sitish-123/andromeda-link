@@ -22,7 +22,10 @@ class ClipProvider : ContentProvider() {
 
     override fun getType(uri: Uri): String? = uri.pathSegments.getOrNull(2)
 
-    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+    override fun openFile(
+        uri: Uri,
+        mode: String,
+    ): ParcelFileDescriptor {
         val (desktop, clip, mime) = uri.pathSegments.takeIf { it.size == 3 } ?: throw IllegalArgumentException("$uri")
         val clipId = clip.toLongOrNull() ?: throw IllegalArgumentException("$uri")
         val repository = (context!!.applicationContext as LinkApplication).container.repository
@@ -31,21 +34,49 @@ class ClipProvider : ContentProvider() {
         return read
     }
 
-    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, args: Array<out String>?, sort: String?): Cursor? = null
+    override fun query(
+        uri: Uri,
+        projection: Array<out String>?,
+        selection: String?,
+        args: Array<out String>?,
+        sort: String?,
+    ): Cursor? = null
 
-    override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+    override fun insert(
+        uri: Uri,
+        values: ContentValues?,
+    ): Uri? = null
 
-    override fun delete(uri: Uri, selection: String?, args: Array<out String>?): Int = 0
+    override fun delete(
+        uri: Uri,
+        selection: String?,
+        args: Array<out String>?,
+    ): Int = 0
 
-    override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?): Int = 0
+    override fun update(
+        uri: Uri,
+        values: ContentValues?,
+        selection: String?,
+        args: Array<out String>?,
+    ): Int = 0
 
     companion object {
         private const val AUTHORITY = "org.andromeda.link.clip"
 
         fun owns(uri: Uri): Boolean = uri.scheme == "content" && uri.authority == AUTHORITY
 
-        fun uri(desktopId: String, clipId: Long, mime: String): Uri =
-            Uri.Builder().scheme("content").authority(AUTHORITY).appendPath(desktopId).appendPath(clipId.toString())
-                .appendPath(mime).build()
+        fun uri(
+            desktopId: String,
+            clipId: Long,
+            mime: String,
+        ): Uri =
+            Uri
+                .Builder()
+                .scheme("content")
+                .authority(AUTHORITY)
+                .appendPath(desktopId)
+                .appendPath(clipId.toString())
+                .appendPath(mime)
+                .build()
     }
 }

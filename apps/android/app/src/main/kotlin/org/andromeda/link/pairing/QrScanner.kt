@@ -28,21 +28,27 @@ import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.ReaderException
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeReader
+import org.andromeda.link.ui.theme.LinkTheme
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import org.andromeda.link.ui.theme.LinkTheme
 
 /** The back camera with corner ticks; [onPairingUri] fires once, for the first QR code that is a pairing URI. */
 @Composable
-fun QrScanner(onPairingUri: (String) -> Unit, modifier: Modifier = Modifier) {
+fun QrScanner(
+    onPairingUri: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
     val callback = rememberUpdatedState(onPairingUri)
-    val view = remember { PreviewView(context).apply {
-        scaleType = PreviewView.ScaleType.FILL_CENTER
-        // A TextureView, which follows the rounded clip; a SurfaceView would punch through it.
-        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-    } }
+    val view =
+        remember {
+            PreviewView(context).apply {
+                scaleType = PreviewView.ScaleType.FILL_CENTER
+                // A TextureView, which follows the rounded clip; a SurfaceView would punch through it.
+                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            }
+        }
     DisposableEffect(lifecycle) {
         val executor = Executors.newSingleThreadExecutor()
         val found = AtomicBoolean(false)
@@ -72,10 +78,12 @@ fun QrScanner(onPairingUri: (String) -> Unit, modifier: Modifier = Modifier) {
             val inset = size.minDimension * 0.18f
             val arm = size.minDimension * 0.10f
             val stroke = 3.dp.toPx()
-            for (dx in listOf(1f, -1f)) for (dy in listOf(1f, -1f)) {
-                val corner = Offset(if (dx > 0) inset else size.width - inset, if (dy > 0) inset else size.height - inset)
-                drawLine(tick, corner, corner + Offset(arm * dx, 0f), stroke, StrokeCap.Round)
-                drawLine(tick, corner, corner + Offset(0f, arm * dy), stroke, StrokeCap.Round)
+            for (dx in listOf(1f, -1f)) {
+                for (dy in listOf(1f, -1f)) {
+                    val corner = Offset(if (dx > 0) inset else size.width - inset, if (dy > 0) inset else size.height - inset)
+                    drawLine(tick, corner, corner + Offset(arm * dx, 0f), stroke, StrokeCap.Round)
+                    drawLine(tick, corner, corner + Offset(0f, arm * dy), stroke, StrokeCap.Round)
+                }
             }
         }
     }

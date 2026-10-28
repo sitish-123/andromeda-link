@@ -28,7 +28,9 @@ fun DashboardCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
-        modifier.clip(Radius.softTech).background(LinkTheme.colors.surfaceTertiary)
+        modifier
+            .clip(Radius.softTech)
+            .background(LinkTheme.colors.surfaceTertiary)
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(horizontal = Space.s16, vertical = Space.s8),
         verticalArrangement = Arrangement.spacedBy(Space.s8),
@@ -37,7 +39,11 @@ fun DashboardCard(
 }
 
 @Composable
-fun DashboardSection(title: String, subtitle: String? = null, action: (@Composable () -> Unit)? = null) {
+fun DashboardSection(
+    title: String,
+    subtitle: String? = null,
+    action: (@Composable () -> Unit)? = null,
+) {
     Row(Modifier.fillMaxWidth().padding(start = Space.s4, top = Space.s8), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s4)) {
             Readout(title, LinkTheme.colors.textTertiary)
@@ -54,10 +60,15 @@ fun Footnote(text: String) {
 }
 
 @Composable
-fun StatusBadge(text: String, active: Boolean, modifier: Modifier = Modifier) {
+fun StatusBadge(
+    text: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val colors = LinkTheme.colors
     Row(
-        modifier.clip(Radius.pill)
+        modifier
+            .clip(Radius.pill)
             .border(1.dp, colors.borderPrimary, Radius.pill)
             .padding(horizontal = Space.s12, vertical = Space.s8),
         verticalAlignment = Alignment.CenterVertically,

@@ -31,5 +31,4 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun Intent.pairingUri(): String? =
-    dataString?.takeIf { action == Intent.ACTION_VIEW && it.startsWith("andromeda-link:pair?") }
+private fun Intent.pairingUri(): String? = dataString?.takeIf { action == Intent.ACTION_VIEW && it.startsWith("andromeda-link:pair?") }

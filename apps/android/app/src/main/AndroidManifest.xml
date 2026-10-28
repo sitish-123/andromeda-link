@@ -208,6 +208,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".presence.PresenceActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".notifications.CopyReceiver"
             android:exported="false" />
 

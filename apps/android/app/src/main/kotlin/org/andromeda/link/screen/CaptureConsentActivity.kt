@@ -19,16 +19,17 @@ import org.andromeda.link.LinkApplication
 class CaptureConsentActivity : ComponentActivity() {
     private val microphone = registerForActivityResult(ActivityResultContracts.RequestPermission()) { askCapture() }
 
-    private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val desktop = intent.getStringExtra(ScreenMirror.EXTRA_DESKTOP)
-        val data = result.data
-        when {
-            desktop == null -> Unit
-            result.resultCode == Activity.RESULT_OK && data != null -> ScreenCapture.start(this, desktop, result.resultCode, data)
-            else -> (application as LinkApplication).container.screen.refuse(desktop, "declined on the phone")
+    private val consent =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val desktop = intent.getStringExtra(ScreenMirror.EXTRA_DESKTOP)
+            val data = result.data
+            when {
+                desktop == null -> Unit
+                result.resultCode == Activity.RESULT_OK && data != null -> ScreenCapture.start(this, desktop, result.resultCode, data)
+                else -> (application as LinkApplication).container.screen.refuse(desktop, "declined on the phone")
+            }
+            finish()
         }
-        finish()
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,11 +44,12 @@ class CaptureConsentActivity : ComponentActivity() {
     private fun askCapture() {
         val projections = getSystemService(MediaProjectionManager::class.java)
         // The desktop mirrors the whole screen; asking for it spares the user Android's "a single app" choice.
-        val prompt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            projections.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
-        } else {
-            projections.createScreenCaptureIntent()
-        }
+        val prompt =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                projections.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+            } else {
+                projections.createScreenCaptureIntent()
+            }
         consent.launch(prompt)
     }
 }

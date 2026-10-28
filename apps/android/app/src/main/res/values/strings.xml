@@ -74,8 +74,10 @@
     <string name="cancel">Cancel</string>
     <string name="stay_connected">Stay connected</string>
     <string name="stay_connected_hint">Keep desktops connected in the background, so they can send you links and text at any time.</string>
-    <string name="presence_title">Connected to your desktops</string>
-    <string name="presence_text">Stay connected is on</string>
+    <string name="presence_connected">Connected to %1$s</string>
+    <string name="presence_looking">Looking for %1$s</string>
+    <string name="presence_ring">Ring</string>
+    <string name="presence_disconnect">Disconnect</string>
     <string name="channel_presence">Stay connected</string>
     <string name="channel_desktop_media">Desktop media</string>
     <string name="channel_shares">Shared from desktops</string>
@@ -101,6 +103,8 @@
     <string name="transfer_received">Received from %1$s</string>
     <string name="transfer_sent">Sent to %1$s</string>
     <string name="transfer_failed">Transfer with %1$s: %2$s</string>
+    <string name="transfer_public">Files from %1$s</string>
+    <string name="mirror_sensitive_hidden">Android hides one-time codes and some messages from apps like Link, so these show on your desktop without their text.</string>
     <string name="clipboard_auto_row">Automatic clipboard</string>
     <string name="clipboard_auto_row_hint">Set up once to send what you copy by itself</string>
     <string name="clipboard_send">Send to desktop</string>

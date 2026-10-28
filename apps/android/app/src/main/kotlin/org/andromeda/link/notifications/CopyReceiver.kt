@@ -12,9 +12,13 @@ import org.andromeda.link.R
 
 /** The Copy action of a shared text. Apps may write the clipboard from the background; only reading is restricted. */
 class CopyReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
         val text = intent.getStringExtra(EXTRA_TEXT) ?: return
-        context.getSystemService(ClipboardManager::class.java)
+        context
+            .getSystemService(ClipboardManager::class.java)
             .setPrimaryClip(ClipData.newPlainText(context.getString(R.string.app_name), text))
         NotificationManagerCompat.from(context).cancel(ShareNotifier.TAG, intent.getIntExtra(EXTRA_ID, 0))
         // Android 13 and later confirm a copy themselves.

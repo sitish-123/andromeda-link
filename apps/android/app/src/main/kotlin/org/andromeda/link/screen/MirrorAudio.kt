@@ -19,7 +19,10 @@ import org.andromeda.link.core.domain.MirrorStream
  * the video's stream. Needs the microphone permission, which Android requires for any playback capture; without it
  * the mirror is silent. Apps that opt out of capture stay silent too.
  */
-class MirrorAudio(private val context: Context, private val projection: MediaProjection) {
+class MirrorAudio(
+    private val context: Context,
+    private val projection: MediaProjection,
+) {
     @Volatile
     private var stopping = false
 
@@ -30,18 +33,19 @@ class MirrorAudio(private val context: Context, private val projection: MediaPro
             return
         }
         val record = record() ?: return
-        val codec = try {
-            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).apply {
-                val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, RATE, CHANNELS)
-                format.setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
-                configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                start()
+        val codec =
+            try {
+                MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).apply {
+                    val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, RATE, CHANNELS)
+                    format.setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
+                    configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                    start()
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "no Opus encoder: ${error.message}")
+                record.release()
+                return
             }
-        } catch (error: Exception) {
-            Log.w(TAG, "no Opus encoder: ${error.message}")
-            record.release()
-            return
-        }
         try {
             record.startRecording()
             encode(record, codec, stream)
@@ -59,19 +63,24 @@ class MirrorAudio(private val context: Context, private val projection: MediaPro
 
     @SuppressLint("MissingPermission")
     private fun record(): AudioRecord? {
-        val capture = AudioPlaybackCaptureConfiguration.Builder(projection)
-            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-            .addMatchingUsage(AudioAttributes.USAGE_GAME)
-            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-            .build()
-        val format = AudioFormat.Builder()
-            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setSampleRate(RATE)
-            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
-            .build()
+        val capture =
+            AudioPlaybackCaptureConfiguration
+                .Builder(projection)
+                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                .build()
+        val format =
+            AudioFormat
+                .Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(RATE)
+                .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+                .build()
         val minimum = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT)
         return try {
-            AudioRecord.Builder()
+            AudioRecord
+                .Builder()
                 .setAudioFormat(format)
                 .setBufferSizeInBytes(maxOf(minimum, PACKET_BYTES) * 4)
                 .setAudioPlaybackCaptureConfig(capture)
@@ -82,7 +91,11 @@ class MirrorAudio(private val context: Context, private val projection: MediaPro
         }
     }
 
-    private suspend fun encode(record: AudioRecord, codec: MediaCodec, stream: MirrorStream) {
+    private suspend fun encode(
+        record: AudioRecord,
+        codec: MediaCodec,
+        stream: MirrorStream,
+    ) {
         val info = MediaCodec.BufferInfo()
         while (!stopping) {
             val input = codec.dequeueInputBuffer(TIMEOUT_US)
@@ -111,6 +124,7 @@ class MirrorAudio(private val context: Context, private val projection: MediaPro
         const val RATE = 48_000
         const val CHANNELS = 2
         const val BITRATE = 96_000
+
         // 20 ms of 16-bit stereo: one Opus packet.
         const val PACKET_BYTES = RATE / 50 * CHANNELS * 2
         const val TIMEOUT_US = 20_000L

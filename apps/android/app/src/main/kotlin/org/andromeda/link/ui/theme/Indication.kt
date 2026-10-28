@@ -19,17 +19,21 @@ object PressHighlight : IndicationNodeFactory {
 
     override fun hashCode(): Int = javaClass.hashCode()
 
-    private class Node(private val source: InteractionSource) : Modifier.Node(), DrawModifierNode {
+    private class Node(
+        private val source: InteractionSource,
+    ) : Modifier.Node(),
+        DrawModifierNode {
         private var pressed = false
 
         override fun onAttach() {
             coroutineScope.launch {
                 source.interactions.collect { interaction ->
-                    pressed = when (interaction) {
-                        is PressInteraction.Press -> true
-                        is PressInteraction.Release, is PressInteraction.Cancel -> false
-                        else -> pressed
-                    }
+                    pressed =
+                        when (interaction) {
+                            is PressInteraction.Press -> true
+                            is PressInteraction.Release, is PressInteraction.Cancel -> false
+                            else -> pressed
+                        }
                     invalidateDraw()
                 }
             }

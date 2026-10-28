@@ -19,27 +19,34 @@ fun rememberAppTheme(): State<AppTheme> {
     val prefs = remember(context) { preferences(context) }
     val mode = remember(prefs) { mutableStateOf(read(prefs)) }
     DisposableEffect(prefs) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY) mode.value = read(prefs)
-        }
+        val listener =
+            SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == KEY) mode.value = read(prefs)
+            }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     return mode
 }
 
-fun setAppTheme(context: Context, theme: AppTheme) {
+fun setAppTheme(
+    context: Context,
+    theme: AppTheme,
+) {
     preferences(context).edit { putString(KEY, theme.name) }
 }
 
 @Composable
-fun preferredDarkTheme(): Boolean = when (rememberAppTheme().value) {
-    AppTheme.System -> isSystemInDarkTheme()
-    AppTheme.Light -> false
-    AppTheme.Dark -> true
-}
+fun preferredDarkTheme(): Boolean =
+    when (rememberAppTheme().value) {
+        AppTheme.System -> isSystemInDarkTheme()
+        AppTheme.Light -> false
+        AppTheme.Dark -> true
+    }
 
 private fun preferences(context: Context) = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
+
 private fun read(prefs: SharedPreferences): AppTheme =
     AppTheme.entries.firstOrNull { it.name == prefs.getString(KEY, null) } ?: AppTheme.System
+
 private const val KEY = "theme"

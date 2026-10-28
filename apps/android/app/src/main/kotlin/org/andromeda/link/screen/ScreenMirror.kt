@@ -49,37 +49,47 @@ class ScreenMirror(
             refuse(desktopId, "the phone is already mirroring")
             return
         }
-        val name = repository.desktops.value.firstOrNull { it.id == desktopId }?.name ?: desktopId
-        val allow = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, CaptureConsentActivity::class.java)
-                .putExtra(EXTRA_DESKTOP, desktopId)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val decline = PendingIntent.getBroadcast(
-            context,
-            0,
-            Intent(context, DeclineReceiver::class.java).putExtra(EXTRA_DESKTOP, desktopId),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(context, Channels.SCREEN)
-            .setSmallIcon(R.drawable.ic_stat_link)
-            .setContentTitle(context.getString(R.string.screen_request_title, name))
-            .setContentText(context.getString(R.string.screen_request_text))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setContentIntent(allow)
-            .setTimeoutAfter(REQUEST_TIMEOUT_MS)
-            .setAutoCancel(true)
-            .addAction(0, context.getString(R.string.screen_allow), allow)
-            .addAction(0, context.getString(R.string.screen_decline), decline)
-            .build()
+        val name =
+            repository.desktops.value
+                .firstOrNull { it.id == desktopId }
+                ?.name ?: desktopId
+        val allow =
+            PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, CaptureConsentActivity::class.java)
+                    .putExtra(EXTRA_DESKTOP, desktopId)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        val decline =
+            PendingIntent.getBroadcast(
+                context,
+                0,
+                Intent(context, DeclineReceiver::class.java).putExtra(EXTRA_DESKTOP, desktopId),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        val notification =
+            NotificationCompat
+                .Builder(context, Channels.SCREEN)
+                .setSmallIcon(R.drawable.ic_stat_link)
+                .setContentTitle(context.getString(R.string.screen_request_title, name))
+                .setContentText(context.getString(R.string.screen_request_text))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setContentIntent(allow)
+                .setTimeoutAfter(REQUEST_TIMEOUT_MS)
+                .setAutoCancel(true)
+                .addAction(0, context.getString(R.string.screen_allow), allow)
+                .addAction(0, context.getString(R.string.screen_decline), decline)
+                .build()
         notifications.notify(REQUEST_NOTIFICATION, notification)
     }
 
-    fun refuse(desktopId: String, reason: String) {
+    fun refuse(
+        desktopId: String,
+        reason: String,
+    ) {
         notifications.cancel(REQUEST_NOTIFICATION)
         scope.launch {
             repository.stopMirror(desktopId, reason).onFailure { Log.i(TAG, "refusing to mirror: ${it.message}") }
@@ -87,7 +97,10 @@ class ScreenMirror(
     }
 
     class DeclineReceiver : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
+        override fun onReceive(
+            context: Context,
+            intent: Intent,
+        ) {
             val desktop = intent.getStringExtra(EXTRA_DESKTOP) ?: return
             (context.applicationContext as LinkApplication).container.screen.refuse(desktop, "declined on the phone")
         }
@@ -96,6 +109,7 @@ class ScreenMirror(
     companion object {
         const val EXTRA_DESKTOP = "desktop"
         const val REQUEST_NOTIFICATION = 40
+
         // The desktop gives up after 60 s.
         const val REQUEST_TIMEOUT_MS = 60_000L
         private const val TAG = "ScreenMirror"

@@ -15,8 +15,10 @@ object LogAccess {
     /** Whether `su` granted this app a shell; null until [logcat] first tries it. */
     @Volatile private var root: Boolean? = null
 
-    fun allowed(context: Context): Boolean = shizuku() || (hasSu() && root != false) ||
-        context.checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
+    fun allowed(context: Context): Boolean =
+        shizuku() ||
+            (hasSu() && root != false) ||
+            context.checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
 
     /** Whether logcat starts without Android's log access dialog, so also from the background. */
     fun quiet(): Boolean = shizuku() || root == true
@@ -38,22 +40,26 @@ object LogAccess {
     fun overlayAllowed(context: Context): Boolean = Settings.canDrawOverlays(context) || (hasSu() && root != false)
 
     /** With root the overlay is given here, so the user sets nothing in Settings; blocks like [logcat]. */
-    fun overlay(context: Context): Boolean = Settings.canDrawOverlays(context) ||
-        (hasSu() && root != false && su("appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow"))
+    fun overlay(context: Context): Boolean =
+        Settings.canDrawOverlays(context) ||
+            (hasSu() && root != false && su("appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow"))
 
     private fun su(command: String): Boolean =
         runCatching { ProcessBuilder("su", "-c", command).start().waitFor() == 0 }.getOrDefault(false).also { root = it }
 
-    private fun shizuku(): Boolean =
-        Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+    private fun shizuku(): Boolean = Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
 
     // An app's PATH often leaves out where Magisk and KernelSU put su.
-    private fun hasSu(): Boolean = (System.getenv("PATH").orEmpty().split(':') + listOf("/system/bin", "/system/xbin", "/sbin", "/debug_ramdisk"))
-        .any { File(it, "su").canExecute() }
+    private fun hasSu(): Boolean =
+        (
+            System.getenv("PATH").orEmpty().split(':') +
+                listOf("/system/bin", "/system/xbin", "/sbin", "/debug_ramdisk")
+        ).any { File(it, "su").canExecute() }
 
     // Shizuku 13 keeps newProcess private in favour of user services; a plain process is all logcat needs.
     private val newProcess by lazy {
-        Shizuku::class.java.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
+        Shizuku::class.java
+            .getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java)
             .apply { isAccessible = true }
     }
 }

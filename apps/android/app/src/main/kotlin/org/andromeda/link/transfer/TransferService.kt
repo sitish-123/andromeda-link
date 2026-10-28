@@ -16,13 +16,19 @@ import org.andromeda.link.notifications.Channels
 class TransferService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = NotificationCompat.Builder(this, Channels.TRANSFERS)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle(getString(R.string.transfer_progress))
-            .setSilent(true)
-            .setOngoing(true)
-            .build()
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
+        val notification =
+            NotificationCompat
+                .Builder(this, Channels.TRANSFERS)
+                .setSmallIcon(android.R.drawable.stat_sys_upload)
+                .setContentTitle(getString(R.string.transfer_progress))
+                .setSilent(true)
+                .setOngoing(true)
+                .build()
         ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         return START_NOT_STICKY
     }

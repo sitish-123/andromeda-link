@@ -18,7 +18,11 @@ import kotlinx.coroutines.launch
  * background even with "Display over other apps", which an overlay window needs and nothing more. The URI grant a read
  * gives lasts while the clip is the primary one, so the snapshot runs after the window is gone.
  */
-class ClipboardOverlay(private val context: Context, private val sync: ClipboardSync, private val scope: CoroutineScope) {
+class ClipboardOverlay(
+    private val context: Context,
+    private val sync: ClipboardSync,
+    private val scope: CoroutineScope,
+) {
     private val windows = context.getSystemService(WindowManager::class.java)
     private val clipboard = context.getSystemService(ClipboardManager::class.java)
     private val main = Handler(Looper.getMainLooper())
@@ -30,19 +34,22 @@ class ClipboardOverlay(private val context: Context, private val sync: Clipboard
 
     private fun show() {
         if (view != null) return
-        val window = object : View(context) {
-            override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
-                super.onWindowFocusChanged(hasWindowFocus)
-                if (hasWindowFocus) taken(this)
+        val window =
+            object : View(context) {
+                override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+                    super.onWindowFocusChanged(hasWindowFocus)
+                    if (hasWindowFocus) taken(this)
+                }
             }
-        }
-        val params = WindowManager.LayoutParams(
-            1,
-            1,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        val params =
+            WindowManager
+                .LayoutParams(
+                    1,
+                    1,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    PixelFormat.TRANSLUCENT,
+                ).apply { gravity = Gravity.TOP or Gravity.START }
         try {
             windows.addView(window, params)
         } catch (error: RuntimeException) {

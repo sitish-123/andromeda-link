@@ -63,29 +63,34 @@ class ShareActivity : ComponentActivity() {
 }
 
 private fun payload(intent: Intent): SharePayload? {
-    val uris = when (intent.action) {
-        Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
-        Intent.ACTION_SEND_MULTIPLE ->
-            IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
-        else -> return null
-    }
+    val uris =
+        when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE ->
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else -> return null
+        }
     if (uris.isNotEmpty()) return SharePayload.Files(uris.map(Uri::toString))
     val text = intent.getStringExtra(Intent.EXTRA_TEXT)
     return if (intent.action == Intent.ACTION_SEND && !text.isNullOrEmpty()) SharePayload.Text(text) else null
 }
 
 @Composable
-private fun ShareScreen(viewModel: ShareViewModel, onDone: (String?) -> Unit) {
+private fun ShareScreen(
+    viewModel: ShareViewModel,
+    onDone: (String?) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val resources = LocalContext.current.resources
     LaunchedEffect(viewModel) {
         viewModel.outcome.collect { outcome ->
             onDone(
                 when (outcome) {
-                    is ShareOutcome.Sent -> resources.getString(
-                        if (outcome.files) R.string.share_files_sending else R.string.share_sent,
-                        outcome.desktop.name,
-                    )
+                    is ShareOutcome.Sent ->
+                        resources.getString(
+                            if (outcome.files) R.string.share_files_sending else R.string.share_sent,
+                            outcome.desktop.name,
+                        )
                     ShareOutcome.NoDesktop -> resources.getString(R.string.share_no_desktop)
                     ShareOutcome.Cancelled -> null
                     is ShareOutcome.Failed -> resources.getString(R.string.share_failed, outcome.failure.text(resources))
@@ -95,13 +100,21 @@ private fun ShareScreen(viewModel: ShareViewModel, onDone: (String?) -> Unit) {
     }
     val colors = LinkTheme.colors
     Box(
-        Modifier.fillMaxSize().background(colors.surfaceOverlay)
+        Modifier
+            .fillMaxSize()
+            .background(colors.surfaceOverlay)
             .clickable(remember { MutableInteractionSource() }, indication = null, onClick = viewModel::cancel),
         contentAlignment = Alignment.BottomCenter,
     ) {
         // The card takes its own taps, so only the scrim around it cancels.
         val card = remember { MutableInteractionSource() }
-        SoftCard(Modifier.fillMaxWidth().navigationBarsPadding().padding(Space.s12).clickable(card, indication = null) {}) {
+        SoftCard(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(Space.s12)
+                .clickable(card, indication = null) {},
+        ) {
             when (val current = state) {
                 ShareState.Loading -> Progress(stringResource(R.string.share_preparing))
                 is ShareState.Sending -> Progress(stringResource(R.string.share_sending, current.desktop.name))

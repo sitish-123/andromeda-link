@@ -30,8 +30,11 @@ class ClipboardReadActivity : Activity() {
         window.setGravity(Gravity.TOP or Gravity.START)
         window.setDimAmount(0f)
         window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
-        selected = intent.takeIf { it.action == Intent.ACTION_PROCESS_TEXT }
-            ?.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+        selected =
+            intent
+                .takeIf { it.action == Intent.ACTION_PROCESS_TEXT }
+                ?.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)
+                ?.toString()
         if (selected != null) send(selected!!)
     }
 

@@ -1,5 +1,9 @@
 package org.andromeda.link.pairing
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
@@ -24,12 +28,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
-import android.Manifest
-import android.content.pm.PackageManager
-import org.andromeda.link.ui.components.PillKind
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -42,6 +40,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.andromeda.link.R
 import org.andromeda.link.core.domain.Desktop
@@ -50,6 +49,7 @@ import org.andromeda.link.ui.components.ConnectionOrb
 import org.andromeda.link.ui.components.HeroSurface
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.PillButton
+import org.andromeda.link.ui.components.PillKind
 import org.andromeda.link.ui.components.Screen
 import org.andromeda.link.ui.text
 import org.andromeda.link.ui.theme.LinkTheme
@@ -62,7 +62,11 @@ import org.andromeda.link.ui.theme.Space
  * QR link opened from outside the app shown for confirmation, since nobody here chose to scan it.
  */
 @Composable
-fun PairingScreen(viewModel: PairingViewModel, onBack: () -> Unit, onPaired: (Desktop) -> Unit) {
+fun PairingScreen(
+    viewModel: PairingViewModel,
+    onBack: () -> Unit,
+    onPaired: (Desktop) -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var typing by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(viewModel) { viewModel.paired.collect(onPaired) }
@@ -111,23 +115,46 @@ private fun Scan(onPairingUri: (String) -> Unit) {
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) ask.launch(Manifest.permission.CAMERA) }
     Box(
-        Modifier.padding(top = Space.s8).fillMaxWidth().aspectRatio(1f).clip(Radius.hero).border(1.dp, colors.borderPrimary, Radius.hero),
+        Modifier
+            .padding(top = Space.s8)
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clip(Radius.hero)
+            .border(1.dp, colors.borderPrimary, Radius.hero),
         contentAlignment = Alignment.Center,
     ) {
         if (granted) {
             QrScanner(onPairingUri, Modifier.fillMaxSize())
         } else {
-            Column(Modifier.padding(Space.s24), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.s16)) {
-                Label(stringResource(R.string.scan_camera_needed), LinkTheme.type.bodyLarge, colors.textSecondary, textAlign = TextAlign.Center)
+            Column(
+                Modifier.padding(Space.s24),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(Space.s16),
+            ) {
+                Label(
+                    stringResource(R.string.scan_camera_needed),
+                    LinkTheme.type.bodyLarge,
+                    colors.textSecondary,
+                    textAlign = TextAlign.Center,
+                )
                 PillButton(stringResource(R.string.scan_camera_allow), { ask.launch(Manifest.permission.CAMERA) })
             }
         }
     }
-    Label(stringResource(R.string.scan_hint), LinkTheme.type.bodyLarge, colors.textSecondary, Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+    Label(
+        stringResource(R.string.scan_hint),
+        LinkTheme.type.bodyLarge,
+        colors.textSecondary,
+        Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
-private fun LinkConfirmation(state: PairingState, viewModel: PairingViewModel) {
+private fun LinkConfirmation(
+    state: PairingState,
+    viewModel: PairingViewModel,
+) {
     HeroSurface(Modifier.fillMaxWidth()) {
         Label(stringResource(R.string.pair_link_title), LinkTheme.type.displaySmall)
         Label(
@@ -146,7 +173,10 @@ private fun LinkConfirmation(state: PairingState, viewModel: PairingViewModel) {
 }
 
 @Composable
-private fun CodeEntry(state: PairingState, viewModel: PairingViewModel) {
+private fun CodeEntry(
+    state: PairingState,
+    viewModel: PairingViewModel,
+) {
     CenteredText(stringResource(R.string.pair_code_title), stringResource(R.string.pair_instructions))
     CodeCells(state.code, viewModel::updateCode, onDone = viewModel::pairWithCode)
     PillButton(
@@ -161,7 +191,11 @@ private fun CodeEntry(state: PairingState, viewModel: PairingViewModel) {
  * The code as six pill cells over one text field, which keeps the keyboard, paste, and IME behaviour of a real field.
  */
 @Composable
-private fun CodeCells(code: String, onChange: (String) -> Unit, onDone: () -> Unit) {
+private fun CodeCells(
+    code: String,
+    onChange: (String) -> Unit,
+    onDone: () -> Unit,
+) {
     val colors = LinkTheme.colors
     val description = stringResource(R.string.pair_code_label)
     BasicTextField(
@@ -178,12 +212,21 @@ private fun CodeCells(code: String, onChange: (String) -> Unit, onDone: () -> Un
                         val filled = index < code.length
                         val current = index == code.length
                         val border by animateColorAsState(
-                            if (current) colors.accent else if (filled) colors.textPrimary else colors.borderPrimary,
+                            if (current) {
+                                colors.accent
+                            } else if (filled) {
+                                colors.textPrimary
+                            } else {
+                                colors.borderPrimary
+                            },
                             tween(Motion.FAST),
                             label = "cell",
                         )
                         Box(
-                            Modifier.weight(1f).aspectRatio(0.72f).clip(Radius.list)
+                            Modifier
+                                .weight(1f)
+                                .aspectRatio(0.72f)
+                                .clip(Radius.list)
                                 .border(if (current) 2.dp else 1.dp, border, Radius.list),
                             contentAlignment = Alignment.Center,
                         ) {

@@ -7,11 +7,11 @@ import android.graphics.ImageDecoder
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
-import androidx.core.net.toUri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import androidx.core.net.toUri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository

@@ -4,9 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
-import java.io.File
-import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,18 +21,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import android.os.SystemClock
 import org.andromeda.link.core.domain.CallAction
 import org.andromeda.link.core.domain.CallState
 import org.andromeda.link.core.domain.Desktop
 import org.andromeda.link.core.domain.DesktopCommand
-import org.andromeda.link.core.domain.IncomingPing
-import org.andromeda.link.core.domain.PointerButton
-import org.andromeda.link.core.domain.RemoteInput
 import org.andromeda.link.core.domain.DesktopPlayer
 import org.andromeda.link.core.domain.DesktopVolume
 import org.andromeda.link.core.domain.Feature
 import org.andromeda.link.core.domain.IncomingClip
+import org.andromeda.link.core.domain.IncomingPing
 import org.andromeda.link.core.domain.IncomingShare
 import org.andromeda.link.core.domain.LinkFailure
 import org.andromeda.link.core.domain.LinkFailureException
@@ -47,58 +43,67 @@ import org.andromeda.link.core.domain.OfferedFile
 import org.andromeda.link.core.domain.PhoneMediaCommand
 import org.andromeda.link.core.domain.PhoneNotification
 import org.andromeda.link.core.domain.PlaybackState
+import org.andromeda.link.core.domain.PointerButton
+import org.andromeda.link.core.domain.RemoteInput
 import org.andromeda.link.core.domain.SavedFile
 import org.andromeda.link.core.domain.ShareKind
 import org.andromeda.link.core.domain.Sharing
 import org.andromeda.link.core.domain.TransferEvent
 import org.andromeda.link.core.domain.TransferRecord
 import org.andromeda.link.ffi.BrowseRoot
-import org.andromeda.link.ffi.PhoneLibrary
-import org.andromeda.link.ffi.PhoneMessages
-import org.andromeda.link.ffi.LinkClient
-import org.andromeda.link.ffi.LinkEvent
-import org.andromeda.link.ffi.LinkException
-import org.andromeda.link.ffi.MirrorSession
-import org.andromeda.link.ffi.MirrorAction as FfiMirrorAction
-import org.andromeda.link.ffi.OutgoingFile
-import org.andromeda.link.ffi.generateIdentity
-import org.andromeda.link.ffi.Desktop as FfiDesktop
-import org.andromeda.link.ffi.CallAction as FfiCallAction
-import org.andromeda.link.ffi.CallState as FfiCallState
-import org.andromeda.link.ffi.Feature as FfiFeature
-import org.andromeda.link.ffi.MediaCommandKind as FfiCommand
-import org.andromeda.link.ffi.MediaPlayer as FfiPlayer
-import org.andromeda.link.ffi.PlaybackState as FfiState
-import org.andromeda.link.ffi.NotificationButton as FfiNotificationButton
-import org.andromeda.link.ffi.PhoneNotification as FfiPhoneNotification
-import org.andromeda.link.ffi.ShareKind as FfiShareKind
 import org.andromeda.link.ffi.InputAction
 import org.andromeda.link.ffi.InputButton
 import org.andromeda.link.ffi.InputEvent
 import org.andromeda.link.ffi.InputKey
+import org.andromeda.link.ffi.LinkClient
+import org.andromeda.link.ffi.LinkEvent
+import org.andromeda.link.ffi.LinkException
+import org.andromeda.link.ffi.MirrorSession
+import org.andromeda.link.ffi.OutgoingFile
+import org.andromeda.link.ffi.PhoneLibrary
+import org.andromeda.link.ffi.PhoneMessages
+import org.andromeda.link.ffi.generateIdentity
+import java.io.File
+import java.io.IOException
+import org.andromeda.link.ffi.CallAction as FfiCallAction
+import org.andromeda.link.ffi.CallState as FfiCallState
+import org.andromeda.link.ffi.Desktop as FfiDesktop
+import org.andromeda.link.ffi.Feature as FfiFeature
+import org.andromeda.link.ffi.MediaCommandKind as FfiCommand
+import org.andromeda.link.ffi.MediaPlayer as FfiPlayer
+import org.andromeda.link.ffi.MirrorAction as FfiMirrorAction
+import org.andromeda.link.ffi.NotificationButton as FfiNotificationButton
+import org.andromeda.link.ffi.PhoneNotification as FfiPhoneNotification
+import org.andromeda.link.ffi.PlaybackState as FfiState
+import org.andromeda.link.ffi.ShareKind as FfiShareKind
 
 /**
  * The phone side of Link over the Rust core. Every operation returns a [Result] whose failure is a
  * [LinkFailureException]; nothing throws into the UI. [desktops] follows the core's events, so its connected flags
  * are live.
  */
-class LinkRepository(private val context: Context, private val deviceName: String) {
-
+class LinkRepository(
+    private val context: Context,
+    private val deviceName: String,
+) {
     /** Lives as long as the process: it reads the core's events for every screen and service. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val clientLock = Mutex()
     private var client: LinkClient? = null
     private val presenceLock = Mutex()
     private var present = false
-    private val multicast = context.applicationContext.getSystemService(WifiManager::class.java)
-        .createMulticastLock("andromeda-link")
-        .apply { setReferenceCounted(true) }
+    private val multicast =
+        context.applicationContext
+            .getSystemService(WifiManager::class.java)
+            .createMulticastLock("andromeda-link")
+            .apply { setReferenceCounted(true) }
     private val _desktops = MutableStateFlow<List<Desktop>>(emptyList())
     private val _incoming = MutableSharedFlow<IncomingShare>(extraBufferCapacity = INCOMING_BUFFER)
     private val _transfers = MutableSharedFlow<TransferEvent>(extraBufferCapacity = INCOMING_BUFFER)
     private val downloads = Downloads(context)
     private val _activeTransfers = MutableStateFlow<Set<String>>(emptySet())
     private val activityStore = ActivityStore(context.filesDir.resolve("activity.json"))
+
     /** One writer at a time, in update order. */
     private val activityWriter = Dispatchers.IO.limitedParallelism(1)
     private val _transferActivity = MutableStateFlow(activityStore.load())
@@ -128,50 +133,69 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     val clips: SharedFlow<IncomingClip> = _clips.asSharedFlow()
 
     /** The battery (percent) and network (wifi, cellular, ethernet, none, or other) desktops show. */
+
     /** [signal] is cellular bars, 0 to 4, or null without service. */
-    suspend fun setStatus(battery: Int, charging: Boolean, network: String, signal: Int?): Result<Unit> =
-        call { it.setStatus(battery.coerceIn(0, 100).toUByte(), charging, network, signal?.coerceIn(0, 4)?.toUByte()) }
+    suspend fun setStatus(
+        battery: Int,
+        charging: Boolean,
+        network: String,
+        signal: Int?,
+        notificationsOff: Boolean,
+    ): Result<Unit> =
+        call {
+            it.setStatus(battery.coerceIn(0, 100).toUByte(), charging, network, signal?.coerceIn(0, 4)?.toUByte(), notificationsOff)
+        }
 
     /** Offers text from this phone's clipboard to every connected desktop. */
     suspend fun offerClipText(text: String): Result<Unit> = call { it.offerClipText(text) }
 
     /** Snapshots a clipboard URI while Android's temporary read grant is valid, including providers backed by pipes. */
-    suspend fun offerClipUri(uri: Uri, fallbackMime: String?): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val mime = context.contentResolver.getType(uri)?.takeUnless { '*' in it }
-                ?: fallbackMime?.takeUnless { '*' in it }
-                ?: throw IOException("The clipboard URI has no concrete MIME type")
-            val snapshot = File.createTempFile("clipboard-", ".bin", context.cacheDir)
+    suspend fun offerClipUri(
+        uri: Uri,
+        fallbackMime: String?,
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
             try {
-                val input = context.contentResolver.openInputStream(uri)
-                    ?: throw IOException("The clipboard URI cannot be opened")
-                input.use {
-                    snapshot.outputStream().use { output ->
-                        val buffer = ByteArray(256 * 1024)
-                        var size = 0L
-                        while (true) {
-                            val read = it.read(buffer)
-                            if (read < 0) break
-                            size += read
-                            if (size > MAX_CLIP_SIZE) throw IOException("The clipboard exceeds 64 MiB")
-                            output.write(buffer, 0, read)
+                val mime =
+                    context.contentResolver.getType(uri)?.takeUnless { '*' in it }
+                        ?: fallbackMime?.takeUnless { '*' in it }
+                        ?: throw IOException("The clipboard URI has no concrete MIME type")
+                val snapshot = File.createTempFile("clipboard-", ".bin", context.cacheDir)
+                try {
+                    val input =
+                        context.contentResolver.openInputStream(uri)
+                            ?: throw IOException("The clipboard URI cannot be opened")
+                    input.use {
+                        snapshot.outputStream().use { output ->
+                            val buffer = ByteArray(256 * 1024)
+                            var size = 0L
+                            while (true) {
+                                val read = it.read(buffer)
+                                if (read < 0) break
+                                size += read
+                                if (size > MAX_CLIP_SIZE) throw IOException("The clipboard exceeds 64 MiB")
+                                output.write(buffer, 0, read)
+                            }
                         }
                     }
+                    call { it.offerClipFile(mime, snapshot.absolutePath) }
+                } finally {
+                    if (!snapshot.delete()) Log.w("link", "Could not remove the clipboard snapshot")
                 }
-                call { it.offerClipFile(mime, snapshot.absolutePath) }
-            } finally {
-                if (!snapshot.delete()) Log.w("link", "Could not remove the clipboard snapshot")
+            } catch (error: IOException) {
+                Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
+            } catch (error: SecurityException) {
+                Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
             }
-        } catch (error: IOException) {
-            Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
-        } catch (error: SecurityException) {
-            Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
         }
-    }
 
     /** Writes one type of a desktop's clipboard into [fd], which the core takes over. */
-    suspend fun pullClip(desktopId: String, clipId: Long, mime: String, fd: Int): Result<Long> =
-        call { it.pullClip(desktopId, clipId.toULong(), mime, fd).toLong() }
+    suspend fun pullClip(
+        desktopId: String,
+        clipId: Long,
+        mime: String,
+        fd: Int,
+    ): Result<Long> = call { it.pullClip(desktopId, clipId.toULong(), mime, fd).toLong() }
 
     /** Transfers sent or accepted here that have not finished. */
     val activeTransfers: StateFlow<Set<String>> = _activeTransfers.asStateFlow()
@@ -195,11 +219,17 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     val mirrorCommands: SharedFlow<MirrorCommand> = _mirrorCommands.asSharedFlow()
 
     /** Tells the desktop that asked the video's size and opens the stream to it. */
-    suspend fun startMirror(desktopId: String, width: Int, height: Int): Result<MirrorStream> =
-        call { FfiMirror(it.startMirror(desktopId, width.toUInt(), height.toUInt())) }
+    suspend fun startMirror(
+        desktopId: String,
+        width: Int,
+        height: Int,
+    ): Result<MirrorStream> = call { FfiMirror(it.startMirror(desktopId, width.toUInt(), height.toUInt())) }
 
     /** Ends mirroring, or refuses a request, with why. */
-    suspend fun stopMirror(desktopId: String, reason: String?): Result<Unit> = call { it.stopMirror(desktopId, reason) }
+    suspend fun stopMirror(
+        desktopId: String,
+        reason: String?,
+    ): Result<Unit> = call { it.stopMirror(desktopId, reason) }
 
     /** What each desktop lets this phone run there, by desktop id. */
     val commands: StateFlow<Map<String, List<DesktopCommand>>> = _commands.asStateFlow()
@@ -213,9 +243,15 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     val pings: SharedFlow<IncomingPing> = _pings.asSharedFlow()
 
     /** Connects first if needed. */
-    suspend fun sendInput(desktopId: String, input: RemoteInput): Result<Unit> = call { it.sendInput(desktopId, input.toFfi()) }
+    suspend fun sendInput(
+        desktopId: String,
+        input: RemoteInput,
+    ): Result<Unit> = call { it.sendInput(desktopId, input.toFfi()) }
 
-    suspend fun runCommand(desktopId: String, commandId: String): Result<Unit> = call { it.runCommand(desktopId, commandId) }
+    suspend fun runCommand(
+        desktopId: String,
+        commandId: String,
+    ): Result<Unit> = call { it.runCommand(desktopId, commandId) }
 
     suspend fun ping(desktopId: String): Result<Unit> = withMulticast { call { it.ping(desktopId, null) } }
 
@@ -229,22 +265,33 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     val callActions: SharedFlow<CallAction> = _callActions.asSharedFlow()
 
     /** Tells connected desktops that take calls; `number` and `name` only when known. */
-    suspend fun reportCall(state: CallState, number: String?, name: String?): Result<Int> = call {
-        val ffiState = when (state) {
-            CallState.Ringing -> FfiCallState.RINGING
-            CallState.Active -> FfiCallState.ACTIVE
-            CallState.Idle -> FfiCallState.IDLE
+    suspend fun reportCall(
+        state: CallState,
+        number: String?,
+        name: String?,
+    ): Result<Int> =
+        call {
+            val ffiState =
+                when (state) {
+                    CallState.Ringing -> FfiCallState.RINGING
+                    CallState.Active -> FfiCallState.ACTIVE
+                    CallState.Idle -> FfiCallState.IDLE
+                }
+            it.reportCall(ffiState, number, name).toInt()
         }
-        it.reportCall(ffiState, number, name).toInt()
-    }
 
     /** Connects first if needed. */
-    /** Without [passkey] the desktop starts accepting the pairing connection; with it, it confirms that code. */
-    suspend fun reportBtPairing(desktopId: String, passkey: Int?): Result<Unit> =
-        call { it.reportBtPairing(desktopId, passkey?.toUInt()) }
 
-    suspend fun ringDesktop(desktopId: String, on: Boolean): Result<Unit> =
-        withMulticast { call { it.ringDesktop(desktopId, on) } }
+    /** Without [passkey] the desktop starts accepting the pairing connection; with it, it confirms that code. */
+    suspend fun reportBtPairing(
+        desktopId: String,
+        passkey: Int?,
+    ): Result<Unit> = call { it.reportBtPairing(desktopId, passkey?.toUInt()) }
+
+    suspend fun ringDesktop(
+        desktopId: String,
+        on: Boolean,
+    ): Result<Unit> = withMulticast { call { it.ringDesktop(desktopId, on) } }
 
     /** Tells connected desktops that may ring this phone whether it rings. */
     suspend fun reportRinging(on: Boolean): Result<Int> = call { it.reportRinging(on).toInt() }
@@ -255,28 +302,47 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     suspend fun playerGone(player: String): Result<Int> = call { it.playerGone(player).toInt() }
 
     /** Connects first if needed. */
-    suspend fun mediaCommand(desktopId: String, player: String, command: MediaCommandKind, value: Long? = null): Result<Unit> =
-        call { it.mediaCommand(desktopId, player, command.toFfi(), value?.toULong()) }
+    suspend fun mediaCommand(
+        desktopId: String,
+        player: String,
+        command: MediaCommandKind,
+        value: Long? = null,
+    ): Result<Unit> = call { it.mediaCommand(desktopId, player, command.toFfi(), value?.toULong()) }
 
     /** Sets the desktop's output volume, in percent; needs the desktop's system grant. */
-    suspend fun setDesktopVolume(desktopId: String, percent: Int): Result<Unit> =
-        call { it.setDesktopVolume(desktopId, percent.coerceIn(0, 100).toUByte()) }
+    suspend fun setDesktopVolume(
+        desktopId: String,
+        percent: Int,
+    ): Result<Unit> = call { it.setDesktopVolume(desktopId, percent.coerceIn(0, 100).toUByte()) }
 
-    suspend fun setDesktopMuted(desktopId: String, muted: Boolean): Result<Unit> = call { it.setDesktopMuted(desktopId, muted) }
+    suspend fun setDesktopMuted(
+        desktopId: String,
+        muted: Boolean,
+    ): Result<Unit> = call { it.setDesktopMuted(desktopId, muted) }
 
     /** Succeeds with how many connected desktops took it; none are dialled. */
-    suspend fun postNotification(notification: PhoneNotification): Result<Int> = call {
-        it.postNotification(notification.toFfi()).toInt()
-    }
+    suspend fun postNotification(notification: PhoneNotification): Result<Int> =
+        call {
+            it.postNotification(notification.toFfi()).toInt()
+        }
 
     suspend fun removeNotification(id: String): Result<Int> = call { it.removeNotification(id).toInt() }
 
-    suspend fun setSharing(desktopId: String, feature: Feature, on: Boolean): Result<Unit> =
-        callAndRefresh { it.setSharing(desktopId, feature.toFfi(), on) }
+    /** Every notification the phone shows; desktops get only what changed, now and on each connect. */
+    suspend fun syncNotifications(notifications: List<PhoneNotification>): Result<Unit> =
+        call { it.syncNotifications(notifications.map { n -> n.toFfi() }) }
+
+    suspend fun setSharing(
+        desktopId: String,
+        feature: Feature,
+        on: Boolean,
+    ): Result<Unit> = callAndRefresh { it.setSharing(desktopId, feature.toFfi(), on) }
 
     /** The folders a desktop with this phone's browse switch on sees, by name; empty without All files access. */
-    suspend fun setBrowseRoots(roots: Map<String, String>, library: PhoneLibrary?): Result<Unit> =
-        call { it.setBrowseRoots(roots.map { (name, path) -> BrowseRoot(name, path) }, library) }
+    suspend fun setBrowseRoots(
+        roots: Map<String, String>,
+        library: PhoneLibrary?,
+    ): Result<Unit> = call { it.setBrowseRoots(roots.map { (name, path) -> BrowseRoot(name, path) }, library) }
 
     suspend fun setMessages(messages: PhoneMessages?): Result<Unit> = call { it.setMessages(messages) }
 
@@ -284,16 +350,18 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
 
     suspend fun textsChanged(): Result<Unit> = call { it.textsChanged() }
 
-    suspend fun refresh(): Result<Unit> = call { client ->
-        _desktops.value = client.desktops().map { it.toDomain() }
-    }
+    suspend fun refresh(): Result<Unit> =
+        call { client ->
+            _desktops.value = client.desktops().map { it.toDomain() }
+        }
 
     suspend fun pairUri(uri: String): Result<Desktop> = callAndRefresh { it.pairUri(uri).toDomain() }
 
     /** Finds the pairing desktop by mDNS, so the multicast lock is held for the attempt. */
-    suspend fun pairCode(code: String): Result<Desktop> = withMulticast {
-        callAndRefresh { it.pairCode(code, emptyList()).toDomain() }
-    }
+    suspend fun pairCode(code: String): Result<Desktop> =
+        withMulticast {
+            callAndRefresh { it.pairCode(code, emptyList()).toDomain() }
+        }
 
     suspend fun connect(id: String): Result<Unit> = withMulticast { callAndRefresh { it.connect(id) } }
 
@@ -301,46 +369,58 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
     suspend fun unpair(id: String): Result<Boolean> = callAndRefresh { it.unpair(id) }
 
     /** Connects first if needed, and succeeds once the desktop acknowledged the share. */
-    suspend fun share(desktopId: String, kind: ShareKind, text: String): Result<Unit> = withMulticast {
-        call { it.share(desktopId, kind.toFfi(), text) }
-    }
+    suspend fun share(
+        desktopId: String,
+        kind: ShareKind,
+        text: String,
+    ): Result<Unit> =
+        withMulticast {
+            call { it.share(desktopId, kind.toFfi(), text) }
+        }
 
     /**
      * Offers the files behind content URIs; succeeds with the transfer id once the offer is on its way. A URI that is
      * not a regular file (a pipe from some providers) fails the whole send.
      */
-    suspend fun sendFiles(desktopId: String, uris: List<String>): Result<String> = withMulticast {
-        val opened = mutableListOf<Downloads.Opened>()
-        val failure = withContext(Dispatchers.IO) {
-            runCatching { uris.forEach { opened += downloads.open(Uri.parse(it)) } }.exceptionOrNull()
-        }
-        if (failure != null) {
-            opened.forEach { ParcelFileDescriptor.adoptFd(it.fd).close() }
-            return@withMulticast Result.failure(LinkFailureException(LinkFailure.Rejected(failure.message.orEmpty())))
-        }
-        val files = opened.map { OutgoingFile(it.fd, it.name, it.size.toULong(), it.mime) }
-        call { it.sendFiles(desktopId, files) }.onSuccess { id ->
-            _activeTransfers.update { it + id }
-            updateTransfer(id) { existing ->
-                (existing ?: TransferRecord(id)).copy(
-                    desktopName = nameOf(desktopId), incoming = false,
-                    files = opened.zip(uris) { file, uri -> OfferedFile(file.name, file.size, uri) },
-                    total = opened.sumOf { it.size },
-                )
+    suspend fun sendFiles(
+        desktopId: String,
+        uris: List<String>,
+    ): Result<String> =
+        withMulticast {
+            val opened = mutableListOf<Downloads.Opened>()
+            val failure =
+                withContext(Dispatchers.IO) {
+                    runCatching { uris.forEach { opened += downloads.open(Uri.parse(it)) } }.exceptionOrNull()
+                }
+            if (failure != null) {
+                opened.forEach { ParcelFileDescriptor.adoptFd(it.fd).close() }
+                return@withMulticast Result.failure(LinkFailureException(LinkFailure.Rejected(failure.message.orEmpty())))
             }
-        }
-    }
-
-    suspend fun acceptTransfer(transferId: String): Result<Boolean> = call { it.acceptTransfer(transferId) }
-        .onSuccess { accepted ->
-            if (accepted) {
-                _activeTransfers.update { it + transferId }
-                updateTransfer(transferId) { existing ->
-                    val record = existing ?: TransferRecord(transferId)
-                    if (record.status == "offered") record.copy(status = "transferring") else record
+            val files = opened.map { OutgoingFile(it.fd, it.name, it.size.toULong(), it.mime) }
+            call { it.sendFiles(desktopId, files) }.onSuccess { id ->
+                _activeTransfers.update { it + id }
+                updateTransfer(id) { existing ->
+                    (existing ?: TransferRecord(id)).copy(
+                        desktopName = nameOf(desktopId),
+                        incoming = false,
+                        files = opened.zip(uris) { file, uri -> OfferedFile(file.name, file.size, uri) },
+                        total = opened.sumOf { it.size },
+                    )
                 }
             }
         }
+
+    suspend fun acceptTransfer(transferId: String): Result<Boolean> =
+        call { it.acceptTransfer(transferId) }
+            .onSuccess { accepted ->
+                if (accepted) {
+                    _activeTransfers.update { it + transferId }
+                    updateTransfer(transferId) { existing ->
+                        val record = existing ?: TransferRecord(transferId)
+                        if (record.status == "offered") record.copy(status = "transferring") else record
+                    }
+                }
+            }
 
     suspend fun declineTransfer(transferId: String): Result<Boolean> = call { it.declineTransfer(transferId) }
 
@@ -350,12 +430,13 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
      * While present, every paired desktop stays connected and is redialled when it drops; the multicast lock is held
      * so the redial can fall back to mDNS.
      */
-    suspend fun setPresent(present: Boolean): Result<Unit> = presenceLock.withLock {
-        if (present == this.present) return@withLock Result.success(Unit)
-        if (present) multicast.acquire() else multicast.release()
-        this.present = present
-        call { it.setPresent(present) }
-    }
+    suspend fun setPresent(present: Boolean): Result<Unit> =
+        presenceLock.withLock {
+            if (present == this.present) return@withLock Result.success(Unit)
+            if (present) multicast.acquire() else multicast.release()
+            this.present = present
+            call { it.setPresent(present) }
+        }
 
     private suspend fun <T> callAndRefresh(block: suspend (LinkClient) -> T): Result<T> {
         val result = call(block)
@@ -363,31 +444,33 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         return result
     }
 
-    private suspend fun <T> call(block: suspend (LinkClient) -> T): Result<T> = try {
-        Result.success(block(client()))
-    } catch (error: LinkException) {
-        Result.failure(LinkFailureException(error.toFailure()))
-    }
-
-    private suspend fun client(): LinkClient = clientLock.withLock {
-        client ?: withContext(Dispatchers.IO) {
-            val identity = IdentityStore(context.filesDir.resolve("identity.bin")).loadOrCreate(::generateIdentity)
-            val incoming = context.noBackupFilesDir.resolve("incoming").apply { mkdirs() }
-            LinkClient(
-                identity,
-                context.filesDir.resolve("devices.json").absolutePath,
-                deviceName,
-                incoming.absolutePath,
-                RfcommLink(context),
-                LocalHotspot(context),
-                // Android keeps a group after the process that formed it dies, and this one cannot idle it out.
-                WifiDirectGroup(context).also(WifiDirectGroup::stop),
-            )
-        }.also {
-            client = it
-            scope.launch { follow(it) }
+    private suspend fun <T> call(block: suspend (LinkClient) -> T): Result<T> =
+        try {
+            Result.success(block(client()))
+        } catch (error: LinkException) {
+            Result.failure(LinkFailureException(error.toFailure()))
         }
-    }
+
+    private suspend fun client(): LinkClient =
+        clientLock.withLock {
+            client ?: withContext(Dispatchers.IO) {
+                val identity = IdentityStore(context.filesDir.resolve("identity.bin")).loadOrCreate(::generateIdentity)
+                val incoming = context.noBackupFilesDir.resolve("incoming").apply { mkdirs() }
+                LinkClient(
+                    identity,
+                    context.filesDir.resolve("devices.json").absolutePath,
+                    deviceName,
+                    incoming.absolutePath,
+                    RfcommLink(context),
+                    LocalHotspot(context),
+                    // Android keeps a group after the process that formed it dies, and this one cannot idle it out.
+                    WifiDirectGroup(context).also(WifiDirectGroup::stop),
+                )
+            }.also {
+                client = it
+                scope.launch { follow(it) }
+            }
+        }
 
     private suspend fun follow(client: LinkClient) {
         while (true) {
@@ -409,73 +492,88 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
                             DesktopPlayer(event.desktopId, player)
                     }
                 }
-                is LinkEvent.PlayerGone -> _desktopPlayers.update { list ->
-                    list.filterNot { it.desktopId == event.desktopId && it.player.player == event.player }
-                }
+                is LinkEvent.PlayerGone ->
+                    _desktopPlayers.update { list ->
+                        list.filterNot { it.desktopId == event.desktopId && it.player.player == event.player }
+                    }
                 is LinkEvent.RingRequested -> _ringRequests.emit(event.desktopId to event.on)
-                is LinkEvent.CallActionRequested -> _callActions.emit(
-                    if (event.action == FfiCallAction.MUTE) CallAction.Mute else CallAction.Decline,
-                )
-                is LinkEvent.DesktopRinging -> _ringingDesktops.update {
-                    if (event.on) it + event.desktopId else it - event.desktopId
-                }
-                is LinkEvent.PlayerCommand -> _mediaCommands.emit(
-                    PhoneMediaCommand(event.desktopId, event.player, event.command.toDomain(), event.value?.toLong()),
-                )
-                is LinkEvent.Received -> _incoming.emit(
-                    IncomingShare(event.desktopId, nameOf(event.desktopId), event.kind.toDomain(), event.text),
-                )
+                is LinkEvent.CallActionRequested ->
+                    _callActions.emit(
+                        if (event.action == FfiCallAction.MUTE) CallAction.Mute else CallAction.Decline,
+                    )
+                is LinkEvent.DesktopRinging ->
+                    _ringingDesktops.update {
+                        if (event.on) it + event.desktopId else it - event.desktopId
+                    }
+                is LinkEvent.PlayerCommand ->
+                    _mediaCommands.emit(
+                        PhoneMediaCommand(event.desktopId, event.player, event.command.toDomain(), event.value?.toLong()),
+                    )
+                is LinkEvent.Received ->
+                    _incoming.emit(
+                        IncomingShare(event.desktopId, nameOf(event.desktopId), event.kind.toDomain(), event.text),
+                    )
                 is LinkEvent.Unpaired -> scope.launch { refresh() }
-                is LinkEvent.TransferOffered -> emitTransfer(
-                    TransferEvent.Offered(event.transferId, nameOf(event.desktopId), event.files.map { OfferedFile(it.name, it.size.toLong()) }),
-                )
+                is LinkEvent.TransferOffered ->
+                    emitTransfer(
+                        TransferEvent.Offered(
+                            event.transferId,
+                            nameOf(event.desktopId),
+                            event.files.map { OfferedFile(it.name, it.size.toLong()) },
+                        ),
+                    )
                 is LinkEvent.TransferProgress ->
                     emitTransfer(TransferEvent.Progress(event.transferId, event.bytes.toLong(), event.total.toLong()))
                 is LinkEvent.TransferFinished -> scope.launch { finished(event) }
                 is LinkEvent.ClipOffered ->
                     _clips.emit(IncomingClip(event.desktopId, event.clipId.toLong(), event.mimes, event.text))
-                is LinkEvent.NotificationAction -> _notificationCommands.emit(
-                    NotificationCommand.Action(event.desktopId, event.id, event.action, event.replyText),
-                )
+                is LinkEvent.NotificationAction ->
+                    _notificationCommands.emit(
+                        NotificationCommand.Action(event.desktopId, event.id, event.action, event.replyText),
+                    )
                 is LinkEvent.NotificationDismissed ->
                     _notificationCommands.emit(NotificationCommand.Dismiss(event.desktopId, event.id))
                 is LinkEvent.MirrorRequested -> _mirrorCommands.emit(MirrorCommand.Requested(event.desktopId))
-                is LinkEvent.MirrorInput -> _mirrorCommands.emit(
-                    MirrorCommand.Input(
-                        event.desktopId,
-                        event.action.toDomain(),
-                        event.x,
-                        event.y,
-                        event.x2,
-                        event.y2,
-                        event.ms?.toInt(),
-                        event.text,
-                    ),
-                )
+                is LinkEvent.MirrorInput ->
+                    _mirrorCommands.emit(
+                        MirrorCommand.Input(
+                            event.desktopId,
+                            event.action.toDomain(),
+                            event.x,
+                            event.y,
+                            event.x2,
+                            event.y2,
+                            event.ms?.toInt(),
+                            event.text,
+                        ),
+                    )
                 is LinkEvent.MirrorKeyframeRequested -> _mirrorCommands.emit(MirrorCommand.Keyframe(event.desktopId))
                 is LinkEvent.MirrorStopped -> _mirrorCommands.emit(MirrorCommand.Stopped(event.desktopId, event.reason))
-                is LinkEvent.CommandsChanged -> _commands.update {
-                    it + (event.desktopId to event.commands.map { command -> DesktopCommand(command.id, command.name) })
-                }
+                is LinkEvent.CommandsChanged ->
+                    _commands.update {
+                        it + (event.desktopId to event.commands.map { command -> DesktopCommand(command.id, command.name) })
+                    }
                 is LinkEvent.Pinged -> _pings.emit(IncomingPing(nameOf(event.desktopId), event.message))
                 is LinkEvent.CapabilitiesChanged -> _capabilities.update { it + (event.desktopId to event.can.toSet()) }
-                is LinkEvent.DesktopStatusChanged -> _desktopVolumes.update {
-                    it + (event.desktopId to DesktopVolume(event.volume.toInt(), event.muted))
-                }
+                is LinkEvent.DesktopStatusChanged ->
+                    _desktopVolumes.update {
+                        it + (event.desktopId to DesktopVolume(event.volume.toInt(), event.muted))
+                    }
             }
         }
     }
 
     /** Publishes what an incoming transfer received; off the event loop, since copying a large file takes a while. */
     private suspend fun finished(event: LinkEvent.TransferFinished) {
-        val saved = withContext(Dispatchers.IO) {
-            event.files.map { received ->
-                val file = File(received.path)
-                val uri = downloads.publish(file, received.sha256)
-                if (uri == null) file.delete()
-                uri?.let { SavedFile(file.name, it.toString()) }
+        val saved =
+            withContext(Dispatchers.IO) {
+                event.files.map { received ->
+                    val file = File(received.path)
+                    val uri = downloads.publish(file, received.sha256)
+                    if (uri == null) file.delete()
+                    uri?.let { SavedFile(file.name, it.toString()) }
+                }
             }
-        }
         _activeTransfers.update { it - event.transferId }
         val status = if (saved.any { it == null }) "failed" else event.status
         emitTransfer(
@@ -483,11 +581,15 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         )
     }
 
-    private fun updateTransfer(id: String, transform: (TransferRecord?) -> TransferRecord) {
-        val records = _transferActivity.updateAndGet { records ->
-            val record = transform(records.firstOrNull { it.transferId == id })
-            (listOf(record) + records.filterNot { it.transferId == id }).take(ACTIVITY_LIMIT)
-        }
+    private fun updateTransfer(
+        id: String,
+        transform: (TransferRecord?) -> TransferRecord,
+    ) {
+        val records =
+            _transferActivity.updateAndGet { records ->
+                val record = transform(records.firstOrNull { it.transferId == id })
+                (listOf(record) + records.filterNot { it.transferId == id }).take(ACTIVITY_LIMIT)
+            }
         // Progress ticks many times a second and a restart turns a running transfer into a failed one anyway.
         if (records.first().status != "transferring" || records.first().bytes == 0L) {
             scope.launch(activityWriter) { activityStore.save(records) }
@@ -498,21 +600,32 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         updateTransfer(event.transferId) { existing ->
             val record = existing ?: TransferRecord(event.transferId)
             when (event) {
-                is TransferEvent.Offered -> record.copy(
-                    desktopName = event.desktopName, incoming = true, files = event.files,
-                    total = event.files.sumOf { it.size }, status = "offered",
-                )
+                is TransferEvent.Offered ->
+                    record.copy(
+                        desktopName = event.desktopName,
+                        incoming = true,
+                        files = event.files,
+                        total = event.files.sumOf { it.size },
+                        status = "offered",
+                    )
                 is TransferEvent.Progress -> record.copy(bytes = event.bytes, total = event.total, status = "transferring")
-                is TransferEvent.Finished -> record.copy(
-                    desktopName = event.desktopName, incoming = event.incoming, status = event.status, saved = event.saved,
-                )
+                is TransferEvent.Finished ->
+                    record.copy(
+                        desktopName = event.desktopName,
+                        incoming = event.incoming,
+                        status = event.status,
+                        saved = event.saved,
+                    )
             }
         }
         _transfers.emit(event)
     }
 
     /** A desktop not listed yet was just paired; the list is reread outside the event loop, which must keep reading. */
-    private fun markConnected(id: String, connected: Boolean) {
+    private fun markConnected(
+        id: String,
+        connected: Boolean,
+    ) {
         if (_desktops.value.none { it.id == id }) {
             scope.launch { refresh() }
             return
@@ -535,119 +648,143 @@ class LinkRepository(private val context: Context, private val deviceName: Strin
         const val INCOMING_BUFFER = 16
         const val MAX_CLIP_SIZE = 64L shl 20
         const val ACTIVITY_LIMIT = 200
+
         // Input comes in bursts while a finger drags.
         const val MIRROR_BUFFER = 64
     }
 }
 
-private fun FfiDesktop.toDomain() = Desktop(
-    id = id,
-    name = name,
-    connected = connected,
-    bluetooth = bluetooth,
-    lastSeen = lastSeen.toLong(),
-    sharing = Sharing(
-        sharing.clipboard,
-        sharing.files,
-        sharing.notifications,
-        sharing.media,
-        sharing.ring,
-        sharing.calls,
-        sharing.browse,
-        sharing.screen,
-        sharing.messages,
-    ),
-    bluetoothAddress = bluetoothAddress,
-    btPairing = btPairing,
-    control = control,
-)
+private fun FfiDesktop.toDomain() =
+    Desktop(
+        id = id,
+        name = name,
+        connected = connected,
+        bluetooth = bluetooth,
+        lastSeen = lastSeen.toLong(),
+        sharing =
+            Sharing(
+                sharing.clipboard,
+                sharing.files,
+                sharing.notifications,
+                sharing.media,
+                sharing.ring,
+                sharing.calls,
+                sharing.browse,
+                sharing.screen,
+                sharing.messages,
+            ),
+        bluetoothAddress = bluetoothAddress,
+        btPairing = btPairing,
+        control = control,
+    )
 
-private fun PointerButton.toFfi(): InputButton = when (this) {
-    PointerButton.Left -> InputButton.LEFT
-    PointerButton.Right -> InputButton.RIGHT
-    PointerButton.Middle -> InputButton.MIDDLE
-}
+private fun PointerButton.toFfi(): InputButton =
+    when (this) {
+        PointerButton.Left -> InputButton.LEFT
+        PointerButton.Right -> InputButton.RIGHT
+        PointerButton.Middle -> InputButton.MIDDLE
+    }
 
-private fun RemoteInput.toFfi(): InputEvent = when (this) {
-    is RemoteInput.Move -> InputEvent(InputAction.MOVE, dx, dy, null, null, null)
-    is RemoteInput.Scroll -> InputEvent(InputAction.SCROLL, dx, dy, null, null, null)
-    is RemoteInput.Click -> InputEvent(InputAction.CLICK, null, null, button.toFfi(), null, null)
-    is RemoteInput.Press -> InputEvent(InputAction.PRESS, null, null, button.toFfi(), null, null)
-    is RemoteInput.Release -> InputEvent(InputAction.RELEASE, null, null, button.toFfi(), null, null)
-    is RemoteInput.Key -> InputEvent(InputAction.KEY, null, null, null, InputKey.entries[key.ordinal], null)
-    is RemoteInput.Text -> InputEvent(InputAction.TEXT, null, null, null, null, text)
-}
+private fun RemoteInput.toFfi(): InputEvent =
+    when (this) {
+        is RemoteInput.Move -> InputEvent(InputAction.MOVE, dx, dy, null, null, null)
+        is RemoteInput.Scroll -> InputEvent(InputAction.SCROLL, dx, dy, null, null, null)
+        is RemoteInput.Click -> InputEvent(InputAction.CLICK, null, null, button.toFfi(), null, null)
+        is RemoteInput.Press -> InputEvent(InputAction.PRESS, null, null, button.toFfi(), null, null)
+        is RemoteInput.Release -> InputEvent(InputAction.RELEASE, null, null, button.toFfi(), null, null)
+        is RemoteInput.Key -> InputEvent(InputAction.KEY, null, null, null, InputKey.entries[key.ordinal], null)
+        is RemoteInput.Text -> InputEvent(InputAction.TEXT, null, null, null, null, text)
+    }
 
-private fun MediaCommandKind.toFfi(): FfiCommand = when (this) {
-    MediaCommandKind.Play -> FfiCommand.PLAY
-    MediaCommandKind.Pause -> FfiCommand.PAUSE
-    MediaCommandKind.PlayPause -> FfiCommand.PLAY_PAUSE
-    MediaCommandKind.Next -> FfiCommand.NEXT
-    MediaCommandKind.Previous -> FfiCommand.PREVIOUS
-    MediaCommandKind.Seek -> FfiCommand.SEEK
-    MediaCommandKind.Volume -> FfiCommand.VOLUME
-}
+private fun MediaCommandKind.toFfi(): FfiCommand =
+    when (this) {
+        MediaCommandKind.Play -> FfiCommand.PLAY
+        MediaCommandKind.Pause -> FfiCommand.PAUSE
+        MediaCommandKind.PlayPause -> FfiCommand.PLAY_PAUSE
+        MediaCommandKind.Next -> FfiCommand.NEXT
+        MediaCommandKind.Previous -> FfiCommand.PREVIOUS
+        MediaCommandKind.Seek -> FfiCommand.SEEK
+        MediaCommandKind.Volume -> FfiCommand.VOLUME
+    }
 
 private fun FfiCommand.toDomain(): MediaCommandKind = MediaCommandKind.entries.first { it.toFfi() == this }
 
-private fun PlaybackState.toFfi(): FfiState = when (this) {
-    PlaybackState.Playing -> FfiState.PLAYING
-    PlaybackState.Paused -> FfiState.PAUSED
-    PlaybackState.Stopped -> FfiState.STOPPED
-}
-
-private fun MediaPlayer.toFfi() = FfiPlayer(
-    player = player,
-    name = name,
-    state = state.toFfi(),
-    title = title,
-    artist = artist,
-    album = album,
-    lengthMs = lengthMs?.toULong(),
-    positionMs = positionMs.toULong(),
-    volume = volume?.toUByte(),
-    artwork = artwork,
-    can = can.map { it.toFfi() },
-)
-
-private fun FfiPlayer.toDomain(receivedAt: Long) = MediaPlayer(
-    player = player,
-    name = name,
-    state = PlaybackState.entries.first { it.toFfi() == state },
-    title = title,
-    artist = artist,
-    album = album,
-    lengthMs = lengthMs?.toLong(),
-    positionMs = positionMs.toLong(),
-    volume = volume?.toInt(),
-    artwork = artwork,
-    can = can.map { it.toDomain() }.toSet(),
-    receivedAt = receivedAt,
-)
-
-private fun FfiMirrorAction.toDomain(): MirrorAction = when (this) {
-    FfiMirrorAction.TAP -> MirrorAction.Tap
-    FfiMirrorAction.LONG_PRESS -> MirrorAction.LongPress
-    FfiMirrorAction.SWIPE -> MirrorAction.Swipe
-    FfiMirrorAction.SCROLL -> MirrorAction.Scroll
-    FfiMirrorAction.BACK -> MirrorAction.Back
-    FfiMirrorAction.HOME -> MirrorAction.Home
-    FfiMirrorAction.RECENTS -> MirrorAction.Recents
-    FfiMirrorAction.TEXT -> MirrorAction.Text
-}
-
-private class FfiMirror(private val session: MirrorSession) : MirrorStream {
-    override suspend fun send(ptsUs: Long, keyframe: Boolean, config: Boolean, data: ByteArray): Result<Unit> =
-        unit(ptsUs, (if (keyframe) MIRROR_KEYFRAME else 0) or (if (config) MIRROR_CONFIG else 0), data)
-
-    override suspend fun sendAudio(ptsUs: Long, data: ByteArray): Result<Unit> = unit(ptsUs, MIRROR_AUDIO, data)
-
-    private suspend fun unit(ptsUs: Long, flags: Int, data: ByteArray): Result<Unit> = try {
-        session.sendUnit(ptsUs.toULong(), flags.toUByte(), data)
-        Result.success(Unit)
-    } catch (error: LinkException) {
-        Result.failure(LinkFailureException(error.toFailure()))
+private fun PlaybackState.toFfi(): FfiState =
+    when (this) {
+        PlaybackState.Playing -> FfiState.PLAYING
+        PlaybackState.Paused -> FfiState.PAUSED
+        PlaybackState.Stopped -> FfiState.STOPPED
     }
+
+private fun MediaPlayer.toFfi() =
+    FfiPlayer(
+        player = player,
+        name = name,
+        state = state.toFfi(),
+        title = title,
+        artist = artist,
+        album = album,
+        lengthMs = lengthMs?.toULong(),
+        positionMs = positionMs.toULong(),
+        volume = volume?.toUByte(),
+        artwork = artwork,
+        can = can.map { it.toFfi() },
+    )
+
+private fun FfiPlayer.toDomain(receivedAt: Long) =
+    MediaPlayer(
+        player = player,
+        name = name,
+        state = PlaybackState.entries.first { it.toFfi() == state },
+        title = title,
+        artist = artist,
+        album = album,
+        lengthMs = lengthMs?.toLong(),
+        positionMs = positionMs.toLong(),
+        volume = volume?.toInt(),
+        artwork = artwork,
+        can = can.map { it.toDomain() }.toSet(),
+        receivedAt = receivedAt,
+    )
+
+private fun FfiMirrorAction.toDomain(): MirrorAction =
+    when (this) {
+        FfiMirrorAction.TAP -> MirrorAction.Tap
+        FfiMirrorAction.LONG_PRESS -> MirrorAction.LongPress
+        FfiMirrorAction.SWIPE -> MirrorAction.Swipe
+        FfiMirrorAction.SCROLL -> MirrorAction.Scroll
+        FfiMirrorAction.BACK -> MirrorAction.Back
+        FfiMirrorAction.HOME -> MirrorAction.Home
+        FfiMirrorAction.RECENTS -> MirrorAction.Recents
+        FfiMirrorAction.TEXT -> MirrorAction.Text
+    }
+
+private class FfiMirror(
+    private val session: MirrorSession,
+) : MirrorStream {
+    override suspend fun send(
+        ptsUs: Long,
+        keyframe: Boolean,
+        config: Boolean,
+        data: ByteArray,
+    ): Result<Unit> = unit(ptsUs, (if (keyframe) MIRROR_KEYFRAME else 0) or (if (config) MIRROR_CONFIG else 0), data)
+
+    override suspend fun sendAudio(
+        ptsUs: Long,
+        data: ByteArray,
+    ): Result<Unit> = unit(ptsUs, MIRROR_AUDIO, data)
+
+    private suspend fun unit(
+        ptsUs: Long,
+        flags: Int,
+        data: ByteArray,
+    ): Result<Unit> =
+        try {
+            session.sendUnit(ptsUs.toULong(), flags.toUByte(), data)
+            Result.success(Unit)
+        } catch (error: LinkException) {
+            Result.failure(LinkFailureException(error.toFailure()))
+        }
 
     override suspend fun finish() = session.finish()
 
@@ -658,41 +795,47 @@ private class FfiMirror(private val session: MirrorSession) : MirrorStream {
     }
 }
 
-private fun Feature.toFfi(): FfiFeature = when (this) {
-    Feature.Clipboard -> FfiFeature.CLIPBOARD
-    Feature.Files -> FfiFeature.FILES
-    Feature.Notifications -> FfiFeature.NOTIFICATIONS
-    Feature.Media -> FfiFeature.MEDIA
-    Feature.Ring -> FfiFeature.RING
-    Feature.Calls -> FfiFeature.CALLS
-    Feature.Browse -> FfiFeature.BROWSE
-    Feature.Screen -> FfiFeature.SCREEN
-    Feature.Messages -> FfiFeature.MESSAGES
-}
+private fun Feature.toFfi(): FfiFeature =
+    when (this) {
+        Feature.Clipboard -> FfiFeature.CLIPBOARD
+        Feature.Files -> FfiFeature.FILES
+        Feature.Notifications -> FfiFeature.NOTIFICATIONS
+        Feature.Media -> FfiFeature.MEDIA
+        Feature.Ring -> FfiFeature.RING
+        Feature.Calls -> FfiFeature.CALLS
+        Feature.Browse -> FfiFeature.BROWSE
+        Feature.Screen -> FfiFeature.SCREEN
+        Feature.Messages -> FfiFeature.MESSAGES
+    }
 
-private fun PhoneNotification.toFfi() = FfiPhoneNotification(
-    id = id,
-    app = app,
-    title = title,
-    text = text,
-    icon = icon,
-    actions = actions.map { FfiNotificationButton(it.id, it.label, it.reply) },
-)
+private fun PhoneNotification.toFfi() =
+    FfiPhoneNotification(
+        id = id,
+        app = app,
+        title = title,
+        text = text,
+        icon = icon,
+        actions = actions.map { FfiNotificationButton(it.id, it.label, it.reply) },
+        alertOnce = alertOnce,
+    )
 
-private fun ShareKind.toFfi(): FfiShareKind = when (this) {
-    ShareKind.Text -> FfiShareKind.TEXT
-    ShareKind.Link -> FfiShareKind.LINK
-}
+private fun ShareKind.toFfi(): FfiShareKind =
+    when (this) {
+        ShareKind.Text -> FfiShareKind.TEXT
+        ShareKind.Link -> FfiShareKind.LINK
+    }
 
-private fun FfiShareKind.toDomain(): ShareKind = when (this) {
-    FfiShareKind.TEXT -> ShareKind.Text
-    FfiShareKind.LINK -> ShareKind.Link
-}
+private fun FfiShareKind.toDomain(): ShareKind =
+    when (this) {
+        FfiShareKind.TEXT -> ShareKind.Text
+        FfiShareKind.LINK -> ShareKind.Link
+    }
 
-private fun LinkException.toFailure(): LinkFailure = when (this) {
-    is LinkException.WrongCode -> LinkFailure.WrongCode
-    is LinkException.Unpaired -> LinkFailure.Unpaired
-    is LinkException.Unreachable -> LinkFailure.Unreachable
-    is LinkException.Rejected -> LinkFailure.Rejected(reason)
-    is LinkException.Failed -> LinkFailure.Other(reason)
-}
+private fun LinkException.toFailure(): LinkFailure =
+    when (this) {
+        is LinkException.WrongCode -> LinkFailure.WrongCode
+        is LinkException.Unpaired -> LinkFailure.Unpaired
+        is LinkException.Unreachable -> LinkFailure.Unreachable
+        is LinkException.Rejected -> LinkFailure.Rejected(reason)
+        is LinkException.Failed -> LinkFailure.Other(reason)
+    }

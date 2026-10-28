@@ -27,7 +27,9 @@ data class PairingState(
 
 const val CODE_LENGTH = 6
 
-class PairingViewModel(private val repository: LinkRepository) : ViewModel() {
+class PairingViewModel(
+    private val repository: LinkRepository,
+) : ViewModel() {
     private val _state = MutableStateFlow(PairingState())
     private val pairedChannel = Channel<Desktop>(Channel.BUFFERED)
 
@@ -44,9 +46,10 @@ class PairingViewModel(private val repository: LinkRepository) : ViewModel() {
 
     fun dismissLink() = _state.update { it.copy(link = null, failure = null) }
 
-    fun updateCode(input: String) = _state.update {
-        it.copy(code = input.filter(Char::isDigit).take(CODE_LENGTH), failure = null)
-    }
+    fun updateCode(input: String) =
+        _state.update {
+            it.copy(code = input.filter(Char::isDigit).take(CODE_LENGTH), failure = null)
+        }
 
     fun pairWithCode() = pair { repository.pairCode(_state.value.code) }
 
@@ -62,8 +65,7 @@ class PairingViewModel(private val repository: LinkRepository) : ViewModel() {
                 .onSuccess { desktop ->
                     _state.value = PairingState()
                     pairedChannel.send(desktop)
-                }
-                .onFailure { error -> _state.update { it.copy(busy = false, failure = error.linkFailure()) } }
+                }.onFailure { error -> _state.update { it.copy(busy = false, failure = error.linkFailure()) } }
         }
     }
 }

@@ -56,31 +56,39 @@ class BluetoothBonding(
     }
 
     /** Reports the code of the pairing request for [address], then stops listening once the pairing settles. */
-    private fun listen(desktopId: String, address: String) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val device = intent.device() ?: return
-                if (!device.address.equals(address, ignoreCase = true)) return
-                when (intent.action) {
-                    BluetoothDevice.ACTION_PAIRING_REQUEST -> {
-                        val passkey = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_KEY, -1)
-                        if (passkey >= 0) scope.launch { repository.reportBtPairing(desktopId, passkey) }
-                    }
-                    BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-                        val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
-                        if (state != BluetoothDevice.BOND_BONDING) {
-                            Log.i(TAG, "pairing with $address: ${if (state == BluetoothDevice.BOND_BONDED) "paired" else "not paired"}")
-                            context.unregisterReceiver(this)
+    private fun listen(
+        desktopId: String,
+        address: String,
+    ) {
+        val receiver =
+            object : BroadcastReceiver() {
+                override fun onReceive(
+                    context: Context,
+                    intent: Intent,
+                ) {
+                    val device = intent.device() ?: return
+                    if (!device.address.equals(address, ignoreCase = true)) return
+                    when (intent.action) {
+                        BluetoothDevice.ACTION_PAIRING_REQUEST -> {
+                            val passkey = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_KEY, -1)
+                            if (passkey >= 0) scope.launch { repository.reportBtPairing(desktopId, passkey) }
+                        }
+                        BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+                            val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
+                            if (state != BluetoothDevice.BOND_BONDING) {
+                                Log.i(TAG, "pairing with $address: ${if (state == BluetoothDevice.BOND_BONDED) "paired" else "not paired"}")
+                                context.unregisterReceiver(this)
+                            }
                         }
                     }
                 }
             }
-        }
-        val filter = IntentFilter(BluetoothDevice.ACTION_PAIRING_REQUEST).apply {
-            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-            // Ahead of Settings, which shows the dialog: this receiver only reads the code and lets it through.
-            priority = IntentFilter.SYSTEM_HIGH_PRIORITY - 1
-        }
+        val filter =
+            IntentFilter(BluetoothDevice.ACTION_PAIRING_REQUEST).apply {
+                addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                // Ahead of Settings, which shows the dialog: this receiver only reads the code and lets it through.
+                priority = IntentFilter.SYSTEM_HIGH_PRIORITY - 1
+            }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -92,15 +100,17 @@ class BluetoothBonding(
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
 
-    private fun Intent.device(): BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-    } else {
-        @Suppress("DEPRECATION")
-        getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-    }
+    private fun Intent.device(): BluetoothDevice? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+        }
 
     private companion object {
         const val TAG = "BluetoothBonding"
+
         /** Time for the desktop's adapter to start accepting connections. */
         const val OPEN_MS = 1_500L
     }

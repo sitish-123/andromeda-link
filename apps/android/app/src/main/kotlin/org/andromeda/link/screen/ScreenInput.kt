@@ -37,7 +37,11 @@ class ScreenInput : AccessibilityService() {
 
     private fun run(input: MirrorCommand.Input) {
         val (width, height) = screen()
-        fun px(value: Int?, side: Int) = (value ?: 0).toFloat() / MIRROR_UNIT * side
+
+        fun px(
+            value: Int?,
+            side: Int,
+        ) = (value ?: 0).toFloat() / MIRROR_UNIT * side
         val x = px(input.x, width)
         val y = px(input.y, height)
         when (input.action) {
@@ -56,18 +60,27 @@ class ScreenInput : AccessibilityService() {
         }
     }
 
-    private fun screen(): Pair<Int, Int> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
-    } else {
-        resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-    }
+    private fun screen(): Pair<Int, Int> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds.let { it.width() to it.height() }
+        } else {
+            resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+        }
 
-    private fun line(x: Float, y: Float, toX: Float, toY: Float) = Path().apply {
+    private fun line(
+        x: Float,
+        y: Float,
+        toX: Float,
+        toY: Float,
+    ) = Path().apply {
         moveTo(x, y)
         lineTo(toX, toY)
     }
 
-    private fun gesture(path: Path, ms: Long) {
+    private fun gesture(
+        path: Path,
+        ms: Long,
+    ) {
         val stroke = GestureDescription.StrokeDescription(path, 0, ms.coerceIn(1, MAX_GESTURE_MS))
         if (!dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)) {
             Log.i(TAG, "the gesture was not dispatched")
@@ -84,9 +97,10 @@ class ScreenInput : AccessibilityService() {
         val showsHint = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && field.isShowingHintText
         val current = if (showsHint) "" else field.text?.toString().orEmpty()
         val next = if (text == BACKSPACE) current.dropLast(1) else current + text
-        val arguments = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, next)
-        }
+        val arguments =
+            Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, next)
+            }
         field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
     }
 

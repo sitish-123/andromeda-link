@@ -4,8 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
-import android.graphics.Paint
 import android.graphics.Color
+import android.graphics.Paint
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -47,7 +47,9 @@ class MirrorProbeActivity : Activity() {
         if (intent.getBooleanExtra("noise", false)) setContentView(Noise(this))
     }
 
-    private class Noise(context: Context) : View(context) {
+    private class Noise(
+        context: Context,
+    ) : View(context) {
         private val paint = Paint()
 
         override fun onDraw(canvas: Canvas) {
@@ -56,8 +58,11 @@ class MirrorProbeActivity : Activity() {
                 for (column in 0 until COLUMNS) {
                     paint.color = Color.rgb(Random.nextInt(256), Random.nextInt(256), Random.nextInt(256))
                     canvas.drawRect(
-                        (column * side).toFloat(), (row * side).toFloat(),
-                        ((column + 1) * side).toFloat(), ((row + 1) * side).toFloat(), paint,
+                        (column * side).toFloat(),
+                        (row * side).toFloat(),
+                        ((column + 1) * side).toFloat(),
+                        ((row + 1) * side).toFloat(),
+                        paint,
                     )
                 }
             }
@@ -78,18 +83,20 @@ class MirrorProbeActivity : Activity() {
 
     private fun toneTrack(): AudioTrack {
         val samples = ShortArray(RATE) { i -> (sin(2 * PI * HZ * i / RATE) * AMPLITUDE).toInt().toShort() }
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(RATE)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build(),
-            )
-            .setTransferMode(AudioTrack.MODE_STATIC)
-            .setBufferSizeInBytes(samples.size * 2)
-            .build()
+        val track =
+            AudioTrack
+                .Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build())
+                .setAudioFormat(
+                    AudioFormat
+                        .Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build(),
+                ).setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(samples.size * 2)
+                .build()
         track.write(samples, 0, samples.size)
         track.setLoopPoints(0, samples.size, -1)
         return track

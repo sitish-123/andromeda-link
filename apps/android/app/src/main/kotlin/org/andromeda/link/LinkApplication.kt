@@ -2,31 +2,31 @@ package org.andromeda.link
 
 import android.app.Application
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import android.os.Build
-import android.provider.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.andromeda.link.calls.Calls
 import org.andromeda.link.clipboard.ClipboardSync
 import org.andromeda.link.clipboard.ClipboardWatcher
-import org.andromeda.link.calls.Calls
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.data.MediaLibrary
 import org.andromeda.link.core.data.Messaging
 import org.andromeda.link.core.data.PhoneContacts
 import org.andromeda.link.core.data.PhoneTexts
 import org.andromeda.link.files.MediaAccess
+import org.andromeda.link.files.PhoneFiles
 import org.andromeda.link.media.DesktopMedia
 import org.andromeda.link.media.PhoneMedia
-import org.andromeda.link.files.PhoneFiles
 import org.andromeda.link.notifications.Channels
 import org.andromeda.link.notifications.NotificationMirror
 import org.andromeda.link.notifications.ShareNotifier
@@ -34,9 +34,9 @@ import org.andromeda.link.notifications.TransferNotifier
 import org.andromeda.link.presence.BluetoothBonding
 import org.andromeda.link.presence.Presence
 import org.andromeda.link.presence.StatusReporter
-import org.andromeda.link.transfer.TransferService
 import org.andromeda.link.ring.Ringer
 import org.andromeda.link.screen.ScreenMirror
+import org.andromeda.link.transfer.TransferService
 
 class LinkApplication : Application() {
     lateinit var container: AppContainer
@@ -50,7 +50,9 @@ class LinkApplication : Application() {
 }
 
 /** Every long-lived object, built once; screens receive what they need through their ViewModel's constructor. */
-class AppContainer(val application: Application) {
+class AppContainer(
+    val application: Application,
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val notifier = ShareNotifier(application)
     private val transferNotifier = TransferNotifier(application)
@@ -58,8 +60,8 @@ class AppContainer(val application: Application) {
     val presence = Presence(application, repository, scope)
     val clipboard = ClipboardSync(application, repository, scope)
     val clipboardWatcher = ClipboardWatcher(application, clipboard, scope)
-    private val status = StatusReporter(application, repository, scope)
     val mirror = NotificationMirror(application, repository, scope)
+    private val status = StatusReporter(application, repository, scope, mirror.accessOff)
     val media = PhoneMedia(application, repository, scope)
     private val desktopMedia = DesktopMedia(application, repository, scope)
     val ringer = Ringer(application, repository, scope)

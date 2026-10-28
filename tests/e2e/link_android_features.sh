@@ -196,8 +196,9 @@ wait_for 10 "the desktop session is not paused: $(session | grep state=)" eval '
 session | grep -E "state=|description=" | head -2 > "$OUT/desktop-session.txt"
 record '{"step":"desktop-media-session","session":"link-desktop","state":"paused"}'
 
-# The system media card in the shade drives the same session: its Play reaches the desktop player.
-adb shell cmd statusbar expand-notifications
+# The system media card drives the same session: its Play reaches the desktop player. Quick settings, since
+# OxygenOS shows media cards only there.
+adb shell cmd statusbar expand-settings
 maestro "$FLOWS/media-card.yaml"
 wait_for 10 "the media card's Play did not reach the desktop player: $(tr "\n" " " < "$OUT/player-calls.txt")" \
   grep -qx Play "$OUT/player-calls.txt"
@@ -207,14 +208,20 @@ wait_for 10 "the media card's Play did not reach the desktop player: $(tr "\n" "
 seek_bar() {
   "$MAESTRO" --device "$SERIAL" hierarchy 2> /dev/null | python3 -c '
 import json, re, sys
-def find(node):
+def bars(node):
     attributes = node.get("attributes", {})
     if attributes.get("class") == "android.widget.SeekBar":
-        return attributes["bounds"]
-    return next((b for b in map(find, node.get("children", [])) if b), None)
-print(*re.findall(r"\d+", find(json.load(sys.stdin)) or ""))' > "$OUT/seek-bar.txt"
+        yield attributes
+    for child in node.get("children", []):
+        yield from bars(child)
+# Quick settings may hold other sliders (brightness); the media one names itself so in its id.
+found = sorted(bars(json.load(sys.stdin)), key=lambda bar: "media" not in bar.get("resource-id", ""))
+print(*re.findall(r"\d+", found[0]["bounds"] if found else ""))' > "$OUT/seek-bar.txt"
+  cat "$OUT/seek-bar.txt" >> "$OUT/maestro.log"
   [[ -s $OUT/seek-bar.txt && $(wc -w < "$OUT/seek-bar.txt") == 4 ]]
 }
+# OxygenOS closes quick settings after the card's Play.
+adb shell cmd statusbar expand-settings
 wait_for 30 "the media card shows no seek bar" seek_bar
 read -r x1 y1 x2 y2 < "$OUT/seek-bar.txt"
 y=$(((y1 + y2) / 2))
@@ -242,6 +249,7 @@ record '{"step":"media-card","card":"Play reached the desktop player","lock_scre
 
 
 alarm_volume() { adb shell cmd media_session volume --stream 4 --get 2> /dev/null | sed -n 's/.*volume is \([0-9]*\).*/\1/p' | tr -d '\r'; }
+ALARM_MAX=$(adb shell cmd media_session volume --stream 4 --get 2> /dev/null | sed -n 's/.*\.\.\([0-9]*\)\].*/\1/p' | tr -d '\r')
 zen() { adb shell settings get global zen_mode | tr -d '\r'; }
 adb shell cmd notification allow_dnd "$PACKAGE"
 # The emulator ignores `cmd media_session volume` for the alarm stream, which stays at its maximum, so the restore
@@ -252,7 +260,7 @@ wait_for 10 "Do Not Disturb did not turn on" eval '[[ $(zen) != 0 ]]'
 ZEN_BEFORE=$(zen)
 link Ring "$ID" true > /dev/null || fail "D-Bus Ring"
 wait_for 10 "the phone did not report ringing" heard PhoneRinging "'$ID', true"
-wait_for 10 "the alarm stream is not at full volume: $(alarm_volume)" eval '[[ $(alarm_volume) == 7 ]]'
+wait_for 10 "the alarm stream is not at full volume: $(alarm_volume)" eval '[[ $(alarm_volume) == "$ALARM_MAX" ]]'
 [[ $(zen) == "$ZEN_BEFORE" ]] || fail "the ring changed the user's Do Not Disturb on Android 15: zen_mode $(zen)"
 adb shell dumpsys audio > "$OUT/audio.txt"
 PIID=$(grep "new AudioAttributes:AudioAttributes: usage=USAGE_ALARM" "$OUT/audio.txt" | tail -1 | sed -n 's/.*player piid:\([0-9]*\).*/\1/p')

@@ -2,9 +2,13 @@
 appId: org.andromeda.link
 ---
 - launchApp:
+    # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
+    permissions: { notifications: allow }
     stopApp: false
 - pressKey: Back
 - launchApp:
+    # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
+    permissions: { notifications: allow }
     stopApp: false
 - scrollUntilVisible:
     element: "Ring"

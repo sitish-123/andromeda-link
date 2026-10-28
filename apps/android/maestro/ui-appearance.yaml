@@ -1,6 +1,8 @@
 appId: org.andromeda.link
 ---
 - launchApp:
+    # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
+    permissions: { notifications: allow }
     stopApp: false
 - tapOn: "Settings tab"
 - scrollUntilVisible:
@@ -8,6 +10,8 @@ appId: org.andromeda.link
 - tapOn: "Dark"
 - takeScreenshot: ${OUT}/appearance-dark
 - launchApp:
+    # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
+    permissions: { notifications: allow }
     stopApp: true
 - tapOn: "Settings tab"
 - scrollUntilVisible:

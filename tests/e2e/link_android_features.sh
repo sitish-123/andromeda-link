@@ -205,23 +205,25 @@ wait_for 10 "the media card's Play did not reach the desktop player: $(tr "\n" "
 # The card's seek bar takes a drag only from its thumb (elsewhere the card itself swipes) and held like a finger, so the drag
 # is built from motion events, from the thumb to 75% (150 s).
 # uiautomator dump never sees the animated card idle; Maestro's hierarchy does not wait for idle, but sometimes misses it.
+# OxygenOS closes quick settings after the card's Play, so each try opens them again.
 seek_bar() {
+  adb shell cmd statusbar expand-settings
   "$MAESTRO" --device "$SERIAL" hierarchy 2> /dev/null | python3 -c '
 import json, re, sys
 def bars(node):
     attributes = node.get("attributes", {})
-    if attributes.get("class") == "android.widget.SeekBar":
+    # With quick settings closed, the app'"'"'s own Position bar shows; it has no id or one of the app.
+    bar_id = attributes.get("resource-id", "")
+    if attributes.get("class") == "android.widget.SeekBar" and ":" in bar_id and not bar_id.startswith(sys.argv[1] + ":"):
         yield attributes
     for child in node.get("children", []):
         yield from bars(child)
 # Quick settings may hold other sliders (brightness); the media one names itself so in its id.
 found = sorted(bars(json.load(sys.stdin)), key=lambda bar: "media" not in bar.get("resource-id", ""))
-print(*re.findall(r"\d+", found[0]["bounds"] if found else ""))' > "$OUT/seek-bar.txt"
+print(*re.findall(r"\d+", found[0]["bounds"] if found else ""))' "$PACKAGE" > "$OUT/seek-bar.txt"
   cat "$OUT/seek-bar.txt" >> "$OUT/maestro.log"
   [[ -s $OUT/seek-bar.txt && $(wc -w < "$OUT/seek-bar.txt") == 4 ]]
 }
-# OxygenOS closes quick settings after the card's Play.
-adb shell cmd statusbar expand-settings
 wait_for 30 "the media card shows no seek bar" seek_bar
 read -r x1 y1 x2 y2 < "$OUT/seek-bar.txt"
 y=$(((y1 + y2) / 2))

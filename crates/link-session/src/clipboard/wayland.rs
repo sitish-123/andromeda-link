@@ -191,7 +191,9 @@ impl Wayland {
         let (globals, queue) = registry_queue_init::<State>(&conn)?;
         let qh = queue.handle();
         let Ok(seat) = globals.bind::<WlSeat, _, _>(&qh, 1..=1, ()) else { return Ok(None) };
-        let control = match ext::Control::bind(&globals, &seat, &qh) {
+        // ANDROMEDA_LINK_DATA_CONTROL=wlr skips ext, so tests reach the fallback on compositors that offer both.
+        let ext = std::env::var_os("ANDROMEDA_LINK_DATA_CONTROL").is_none_or(|choice| choice != "wlr");
+        let control = match ext.then(|| ext::Control::bind(&globals, &seat, &qh)).flatten() {
             Some(control) => Control::Ext(control),
             None => match wlr::Control::bind(&globals, &seat, &qh) {
                 Some(control) => Control::Wlr(control),

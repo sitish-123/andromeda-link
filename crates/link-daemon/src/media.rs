@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use link_core::identity::DeviceId;
-use link_core::proto::message::{MediaGone, MediaPlayer, Message};
+use link_core::proto::message::{MediaGone, MediaPlayer, Message, PlaybackState};
 use link_core::session::SessionHandle;
 
 use crate::desktop_media::{DesktopMediaHandle, Request};
@@ -17,7 +17,7 @@ const MAX_PHONE_PLAYERS: usize = 8;
 
 #[derive(Default)]
 struct PhonePlayers {
-    /// Least recently updated first; the last is exported.
+    /// Least recently updated first; the last playing one is exported, else the last.
     players: Vec<MediaPlayer>,
     exported: Option<Exported>,
 }
@@ -70,7 +70,9 @@ impl Media {
             Message::MediaCommand(command) => return self.requests.request(Request::Command(command)).await,
             other => return log::warn!("{device}: {} is not media", other.kind()),
         }
-        let Some(latest) = phone.players.last().cloned() else {
+        // The newest playing player leads; a paused one that reports later does not take its place.
+        let lead = phone.players.iter().rev().find(|player| player.state == PlaybackState::Playing);
+        let Some(latest) = lead.or_else(|| phone.players.last()).cloned() else {
             if let Some(exported) = phone.exported.take() {
                 exported.close().await;
             }

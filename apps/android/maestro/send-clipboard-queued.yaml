@@ -1,0 +1,11 @@
+# Home's Clipboard tile while the desktop is away: the clip waits for it, and Home says so.
+appId: org.andromeda.link
+---
+- launchApp:
+    stopApp: false
+- tapOn: "Home"
+- tapOn: "Clipboard"
+- extendedWaitUntil:
+    visible: "Will send when .* connects"
+    timeout: 10000
+- takeScreenshot: ${OUT}/10-will-send

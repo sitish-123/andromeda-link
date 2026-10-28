@@ -11,7 +11,10 @@
 # through the share target arrives intact after a D-Bus Accept, and a file sent with D-Bus SendFiles and accepted from
 # Activity lands in MediaStore Downloads, no longer pending, with the same SHA-256; with READ_LOGS and
 # Display over other apps granted over adb and Stay connected on, a copy in Settings reaches the desktop with no tap,
-# a desktop clip is set on the phone (pasted back in Settings) without echoing, and "Send to desktop" (PROCESS_TEXT)
+# a desktop clip is set on the phone (pasted back in Settings) without echoing; the same text copied twice reaches
+# the desktop twice; a rich copy's text and HTML arrive as their own types; desktop HTML pastes on the phone and is
+# still there after 2 minutes; a copy made while the desktop is away shows "Will send when … connects" on Home and
+# reaches the desktop once it is back; "Send to desktop" (PROCESS_TEXT)
 # sends a selection; a PNG copied by another app through a pipe-backed content URI reaches the desktop byte for byte,
 # even after its source is deleted; unpairing in the app removes it on the desktop.
 # Writes screenshots, results.jsonl, results.json, signals.txt, notifications.txt, mediastore.txt, linkd.log to $OUT
@@ -79,9 +82,14 @@ no_presence() { ! presence; }
 
 DOWNLOADS=$RUNTIME/downloads
 mkdir -p "$DOWNLOADS"
-XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
-for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+start_linkd() {
+  XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$DOWNLOADS "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 &
+  LINKD=$!
+  for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
+  link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
+}
+: > "$OUT/linkd.log"
+start_linkd
 dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 
@@ -220,6 +228,8 @@ maestro "$FLOWS/allow-logs.yaml"
 wait_for 10 "no Stay connected notification" presence
 adb shell input keyevent KEYCODE_HOME
 
+adb install -r "$FIXTURE_APK" > /dev/null || fail "installing the clipboard fixture"
+
 # Automatic clipboard both ways while Stay connected runs: another app's copy reaches the desktop by itself.
 clip_offers() { grep -c "member=ClipboardOffered" "$OUT/signals.txt" || true; }
 pulled() {
@@ -266,6 +276,49 @@ adb shell input keyevent KEYCODE_BACK
 adb shell input keyevent KEYCODE_HOME
 record '{"step":"desktop-copy-reaches-android","pasted":"from the desktop clipboard","echo":false}'
 
+# Echo is told by the copy's origin, not its text: the same text copied twice reaches the desktop twice.
+BEFORE=$(clip_offers)
+for n in 1 2; do
+  adb shell am start -W -n org.andromeda.link.fixture/.TextClipboardActivity --es text "'copied twice'" > /dev/null
+  wait_for 20 "copy $n of the same text never reached the desktop" eval '(( $(clip_offers) >= BEFORE + n ))'
+done
+record '{"step":"same-text-twice-reaches-desktop","offers":2}'
+
+# Every type of a copy crosses: the desktop pulls a rich copy's text and its HTML, each its own bytes.
+BEFORE=$(clip_offers)
+adb shell am start -W -n org.andromeda.link.fixture/.TextClipboardActivity --es text "'rich copy'" \
+  --es html "'<b>rich</b> copy'" > /dev/null
+wait_for 20 "the rich copy never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
+[[ $(pulled) == "rich copy" ]] || fail "the rich copy's text arrived as \"$(pulled)\""
+CLIP_ID=$(grep -A2 'member=ClipboardOffered' "$OUT/signals.txt" | grep -o 'uint64 [0-9]*' | tail -1 | cut -d' ' -f2)
+HTML=$(python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" pull "$ID" "$CLIP_ID" text/html) || fail "PullClipboard text/html"
+[[ $HTML == "<b>rich</b> copy" ]] || fail "the rich copy's HTML arrived as \"$HTML\""
+record '{"step":"android-html-copy-reaches-desktop","mimes":["text/plain","text/html"]}'
+
+# Desktop HTML is set on the phone, and a synced clip is no longer cleared after 2 minutes unless asked.
+python3 "$ROOT/tests/e2e/link_clipboard_dbus.py" offer text/html "<i>desktop</i> HTML" || fail "OfferClipboard text/html"
+sleep 125 # real time: past the 2 minutes after which a synced clip was cleared before
+adb shell am start -W -a android.settings.DEVICE_NAME > /dev/null
+maestro "$FLOWS/device-name-field.yaml"
+adb shell input keycombination 113 29 # Ctrl+A
+adb shell input keycombination 113 50 # Ctrl+V
+maestro -e TEXT="desktop HTML" "$FLOWS/field-shows.yaml"
+adb shell input keyevent KEYCODE_BACK
+adb shell input keyevent KEYCODE_BACK
+adb shell input keyevent KEYCODE_HOME
+record '{"step":"desktop-html-kept-past-two-minutes","pasted":"desktop HTML"}'
+
+# A copy made while the desktop is away waits for it: Home says so, and the desktop gets it once it is back.
+kill "$LINKD"; wait "$LINKD" 2> /dev/null || true
+adb shell am start -W -n org.andromeda.link.fixture/.TextClipboardActivity --es text "'copied while away'" > /dev/null
+maestro "$FLOWS/send-clipboard-queued.yaml"
+adb shell input keyevent KEYCODE_HOME
+BEFORE=$(clip_offers)
+start_linkd
+wait_for 60 "the copy made while away never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'
+[[ $(pulled) == "copied while away" ]] || fail "the desktop got \"$(pulled)\", not the copy made while away"
+record '{"step":"copy-while-away-reaches-desktop-on-connect","home":"Will send when … connects"}'
+
 # The one-tap path without the grants: "Send to desktop" in the text-selection menu.
 BEFORE=$(clip_offers)
 adb shell am start -W -n "$PACKAGE/.clipboard.ClipboardReadActivity" -a android.intent.action.PROCESS_TEXT \
@@ -298,7 +351,6 @@ fixture_photos
 
 # Another app's image copy must offer image/png, not the text of its content URI. The provider uses a pipe and the
 # source is deleted before the desktop pastes, so the phone must have kept a seekable snapshot while focused.
-adb install -r "$FIXTURE_APK" > /dev/null || fail "installing the clipboard fixture"
 BEFORE=$(clip_offers)
 adb shell am start -W -n org.andromeda.link.fixture/.ImageClipboardActivity > /dev/null
 wait_for 20 "the copied PNG never reached the desktop" eval '(( $(clip_offers) > BEFORE ))'

@@ -139,7 +139,6 @@ wait_for 10 "no Android notification for the link" posted "https://example.org/f
 adb shell cmd statusbar expand-notifications
 sleep 2 # real time: the shade animates open and lays out the notifications
 screenshot 4-notifications
-adb shell cmd statusbar collapse
 maestro "$FLOWS/copy.yaml"
 wait_for 10 "Copy did not clear the text notification" gone "hello from the desktop"
 record '{"step":"desktop-to-android","kinds":["text","link"],"copy":"content intent, the Copy PendingIntent"}'

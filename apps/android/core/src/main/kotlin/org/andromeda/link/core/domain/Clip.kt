@@ -22,3 +22,11 @@ sealed interface ClipPart {
         val uri: android.net.Uri,
     ) : ClipPart
 }
+
+/** A clip sent or received in this app process; [text] is null for images and files. [time] is Unix milliseconds. */
+data class RecentClip(
+    val desktopId: String?,
+    val incoming: Boolean,
+    val text: String?,
+    val time: Long = System.currentTimeMillis(),
+)

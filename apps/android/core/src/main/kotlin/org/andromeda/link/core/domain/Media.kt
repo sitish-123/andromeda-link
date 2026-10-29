@@ -64,3 +64,12 @@ data class DesktopVolume(
     val percent: Int,
     val muted: Boolean,
 )
+
+/** A desktop's state from its link-session; each field is null when the desktop cannot tell. */
+data class DesktopStatus(
+    val battery: Int? = null,
+    val charging: Boolean? = null,
+    val brightness: Int? = null,
+    val locked: Boolean? = null,
+    val dnd: Boolean? = null,
+)

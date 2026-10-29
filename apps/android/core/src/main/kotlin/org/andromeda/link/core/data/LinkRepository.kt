@@ -29,6 +29,7 @@ import org.andromeda.link.core.domain.ClipPart
 import org.andromeda.link.core.domain.Desktop
 import org.andromeda.link.core.domain.DesktopCommand
 import org.andromeda.link.core.domain.DesktopPlayer
+import org.andromeda.link.core.domain.DesktopStatus
 import org.andromeda.link.core.domain.DesktopVolume
 import org.andromeda.link.core.domain.Feature
 import org.andromeda.link.core.domain.IncomingClip
@@ -49,6 +50,7 @@ import org.andromeda.link.core.domain.PhoneMediaCommand
 import org.andromeda.link.core.domain.PhoneNotification
 import org.andromeda.link.core.domain.PlaybackState
 import org.andromeda.link.core.domain.PointerButton
+import org.andromeda.link.core.domain.RecentClip
 import org.andromeda.link.core.domain.RemoteInput
 import org.andromeda.link.core.domain.SavedFile
 import org.andromeda.link.core.domain.ShareKind
@@ -126,6 +128,8 @@ class LinkRepository(
     private val _commands = MutableStateFlow<Map<String, List<DesktopCommand>>>(emptyMap())
     private val _capabilities = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     private val _desktopVolumes = MutableStateFlow<Map<String, DesktopVolume>>(emptyMap())
+    private val _desktopStatuses = MutableStateFlow<Map<String, DesktopStatus>>(emptyMap())
+    private val _recentClips = MutableStateFlow<List<RecentClip>>(emptyList())
     private val _pings = MutableSharedFlow<IncomingPing>(extraBufferCapacity = INCOMING_BUFFER)
     private val _systemCommands = MutableSharedFlow<IncomingSystemCommand>(extraBufferCapacity = INCOMING_BUFFER)
 
@@ -139,6 +143,9 @@ class LinkRepository(
 
     /** Desktop clipboards, as they change. */
     val clips: SharedFlow<IncomingClip> = _clips.asSharedFlow()
+
+    /** The latest clips sent or received in this app process, newest first. */
+    val recentClips: StateFlow<List<RecentClip>> = _recentClips.asStateFlow()
 
     /**
      * The battery (percent) and network (wifi, cellular, ethernet, none, or other) desktops show; [signal] is cellular
@@ -189,7 +196,9 @@ class LinkRepository(
                             }
                         }
                     }
-                call { it.offerClip(types).toInt() }
+                call { it.offerClip(types).toInt() }.onSuccess { taken ->
+                    if (taken > 0) addRecentClip(RecentClip(null, false, parts.filterIsInstance<ClipPart.Text>().firstOrNull()?.text))
+                }
             } catch (error: IOException) {
                 Result.failure(LinkFailureException(LinkFailure.Rejected(error.message.orEmpty())))
             } catch (error: SecurityException) {
@@ -296,6 +305,9 @@ class LinkRepository(
     /** Each desktop's output volume, once its link-session reported it. */
     val desktopVolumes: StateFlow<Map<String, DesktopVolume>> = _desktopVolumes.asStateFlow()
 
+    /** Each desktop's battery, brightness, lock and Do Not Disturb, once its link-session reported them. */
+    val desktopStatuses: StateFlow<Map<String, DesktopStatus>> = _desktopStatuses.asStateFlow()
+
     val pings: SharedFlow<IncomingPing> = _pings.asSharedFlow()
 
     /** Commands from desktops that granted this phone "Control system"; each wants a [systemResult]. */
@@ -386,6 +398,23 @@ class LinkRepository(
         desktopId: String,
         muted: Boolean,
     ): Result<Unit> = call { it.setDesktopMuted(desktopId, muted) }
+
+    /** The system commands below need the desktop's system grant, the "control" capability. */
+    suspend fun setDesktopBrightness(
+        desktopId: String,
+        percent: Int,
+    ): Result<Unit> = call { it.setDesktopBrightness(desktopId, percent.coerceIn(0, 100).toUByte()) }
+
+    suspend fun setDesktopDnd(
+        desktopId: String,
+        on: Boolean,
+    ): Result<Unit> = call { it.setDesktopDnd(desktopId, on) }
+
+    suspend fun lockDesktop(desktopId: String): Result<Unit> = call { it.lockDesktop(desktopId) }
+
+    suspend fun suspendDesktop(desktopId: String): Result<Unit> = call { it.suspendDesktop(desktopId) }
+
+    suspend fun turnDesktopScreenOff(desktopId: String): Result<Unit> = call { it.turnDesktopScreenOff(desktopId) }
 
     /** Succeeds with how many connected desktops took it; none are dialled. */
     suspend fun postNotification(notification: PhoneNotification): Result<Int> =
@@ -592,8 +621,10 @@ class LinkRepository(
                 is LinkEvent.TransferProgress ->
                     emitTransfer(TransferEvent.Progress(event.transferId, event.bytes.toLong(), event.total.toLong()))
                 is LinkEvent.TransferFinished -> scope.launch { finished(event) }
-                is LinkEvent.ClipOffered ->
+                is LinkEvent.ClipOffered -> {
                     _clips.emit(IncomingClip(event.desktopId, event.clipId.toLong(), event.mimes, event.text))
+                    addRecentClip(RecentClip(event.desktopId, true, event.text))
+                }
                 is LinkEvent.NotificationAction ->
                     _notificationCommands.emit(
                         NotificationCommand.Action(event.desktopId, event.id, event.action, event.replyText),
@@ -635,6 +666,15 @@ class LinkRepository(
                             it - event.desktopId
                         }
                     }
+                    val status =
+                        DesktopStatus(
+                            event.battery?.toInt(),
+                            event.charging,
+                            event.brightness?.toInt(),
+                            event.locked,
+                            event.dnd,
+                        )
+                    _desktopStatuses.update { it + (event.desktopId to status) }
                 }
             }
         }
@@ -672,6 +712,8 @@ class LinkRepository(
             scope.launch(activityWriter) { activityStore.save(records) }
         }
     }
+
+    private fun addRecentClip(clip: RecentClip) = _recentClips.update { (listOf(clip) + it).take(RECENT_CLIPS) }
 
     private suspend fun emitTransfer(event: TransferEvent) {
         updateTransfer(event.transferId) { existing ->
@@ -724,6 +766,7 @@ class LinkRepository(
     private companion object {
         const val INCOMING_BUFFER = 16
         const val MAX_CLIP_SIZE = 64L shl 20
+        const val RECENT_CLIPS = 3
         const val ACTIVITY_LIMIT = 200
 
         // Input comes in bursts while a finger drags.

@@ -954,11 +954,32 @@ impl LinkClient {
 
     /// Sets the desktop's output volume, `percent` 0 to 100; needs the desktop's system switch for this phone.
     pub async fn set_desktop_volume(&self, desktop_id: String, percent: u8) -> Result<(), LinkError> {
-        self.system_command(desktop_id, message::SystemCommandKind::SetVolume, percent).await
+        self.system_command(desktop_id, message::SystemCommandKind::SetVolume, Some(percent)).await
     }
 
     pub async fn set_desktop_muted(&self, desktop_id: String, muted: bool) -> Result<(), LinkError> {
-        self.system_command(desktop_id, message::SystemCommandKind::SetMute, u8::from(muted)).await
+        self.system_command(desktop_id, message::SystemCommandKind::SetMute, Some(u8::from(muted))).await
+    }
+
+    /// Sets the desktop's backlight, `percent` 0 to 100; the next [`LinkEvent::DesktopStatusChanged`] has the result.
+    pub async fn set_desktop_brightness(&self, desktop_id: String, percent: u8) -> Result<(), LinkError> {
+        self.system_command(desktop_id, message::SystemCommandKind::SetBrightness, Some(percent)).await
+    }
+
+    pub async fn set_desktop_dnd(&self, desktop_id: String, on: bool) -> Result<(), LinkError> {
+        self.system_command(desktop_id, message::SystemCommandKind::SetDnd, Some(u8::from(on))).await
+    }
+
+    pub async fn lock_desktop(&self, desktop_id: String) -> Result<(), LinkError> {
+        self.system_command(desktop_id, message::SystemCommandKind::Lock, None).await
+    }
+
+    pub async fn suspend_desktop(&self, desktop_id: String) -> Result<(), LinkError> {
+        self.system_command(desktop_id, message::SystemCommandKind::Suspend, None).await
+    }
+
+    pub async fn turn_desktop_screen_off(&self, desktop_id: String) -> Result<(), LinkError> {
+        self.system_command(desktop_id, message::SystemCommandKind::ScreenOff, None).await
     }
 
     /// Answers a desktop's [`LinkEvent::SystemCommand`] `id`; `error`, for the desktop's user, is None when it was done.
@@ -1278,10 +1299,10 @@ impl LinkClient {
         &self,
         desktop_id: String,
         command: message::SystemCommandKind,
-        value: u8,
+        value: Option<u8>,
     ) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
-        let message = Message::SystemCommand(message::SystemCommand { command, value: Some(value) });
+        let message = Message::SystemCommand(message::SystemCommand { command, value });
         self.run(async move { client.send(id, message).await }).await
     }
 

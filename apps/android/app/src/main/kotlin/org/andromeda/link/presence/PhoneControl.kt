@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,13 +47,17 @@ class PhoneControl(
         )
         val filter =
             IntentFilter().apply {
+                // Volume keys reach the settings observer only once the volume is saved, seconds later.
+                addAction("android.media.VOLUME_CHANGED_ACTION")
                 addAction(AudioManager.RINGER_MODE_CHANGED_ACTION)
                 addAction(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_USER_PRESENT)
             }
-        context.registerReceiver(
+        // Exported: the volume broadcast is not a protected one, and comes from the system.
+        ContextCompat.registerReceiver(
+            context,
             object : BroadcastReceiver() {
                 override fun onReceive(
                     context: Context,
@@ -60,6 +65,7 @@ class PhoneControl(
                 ) = refresh()
             },
             filter,
+            ContextCompat.RECEIVER_EXPORTED,
         )
         scope.launch {
             repository.systemCommands.collect { command ->

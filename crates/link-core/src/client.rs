@@ -174,8 +174,10 @@ pub struct ClientActor {
     present: bool,
     /// Desktops with an open transfer, kept connected like a present phone until it ends.
     busy: HashSet<DeviceId>,
-    /// Desktops whose last `capabilities` said they granted this phone "Control system".
+    /// Desktops whose last `capabilities` this session said they granted this phone "Control system".
     controlled_by: HashSet<DeviceId>,
+    /// The status each desktop last got, as it took it; an equal one is not sent again.
+    status_to: HashMap<DeviceId, Message>,
     /// Desktops a transfer is being started with, kept like busy ones until the transfer actor reports them.
     keeping: HashSet<DeviceId>,
     /// Desktops this phone's screen streams to, kept like busy ones, and their hotspot with them.
@@ -245,6 +247,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         present: false,
         busy: HashSet::new(),
         controlled_by: HashSet::new(),
+        status_to: HashMap::new(),
         keeping: HashSet::new(),
         mirroring: HashSet::new(),
         retries: HashMap::new(),
@@ -525,6 +528,8 @@ impl ClientActor {
             Command::SetPresent { present } => self.set_present(present),
             Command::Forget { id, reply } => {
                 self.retries.remove(&id);
+                self.controlled_by.remove(&id);
+                self.status_to.remove(&id);
                 if let Some(handle) = self.sessions.remove(&id) {
                     handle.close(CloseCode::Done);
                 }
@@ -745,6 +750,7 @@ impl ClientActor {
         }
         if let Some(status) = self.status {
             let (handle, status) = (handle.clone(), self.status_message(&id, status));
+            self.status_to.insert(id.clone(), status.clone());
             if let Err(error) = handle.send(status).await {
                 log::info!("{id}: sending the status: {error}");
             }
@@ -789,6 +795,8 @@ impl ClientActor {
             return;
         }
         let Some(handle) = self.sessions.remove(&id) else { return };
+        self.controlled_by.remove(&id);
+        self.status_to.remove(&id);
         self.mirroring.remove(&id);
         self.on_bluetooth.remove(&id);
         self.on_hotspot.remove(&id);
@@ -1173,7 +1181,13 @@ impl ClientActor {
         let Some(status) = self.status else { return };
         self.status_last = Some(status);
         for (id, handle) in self.sessions.iter().filter(|(_, handle)| handle.is_live()) {
-            if let Err(error) = handle.send(self.status_message(id, status)).await {
+            // A desktop without some fields would get the same status again, against its rate limit.
+            let message = self.status_message(id, status);
+            if self.status_to.get(id) == Some(&message) {
+                continue;
+            }
+            self.status_to.insert(id.clone(), message.clone());
+            if let Err(error) = handle.send(message).await {
                 log::info!("{id}: sending the status: {error}");
             }
         }

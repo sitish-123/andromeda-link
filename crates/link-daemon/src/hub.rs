@@ -1039,9 +1039,14 @@ impl Hub {
         }
     }
 
-    /// Records a phone's status; with Do Not Disturb sync, the phone's new DND goes to `link-session`.
+    /// Records a phone's status; with Do Not Disturb sync, the phone's new DND goes to `link-session`. On connect the
+    /// desktop's DND wins, so a DND set here while the phone was away stays.
     async fn on_status(&mut self, from: DeviceId, status: Status) {
-        let before = self.status.insert(from.clone(), status).and_then(|old| old.dnd);
+        let Some(before) = self.status.insert(from.clone(), status).map(|old| old.dnd) else {
+            self.publish();
+            self.sync_dnd_to_phones().await;
+            return;
+        };
         self.publish();
         if let Some(dnd) = status.dnd
             && before != Some(dnd)

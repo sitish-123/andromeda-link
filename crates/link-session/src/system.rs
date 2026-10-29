@@ -104,6 +104,7 @@ pub struct System {
     backlight: Option<Backlight>,
     changes: Changes,
     brightness: Option<u8>,
+    tick: tokio::time::Interval,
 }
 
 impl System {
@@ -148,7 +149,9 @@ impl System {
         }
         let backlight = backlight();
         let brightness = backlight.as_ref().and_then(read_brightness);
-        Self { session, manager, battery, profiles, shell, backlight, changes, brightness }
+        let mut tick = tokio::time::interval(BACKLIGHT_EVERY);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        Self { session, manager, battery, profiles, shell, backlight, changes, brightness, tick }
     }
 
     /// What phones can ask of this desktop, as `SetSessionCapabilities` lists it.
@@ -192,11 +195,10 @@ impl System {
 
     /// Waits for a change to any part; pending forever with none to watch.
     pub async fn changed(&mut self) {
-        let mut tick = tokio::time::interval(BACKLIGHT_EVERY);
         loop {
             tokio::select! {
                 Some(()) = self.changes.next(), if !self.changes.is_empty() => return,
-                _ = tick.tick(), if self.backlight.is_some() => {
+                _ = self.tick.tick(), if self.backlight.is_some() => {
                     let now = self.backlight.as_ref().and_then(read_brightness);
                     if now != self.brightness {
                         self.brightness = now;

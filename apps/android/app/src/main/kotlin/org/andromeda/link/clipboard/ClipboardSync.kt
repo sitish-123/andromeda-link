@@ -95,13 +95,19 @@ class ClipboardSync(
     }
 
     private suspend fun apply(clip: IncomingClip) {
-        val html =
+        val pulledHtml =
             if (HTML_MIME in clip.mimes) {
                 repository.pullClipText(clip.desktopId, clip.clipId, HTML_MIME, MAX_HTML_BYTES)
             } else {
                 null
             }
-        val text = clip.text ?: html?.let { Html.fromHtml(it, Html.FROM_HTML_MODE_COMPACT).toString() }
+        val plain = clip.mimes.firstOrNull { it.startsWith("text/plain") }
+        val text =
+            clip.text
+                ?: plain?.let { repository.pullClipText(clip.desktopId, clip.clipId, it, MAX_TEXT_BYTES) }
+                ?: pulledHtml?.takeIf { plain == null }?.let { Html.fromHtml(it, Html.FROM_HTML_MODE_COMPACT).toString() }
+        // ClipData.Item takes HTML only with text; plain text over the limit goes as a URI instead.
+        val html = pulledHtml?.takeIf { text != null }
         val other = clip.mimes.firstOrNull { !it.startsWith("text/") } ?: clip.mimes.first().takeIf { text == null }
         val uri = other?.let { ClipProvider.uri(clip.desktopId, clip.clipId, it) }
         val mimes =
@@ -139,6 +145,9 @@ class ClipboardSync(
 
         /** Clip data travels through binder, which fails a transaction near 1 MiB. */
         private const val MAX_HTML_BYTES = 256 * 1024
+
+        /** With [MAX_HTML_BYTES], as UTF-16 in one transaction, this stays under the binder limit. */
+        private const val MAX_TEXT_BYTES = 128 * 1024
 
         fun isFromDesktop(clip: ClipData): Boolean = clip.description.label == LABEL
 

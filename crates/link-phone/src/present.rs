@@ -131,6 +131,7 @@ async fn command_line(client: &Client, id: &DeviceId, line: &str) -> Option<Valu
     let result = match verb {
         "send" => send_line(client, id, rest).await,
         "clip" => clip_line(client, rest).await,
+        "clip-text" => clip_text_line(client, rest).await,
         "status" => match parse_status(&rest.replace(' ', ",")) {
             Ok(status) => {
                 client.set_status(status).await.map(|()| json!({ "event": "status-set" })).map_err(Into::into)
@@ -197,6 +198,15 @@ async fn clip_line(client: &Client, rest: &str) -> anyhow::Result<Value> {
     client.offer_clip(LocalClip { types, copied: None }).await?;
     Ok(json!({ "event": "clip-sent", "mimes": mimes }))
 }
+
+/// `clip-text <text>`: offers the text as the Android app does, inline when short.
+async fn clip_text_line(client: &Client, text: &str) -> anyhow::Result<Value> {
+    let types = TEXT_MIMES.iter().map(|mime| ((*mime).to_owned(), ClipBytes::Text(text.to_owned()))).collect();
+    client.offer_clip(LocalClip { types, copied: None }).await?;
+    Ok(json!({ "event": "clip-sent", "mimes": TEXT_MIMES }))
+}
+
+const TEXT_MIMES: [&str; 2] = ["text/plain;charset=utf-8", "text/plain"];
 
 /// `pull <clip> <mime> <path>`: writes the desktop's offered clip into a file.
 async fn pull_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result<Value> {

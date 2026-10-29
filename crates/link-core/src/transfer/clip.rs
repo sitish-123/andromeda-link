@@ -163,7 +163,18 @@ fn now_ms() -> u64 {
 impl TransferActor {
     /// Keeps `clip` as this side's latest copy and offers it to `peers`; with none connected, it waits for one.
     pub(super) async fn offer_clip(&mut self, peers: &[DeviceId], clip: LocalClip) -> Result<(), Error> {
-        let local = clip.local()?;
+        let mut local = clip.local()?;
+        // A clipboard manager that takes a peer's clip offers it again: it keeps that clip's origin, so the peer drops it.
+        if let Some(origin) = self
+            .clips
+            .peers
+            .values()
+            .filter_map(ClipState::received)
+            .find(|offer| offer.text.is_some() && offer.text == local.inline)
+            .and_then(|offer| offer.origin)
+        {
+            local.origin = origin;
+        }
         if !local.offer(true).is_valid() {
             return Err(Error::Unexpected("a clip offer that breaks the rules"));
         }

@@ -3,7 +3,10 @@ appId: org.andromeda.link
 ---
 - launchApp:
     stopApp: false
-- tapOn: "Home"
+# A tap during the launch transition can be lost, and the app stays on its last tab.
+- tapOn:
+    text: "Home tab"
+    retryTapIfNoChange: true
 - tapOn: "Clipboard"
 - extendedWaitUntil:
     visible: "Will send when .* connects"

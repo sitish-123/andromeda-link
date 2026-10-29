@@ -3,7 +3,7 @@
 # network, and cellular signal (-1 when it reports none) appear in D-Bus DeviceStatus on connect; a change inside the
 # phone's 10 s window arrives when it ends, not at once; the entry goes when the phone disconnects; a hostile phone
 # flooding shares, file offers, clipboard offers, and statuses gets exactly its burst through (10 shares acked and
-# signalled, 5 offers signalled and the rest answered busy, 20 clipboard offers signalled, 3 statuses applied) and the
+# signalled, 5 offers signalled and the rest answered busy, 20 clipboard offers signalled, and statuses cut to a burst of 10 and then one every 150 ms) and the
 # rest dropped. Every message is validated against api/messages.cddl. Writes results.jsonl, signals.txt,
 # transcript.jsonl, hold.jsonl, and linkd.log to $OUT (default ./artifacts/link-status).
 set -euo pipefail
@@ -118,9 +118,10 @@ wait_for 5 "ClipboardOffered does not show the burst" eval '(( $(signals Clipboa
 [[ $(dropped clip-offer) == 40 ]] || fail "dropped $(dropped clip-offer) clip offers, not 40"
 record '{"step":"clip-flood","sent":60,"signalled":20}'
 
-phone flood --kind status --count 20 > /dev/null
-[[ $(dropped status) == 17 ]] || fail "dropped $(dropped status) statuses, not 17"
-record '{"step":"status-flood","sent":20,"applied":3}'
+# A burst of 10, then one every 150 ms while the flood lasts.
+phone flood --kind status --count 40 > /dev/null
+(( $(dropped status) >= 25 )) || fail "dropped $(dropped status) of 40 statuses, not at least 25"
+record "{\"step\":\"status-flood\",\"sent\":40,\"dropped\":$(dropped status)}"
 
 CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"

@@ -11,6 +11,25 @@ data class IncomingPing(
     val message: String?,
 )
 
+/**
+ * A command from a desktop that granted this phone "Control system": set-media-volume (percent), set-ringer (0 silent,
+ * 1 vibrate, 2 normal), or set-dnd (1 or 0). Answer [id] with LinkRepository.systemResult.
+ */
+data class IncomingSystemCommand(
+    val desktopId: String,
+    val id: ULong,
+    val command: String,
+    val value: Int?,
+)
+
+/** The phone's controls desktops show; null for what the phone cannot tell. Ringer is normal, vibrate, or silent. */
+data class PhoneControls(
+    val mediaVolume: Int?,
+    val ringer: String?,
+    val dnd: Boolean?,
+    val locked: Boolean?,
+)
+
 enum class PointerButton { Left, Right, Middle }
 
 /** In the order of the core's InputKey, which the repository maps by position. */

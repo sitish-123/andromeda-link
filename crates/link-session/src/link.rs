@@ -53,9 +53,12 @@ impl Link {
         log_failure("NotificationDismiss", self.proxy.notification_dismiss(device, id).await);
     }
 
-    pub async fn report_desktop_status(&self, volume: u8, muted: bool, state: &crate::system::State) {
-        let mut values =
-            vec![("volume", zbus::Variant::from(u32::from(volume))), ("muted", zbus::Variant::from(muted))];
+    pub async fn report_desktop_status(&self, volume: Option<(u8, bool)>, state: &crate::system::State) {
+        let mut values = Vec::new();
+        if let Some((percent, muted)) = volume {
+            values.push(("volume", zbus::Variant::from(u32::from(percent))));
+            values.push(("muted", zbus::Variant::from(muted)));
+        }
         if let Some((percent, charging)) = state.battery {
             values.push(("battery", zbus::Variant::from(u32::from(percent))));
             values.push(("charging", zbus::Variant::from(charging)));

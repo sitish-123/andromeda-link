@@ -33,6 +33,7 @@ import org.andromeda.link.notifications.NotificationMirror
 import org.andromeda.link.notifications.ShareNotifier
 import org.andromeda.link.notifications.TransferNotifier
 import org.andromeda.link.presence.BluetoothBonding
+import org.andromeda.link.presence.PhoneControl
 import org.andromeda.link.presence.Presence
 import org.andromeda.link.presence.StatusReporter
 import org.andromeda.link.ring.Ringer
@@ -64,7 +65,8 @@ class AppContainer(
     val clipboard = ClipboardSync(application, repository, clipHistory, scope)
     val clipboardWatcher = ClipboardWatcher(application, clipboard, scope)
     val mirror = NotificationMirror(application, repository, scope)
-    private val status = StatusReporter(application, repository, scope, mirror.accessOff)
+    private val phoneControl = PhoneControl(application, repository, scope)
+    private val status = StatusReporter(application, repository, scope, mirror.accessOff, phoneControl.controls)
     val media = PhoneMedia(application, repository, scope)
     private val desktopMedia = DesktopMedia(application, repository, scope)
     val ringer = Ringer(application, repository, scope)
@@ -80,6 +82,7 @@ class AppContainer(
         Channels.create(application)
         presence.start()
         clipboard.start()
+        phoneControl.start()
         status.start()
         mirror.start()
         media.start()

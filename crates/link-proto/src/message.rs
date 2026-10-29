@@ -1019,6 +1019,10 @@ impl Ringer {
             Self::Silent => "silent",
         }
     }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        [Self::Normal, Self::Vibrate, Self::Silent].into_iter().find(|ringer| ringer.as_str() == name)
+    }
 }
 
 impl NetworkKind {
@@ -1235,9 +1239,12 @@ pub const SYSTEM_CONTROL: &str = "feature:system-control";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesktopStatus {
-    /// The default output's volume, percent.
-    pub volume: u8,
-    pub muted: bool,
+    /// The default output's volume, percent. Volume and mute are absent only without a volume control, and then only
+    /// to a phone with [`SYSTEM_CONTROL`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
     /// [`SYSTEM_CONTROL`] from here on. Percent; absent without a battery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub battery: Option<u8>,
@@ -1258,13 +1265,13 @@ pub struct DesktopStatus {
 
 impl DesktopStatus {
     fn valid(&self) -> bool {
-        [Some(self.volume), self.battery, self.brightness].into_iter().flatten().all(|percent| percent <= 100)
+        [self.volume, self.battery, self.brightness].into_iter().flatten().all(|percent| percent <= 100)
     }
 
-    /// The status for a phone without [`SYSTEM_CONTROL`].
+    /// The status for a phone without [`SYSTEM_CONTROL`], which needs volume and mute; None without them.
     #[must_use]
-    pub fn without_control(self) -> Self {
-        Self { volume: self.volume, muted: self.muted, ..Self::default() }
+    pub fn without_control(self) -> Option<Self> {
+        Some(Self { volume: Some(self.volume?), muted: Some(self.muted?), ..Self::default() })
     }
 }
 
@@ -1274,6 +1281,16 @@ pub enum PowerProfile {
     PowerSaver,
     Balanced,
     Performance,
+}
+
+impl PowerProfile {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PowerSaver => "power-saver",
+            Self::Balanced => "balanced",
+            Self::Performance => "performance",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1302,6 +1319,21 @@ impl SystemCommandKind {
     /// False for the commands only a desktop sends.
     pub fn to_desktop(self) -> bool {
         !matches!(self, Self::SetMediaVolume | Self::SetRinger)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SetVolume => "set-volume",
+            Self::SetMute => "set-mute",
+            Self::SetBrightness => "set-brightness",
+            Self::Lock => "lock",
+            Self::Suspend => "suspend",
+            Self::ScreenOff => "screen-off",
+            Self::SetDnd => "set-dnd",
+            Self::SetProfile => "set-profile",
+            Self::SetMediaVolume => "set-media-volume",
+            Self::SetRinger => "set-ringer",
+        }
     }
 
     /// True for the commands a desktop may send.

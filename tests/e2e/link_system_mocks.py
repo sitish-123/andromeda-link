@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Mock logind, UPower, power-profiles-daemon, and the Andromeda shell on the bus in DBUS_SESSION_BUS_ADDRESS, for
-link_system.sh. Every method call goes to LOG. SetBrightness writes its value into BACKLIGHT/actual_brightness.
+link_system.sh. Each mock's method calls go to LOG.<bus name>. SetBrightness writes its value into BACKLIGHT/actual_brightness.
 
 Usage: link_system_mocks.py LOG BACKLIGHT_DIR    (runs until killed)
 """
@@ -15,7 +15,8 @@ SESSION = "org.freedesktop.login1.Session"
 
 
 def spawn(log, name, path, interface):
-    proc = subprocess.Popen([sys.executable, "-m", "dbusmock", "-l", log, name, path, interface])
+    # One log per mock: each dbusmock truncates its log when it starts.
+    proc = subprocess.Popen([sys.executable, "-m", "dbusmock", "-l", f"{log}.{name}", name, path, interface])
     bus = dbus.SessionBus()
     for _ in range(100):
         if bus.name_has_owner(name):

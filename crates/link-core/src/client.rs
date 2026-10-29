@@ -39,6 +39,8 @@ const FIRST_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY: Duration = Duration::from_secs(30);
 /// The least time between two status messages; a desktop drops more than three in 30 s.
 const STATUS_EVERY: Duration = Duration::from_secs(10);
+/// A change to media volume, ringer, DND, or lock only goes out this soon, so a slider moves live on the desktop.
+const CONTROL_EVERY: Duration = Duration::from_millis(150);
 /// How often a session on Bluetooth looks for an IP path to move to.
 const PROBE_EVERY: Duration = Duration::from_secs(30);
 
@@ -182,6 +184,8 @@ pub struct ClientActor {
     status: Option<Status>,
     /// The status last sent, when, and whether a newer one waits for [`STATUS_EVERY`] to pass.
     status_sent: Option<Instant>,
+    /// The status last sent, to tell a change of control fields only.
+    status_last: Option<Status>,
     status_pending: bool,
     /// Desktops whose live session runs over Bluetooth, probed for an IP path every [`PROBE_EVERY`].
     on_bluetooth: HashSet<DeviceId>,
@@ -246,6 +250,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         retries: HashMap::new(),
         status: None,
         status_sent: None,
+        status_last: None,
         status_pending: false,
         on_bluetooth: HashSet::new(),
         next_probe: None,
@@ -467,7 +472,8 @@ impl ClientActor {
     async fn serve(&mut self) {
         loop {
             let next_retry = self.retries.values().map(|retry| retry.at).min();
-            let next_status = self.status_pending.then(|| self.status_sent.map(|sent| sent + STATUS_EVERY)).flatten();
+            let every = self.status_every();
+            let next_status = self.status_pending.then(|| self.status_sent.map(|sent| sent + every)).flatten();
             tokio::select! {
                 command = self.commands.recv() => match command {
                     Some(command) => self.handle(command).await,
@@ -533,7 +539,7 @@ impl ClientActor {
                 if self.status != Some(status) {
                     self.status = Some(status);
                     self.status_pending = true;
-                    if self.status_sent.is_none_or(|sent| sent.elapsed() >= STATUS_EVERY) {
+                    if self.status_sent.is_none_or(|sent| sent.elapsed() >= self.status_every()) {
                         self.send_status().await;
                     }
                 }
@@ -1153,11 +1159,19 @@ impl ClientActor {
         }
     }
 
+    fn status_every(&self) -> Duration {
+        match (self.status_last, self.status) {
+            (Some(last), Some(now)) if last.without_control() == now.without_control() => CONTROL_EVERY,
+            _ => STATUS_EVERY,
+        }
+    }
+
     /// Sends the latest status to every live session.
     async fn send_status(&mut self) {
         self.status_pending = false;
         self.status_sent = Some(Instant::now());
         let Some(status) = self.status else { return };
+        self.status_last = Some(status);
         for (id, handle) in self.sessions.iter().filter(|(_, handle)| handle.is_live()) {
             if let Err(error) = handle.send(self.status_message(id, status)).await {
                 log::info!("{id}: sending the status: {error}");

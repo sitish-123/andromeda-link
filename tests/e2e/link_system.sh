@@ -5,7 +5,7 @@
 # volume and brightness, locks, suspends, turns DND on, and sets the profile, each answered with a system-result; a
 # lock reaches the phone as locked; without the grant each command fails with a reason and changes nothing; the
 # desktop sets the phone's ringer and waits for its answer; with DND sync the desktop's DND goes to the phone and the
-# phone's to the desktop. Every message is validated against api/messages.cddl. Writes results.jsonl, hold.jsonl,
+# phone's to the desktop; a phone media volume change arrives within 1 s. Every message is validated against api/messages.cddl. Writes results.jsonl, hold.jsonl,
 # mocks.log, session.log, and linkd.log to $OUT (default ./artifacts/link-system).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -88,7 +88,7 @@ connected() { prop Devices | grep -q "'phone', true"; }
 say() { printf '%s\n' "$*" >&3; }
 last() { grep "\"event\":\"$1\"" "$OUT/hold.jsonl" | tail -1; }
 count() { grep -c "\"event\":\"$1\"" "$OUT/hold.jsonl" || true; }
-called() { grep -c "$1" "$OUT/mocks.log" || true; }
+called() { cat "$OUT"/mocks.log.* | grep -c "$1" || true; }
 # Sends a system-command from the phone and waits for its answer; prints the answer.
 ask() {
   local before; before=$(count system-result)
@@ -169,13 +169,22 @@ desktop_dnd() { [[ $(last desktop-status) == *"\"dnd\":$1"* ]]; }
 mock_set org.andromeda.Shell1 /org/andromeda/Shell1 org.andromeda.Shell1 DoNotDisturb '<false>'
 wait_for 5 "the phone never saw the desktop's DND off" desktop_dnd false
 mock_set org.andromeda.Shell1 /org/andromeda/Shell1 org.andromeda.Shell1 DoNotDisturb '<true>'
+wait_for 5 "the phone never saw the desktop's DND on" desktop_dnd true
 dnd_sent() { [[ $(last system-command) == *'"command":"set-dnd"'*'"value":1'* ]]; }
 wait_for 5 "the phone never got the desktop's DND; controls $(prop DeviceControls); grants $(prop Grants)" dnd_sent
 mock_set org.andromeda.Shell1 /org/andromeda/Shell1 org.andromeda.Shell1 DoNotDisturb '<false>'
+wait_for 5 "the phone never saw the desktop's DND off again" desktop_dnd false
 say "status 80 0 wifi   dnd=1"
-# The phone sends a status change at most every 10 s.
-wait_for 15 "the desktop's DND never followed the phone's: $(shell_dnd)" eval "shell_dnd | grep -q true"
+wait_for 5 "the desktop's DND never followed the phone's: $(shell_dnd)" eval "shell_dnd | grep -q true"
 record '{"step":"dnd-sync-both-ways"}'
+
+# A media volume drag on the phone reaches the desktop live, not after the 10 s status window.
+media() { prop DeviceControls | grep -qF "'$ID': ($1,"; }
+say "status 80 0 wifi   dnd=1,media=30"
+wait_for 15 "DeviceControls never showed media 30: $(prop DeviceControls)" media 30
+say "status 80 0 wifi   dnd=1,media=55"
+wait_for 1 "media 55 did not arrive within 1 s: $(prop DeviceControls)" media 55
+record '{"step":"media-volume-live","within_seconds":1}'
 
 CHECK=$("$BIN/andromeda-link-phone" check-transcript "$ROOT/api/messages.cddl" "$OUT/transcript.jsonl") \
   || fail "transcript violates the schema"

@@ -317,9 +317,10 @@ capabilities-msg = { type: "capabilities", id: uint, body: { can: [* tstr .size 
 ; set-media-volume, set-ringer and set-dnd. Fields after muted, commands after set-mute, and system-result only when
 ; both hellos also listed "feature:system-control". Volume and brightness changes go at most every 150 ms.
 desktop-status-msg = { type: "desktop-status", id: uint, body: desktop-status }
+; volume and muted are absent only without a volume control, and then only to a phone with feature:system-control.
 desktop-status = {
-  volume: uint .le 100,     ; percent
-  muted: bool,
+  ? volume: uint .le 100,   ; percent
+  ? muted: bool,
   ? battery: uint .le 100,  ; percent; absent without a battery
   ? charging: bool,
   ? brightness: uint .le 100, ; percent; absent without a backlight

@@ -19,10 +19,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository
+import org.andromeda.link.core.domain.PhoneControls
 
 /**
- * Reports the battery, the network, the cellular signal, and whether notification access is off to desktops as they
- * change; the core sends it on connect and rate-limits the rest. Battery changes arrive as the sticky
+ * Reports the battery, the network, the cellular signal, whether notification access is off, and the phone's controls
+ * to desktops as they change; the core sends it on connect and rate-limits the rest. Battery changes arrive as the sticky
  * ACTION_BATTERY_CHANGED broadcast, networks through the default network callback, the signal through a telephony
  * callback (Android 12 and later), so nothing polls.
  */
@@ -31,6 +32,7 @@ class StatusReporter(
     private val repository: LinkRepository,
     private val scope: CoroutineScope,
     private val notificationsOff: Flow<Boolean>,
+    private val controls: Flow<PhoneControls>,
 ) {
     private data class Status(
         val battery: Int,
@@ -38,6 +40,7 @@ class StatusReporter(
         val network: String,
         val signal: Int?,
         val notificationsOff: Boolean,
+        val controls: PhoneControls,
     )
 
     private val battery = MutableStateFlow<Pair<Int, Boolean>?>(null)
@@ -81,10 +84,11 @@ class StatusReporter(
                     network,
                     signal,
                     notificationsOff,
-                ) { (level, charging), kind, bars, off ->
-                    Status(level, charging, kind, bars, off)
+                    controls,
+                ) { (level, charging), kind, bars, off, phone ->
+                    Status(level, charging, kind, bars, off, phone)
                 }.distinctUntilChanged()
-                .collect { repository.setStatus(it.battery, it.charging, it.network, it.signal, it.notificationsOff) }
+                .collect { repository.setStatus(it.battery, it.charging, it.network, it.signal, it.notificationsOff, it.controls) }
         }
     }
 

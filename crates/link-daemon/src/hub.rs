@@ -10,8 +10,8 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    CAN_CONTROL, CAN_VOLUME, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE,
-    FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
+    CAN_CONTROL, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE, FS_STAT,
+    Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
     NotificationPosted, NotificationPull, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status,
     SystemCommand, SystemCommandKind, SystemResult, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect,
     WifiDirectReady,
@@ -992,8 +992,8 @@ impl Hub {
     async fn set_capabilities(&mut self, capabilities: Option<(String, Vec<String>)>) {
         let changed = self.capabilities().to_vec() != capabilities.as_ref().map_or(&[][..], |(_, can)| can.as_slice());
         self.capabilities = capabilities;
-        // A volume no session can set any more is not sent to phones that connect later.
-        if !self.capabilities().iter().any(|can| can == CAN_VOLUME) {
+        // A state no session reports any more is not sent to phones that connect later.
+        if self.capabilities.is_none() {
             self.desktop_status = None;
         }
         if !changed {
@@ -1016,11 +1016,9 @@ impl Hub {
     }
 
     async fn send_desktop_status(&self, id: &DeviceId) {
-        if let Some(status) = &self.desktop_status
-            && self.phone_has(id, SYSTEM)
-        {
-            let status =
-                if self.phone_has(id, SYSTEM_CONTROL) { status.clone() } else { status.clone().without_control() };
+        let Some(status) = self.desktop_status.clone().filter(|_| self.phone_has(id, SYSTEM)) else { return };
+        let status = if self.phone_has(id, SYSTEM_CONTROL) { Some(status) } else { status.without_control() };
+        if let Some(status) = status {
             self.send_to(id, Message::DesktopStatus(status)).await;
         }
     }

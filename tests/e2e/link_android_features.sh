@@ -66,7 +66,8 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
-devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 Devices; }
+prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
+devices() { prop Devices; }
 connected() { devices | grep -q "', true)"; }
 # One line per signal: gdbus monitor prints each with all its arguments.
 signal() { grep -F "org.andromeda.Link1.$1 " "$OUT/signals.txt" | grep -F -- "$2" | tail -1; }
@@ -175,7 +176,7 @@ link SetGrant "$ID" system true > /dev/null || fail "D-Bus SetGrant system"
 python3 -c 'import dbus, time
 link = dbus.Interface(dbus.SessionBus().get_object("org.andromeda.Link1", "/org/andromeda/Link1"), "org.andromeda.Link1")
 link.SetSessionCapabilities(dbus.Array(["volume"], signature="s"))
-link.SetDesktopStatus(dbus.UInt32(30), False)
+link.SetDesktopStatus(dbus.Dictionary({"volume": dbus.UInt32(30), "muted": False}, signature="sv"))
 time.sleep(3600)' &
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 maestro "$FLOWS/media.yaml"
@@ -187,6 +188,18 @@ wait_for 10 "the Player volume bar did not set 0.50: $(tr "\n" " " < "$OUT/playe
 wait_for 10 "the Desktop volume bar sent no set-volume near 50: $(signal SystemCommand set-volume)" \
   eval '[[ $(signal SystemCommand set-volume) =~ uint32\ (4[5-9]|5[0-5]) ]]'
 record '{"step":"desktop-media-on-phone","player":"E2E Player","commands":["PlayPause","seek by the bar","volume by the bar","desktop volume by the bar"]}'
+
+# The desktop sets the phone's media volume and Do Not Disturb.
+link SendSystemCommand "$ID" set-media-volume 40 > /dev/null || fail "SendSystemCommand set-media-volume"
+media_volume() { adb shell cmd media_session volume --stream 3 --get | grep -o 'volume is [0-9]*' | grep -o '[0-9]*$'; }
+MAX=$(adb shell cmd media_session volume --stream 3 --get | grep -o 'in range \[0\.\.[0-9]*' | grep -o '[0-9]*$')
+[[ $(media_volume) == $(( (40 * MAX + 50) / 100 )) ]] || fail "media volume is $(media_volume) of $MAX, not 40%"
+wait_for 10 "DeviceControls never showed media 40: $(prop DeviceControls)" eval "prop DeviceControls | grep -qE \"'$ID': \\((39|40|41),\""
+# Notification access, which the app holds here, also grants Do Not Disturb policy access.
+link SendSystemCommand "$ID" set-dnd 1 > /dev/null || fail "SendSystemCommand set-dnd with access"
+[[ $(adb shell settings get global zen_mode | tr -d '\r') != 0 ]] || fail "zen_mode stayed off"
+link SendSystemCommand "$ID" set-dnd 0 > /dev/null || fail "SendSystemCommand set-dnd 0"
+record '{"step":"desktop-controls-phone","media_volume":40,"dnd":"on then off"}'
 
 # The desktop's player is also an Android media session (system media card, lock screen), paused as the app left it.
 # Android routes media keys only to a session that plays audio on the phone, so a key cannot reach it.

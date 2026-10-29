@@ -34,6 +34,7 @@ import org.andromeda.link.core.domain.Feature
 import org.andromeda.link.core.domain.IncomingClip
 import org.andromeda.link.core.domain.IncomingPing
 import org.andromeda.link.core.domain.IncomingShare
+import org.andromeda.link.core.domain.IncomingSystemCommand
 import org.andromeda.link.core.domain.LinkFailure
 import org.andromeda.link.core.domain.LinkFailureException
 import org.andromeda.link.core.domain.MediaCommandKind
@@ -43,6 +44,7 @@ import org.andromeda.link.core.domain.MirrorCommand
 import org.andromeda.link.core.domain.MirrorStream
 import org.andromeda.link.core.domain.NotificationCommand
 import org.andromeda.link.core.domain.OfferedFile
+import org.andromeda.link.core.domain.PhoneControls
 import org.andromeda.link.core.domain.PhoneMediaCommand
 import org.andromeda.link.core.domain.PhoneNotification
 import org.andromeda.link.core.domain.PlaybackState
@@ -125,6 +127,7 @@ class LinkRepository(
     private val _capabilities = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     private val _desktopVolumes = MutableStateFlow<Map<String, DesktopVolume>>(emptyMap())
     private val _pings = MutableSharedFlow<IncomingPing>(extraBufferCapacity = INCOMING_BUFFER)
+    private val _systemCommands = MutableSharedFlow<IncomingSystemCommand>(extraBufferCapacity = INCOMING_BUFFER)
 
     val desktops: StateFlow<List<Desktop>> = _desktops.asStateFlow()
 
@@ -137,18 +140,34 @@ class LinkRepository(
     /** Desktop clipboards, as they change. */
     val clips: SharedFlow<IncomingClip> = _clips.asSharedFlow()
 
-    /** The battery (percent) and network (wifi, cellular, ethernet, none, or other) desktops show. */
-
-    /** [signal] is cellular bars, 0 to 4, or null without service. */
+    /**
+     * The battery (percent) and network (wifi, cellular, ethernet, none, or other) desktops show; [signal] is cellular
+     * bars, 0 to 4, or null without service.
+     */
     suspend fun setStatus(
         battery: Int,
         charging: Boolean,
         network: String,
         signal: Int?,
         notificationsOff: Boolean,
+        controls: PhoneControls,
     ): Result<Unit> =
         call {
-            it.setStatus(battery.coerceIn(0, 100).toUByte(), charging, network, signal?.coerceIn(0, 4)?.toUByte(), notificationsOff)
+            val ffiControls =
+                org.andromeda.link.ffi.PhoneControls(
+                    controls.mediaVolume?.coerceIn(0, 100)?.toUByte(),
+                    controls.ringer,
+                    controls.dnd,
+                    controls.locked,
+                )
+            it.setStatus(
+                battery.coerceIn(0, 100).toUByte(),
+                charging,
+                network,
+                signal?.coerceIn(0, 4)?.toUByte(),
+                notificationsOff,
+                ffiControls,
+            )
         }
 
     /**
@@ -279,6 +298,16 @@ class LinkRepository(
 
     val pings: SharedFlow<IncomingPing> = _pings.asSharedFlow()
 
+    /** Commands from desktops that granted this phone "Control system"; each wants a [systemResult]. */
+    val systemCommands: SharedFlow<IncomingSystemCommand> = _systemCommands.asSharedFlow()
+
+    /** Answers a desktop's command [id]; [error], for the desktop's user, is null when it was done. */
+    suspend fun systemResult(
+        desktopId: String,
+        id: ULong,
+        error: String?,
+    ): Result<Unit> = call { it.systemResult(desktopId, id, error) }
+
     /** Connects first if needed. */
     suspend fun sendInput(
         desktopId: String,
@@ -317,9 +346,10 @@ class LinkRepository(
             it.reportCall(ffiState, number, name).toInt()
         }
 
-    /** Connects first if needed. */
-
-    /** Without [passkey] the desktop starts accepting the pairing connection; with it, it confirms that code. */
+    /**
+     * Connects first if needed. Without [passkey] the desktop starts accepting the pairing connection; with it, it
+     * confirms that code.
+     */
     suspend fun reportBtPairing(
         desktopId: String,
         passkey: Int?,
@@ -592,10 +622,20 @@ class LinkRepository(
                     }
                 is LinkEvent.Pinged -> _pings.emit(IncomingPing(nameOf(event.desktopId), event.message))
                 is LinkEvent.CapabilitiesChanged -> _capabilities.update { it + (event.desktopId to event.can.toSet()) }
-                is LinkEvent.DesktopStatusChanged ->
+                is LinkEvent.SystemCommand ->
+                    _systemCommands.emit(
+                        IncomingSystemCommand(event.desktopId, event.id, event.command, event.value?.toInt()),
+                    )
+                is LinkEvent.DesktopStatusChanged -> {
+                    val (volume, muted) = event.volume to event.muted
                     _desktopVolumes.update {
-                        it + (event.desktopId to DesktopVolume(event.volume.toInt(), event.muted))
+                        if (volume != null && muted != null) {
+                            it + (event.desktopId to DesktopVolume(volume.toInt(), muted))
+                        } else {
+                            it - event.desktopId
+                        }
                     }
+                }
             }
         }
     }

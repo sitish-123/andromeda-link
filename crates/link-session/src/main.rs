@@ -86,13 +86,13 @@ async fn report(link: &link::Link, capabilities: &[&str], volume: Option<&volume
     report_status(link, volume, system).await;
 }
 
-/// Reports the desktop's state to the daemon, which sends phones a change. Without a volume there is no status.
+/// Reports the desktop's state to the daemon, which sends phones a change.
 async fn report_status(link: &link::Link, volume: Option<&volume::Volume>, system: &system::System) {
-    let Some(volume) = volume else { return };
-    match volume.read().await {
-        Ok((percent, muted)) => link.report_desktop_status(percent, muted, &system.read().await).await,
-        Err(error) => log::warn!("reading the volume: {error:#}"),
-    }
+    let volume = match volume {
+        Some(volume) => volume.read().await.inspect_err(|error| log::warn!("reading the volume: {error:#}")).ok(),
+        None => None,
+    };
+    link.report_desktop_status(volume, &system.read().await).await;
 }
 
 /// Gives a new selection to the daemon, which sends it to phones now or on connect, or serves a paste of `remote`,

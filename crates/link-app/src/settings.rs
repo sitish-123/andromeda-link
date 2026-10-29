@@ -12,7 +12,7 @@ use crate::seam;
 use crate::view::Ctx;
 
 /// Each grant the service knows, with what it lets the phone do, in plain words.
-const GRANTS: [(&str, &str, &str); 12] = [
+const GRANTS: [(&str, &str, &str); 13] = [
     ("clipboard", "Clipboard", "Copy on one, paste on the other"),
     ("files", "Files", "Send files both ways"),
     ("notifications", "Notifications", "Show the phone's notifications here"),
@@ -24,7 +24,12 @@ const GRANTS: [(&str, &str, &str); 12] = [
     ("messages", "Messages", "Read and send the phone's texts"),
     ("input", "Remote input", "Use the phone as a pointer and keyboard"),
     ("commands", "Commands", "Run this desk's commands from the phone"),
-    ("system", "Desk controls", "Change this desk's volume from the phone"),
+    (
+        "system",
+        "Control system",
+        "Change this desk's volume, brightness, and lock from the phone, and the phone's from here",
+    ),
+    ("dnd-sync", "Sync Do Not Disturb", "Keep Do Not Disturb the same on this desk and the phone"),
 ];
 
 pub struct Settings {

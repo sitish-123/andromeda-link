@@ -601,8 +601,8 @@ impl Link {
         serial: u64,
     ) -> zbus::Result<()>;
 
-    /// Called by `link-session`: the desktop's whole state, sent to phones when it changes. Keys: volume (u, percent)
-    /// and muted (b), both required; battery (u), charging (b), brightness (u), locked (b), idle (b), dnd (b), and
+    /// Called by `link-session`: the desktop's whole state, sent to phones when it changes. Keys, each absent when the
+    /// desktop cannot tell: volume (u, percent), muted (b), battery (u), charging (b), brightness (u), locked (b), idle (b), dnd (b), and
     /// profile (s: power-saver, balanced, performance).
     async fn set_desktop_status(&self, state: HashMap<String, zbus::OwnedVariant>) -> fdo::Result<()> {
         let invalid = |key: &str| fdo::Error::InvalidArgs(format!("{key} is missing or out of range"));
@@ -618,8 +618,8 @@ impl Link {
             Some(Err(_)) => return Err(invalid("profile")),
         };
         let status = DesktopStatus {
-            volume: percent("volume").ok_or_else(|| invalid("volume"))?,
-            muted: flag("muted").ok_or_else(|| invalid("muted"))?,
+            volume: percent("volume"),
+            muted: flag("muted"),
             battery: percent("battery"),
             charging: flag("charging"),
             brightness: percent("brightness"),

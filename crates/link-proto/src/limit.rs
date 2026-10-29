@@ -60,7 +60,8 @@ impl Default for Limits {
             shares: Bucket::new(10, Duration::from_secs(2)),
             offers: Bucket::new(5, Duration::from_secs(6)),
             clips: Bucket::new(20, Duration::from_secs(1)),
-            statuses: Bucket::new(3, Duration::from_secs(10)),
+            // A media volume drag sends a status every 150 ms; other changes come at most every 10 s.
+            statuses: Bucket::new(10, Duration::from_millis(150)),
             hotspots: Bucket::new(2, Duration::from_secs(30)),
             inputs: Bucket::new(120, Duration::from_millis(10)),
             mirror_requests: Bucket::new(2, Duration::from_secs(10)),

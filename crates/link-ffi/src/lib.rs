@@ -277,12 +277,37 @@ pub enum LinkEvent {
         desktop_id: String,
         can: Vec<String>,
     },
-    /// The desktop's output volume (percent) and mute; sent on connect and after each change.
+    /// The desktop's state; sent on connect and after each change. Fields after `muted` are None when the desktop
+    /// cannot tell or is too old; profile is power-saver, balanced, or performance.
     DesktopStatusChanged {
         desktop_id: String,
-        volume: u8,
-        muted: bool,
+        volume: Option<u8>,
+        muted: Option<bool>,
+        battery: Option<u8>,
+        charging: Option<bool>,
+        brightness: Option<u8>,
+        locked: Option<bool>,
+        idle: Option<bool>,
+        dnd: Option<bool>,
+        profile: Option<String>,
     },
+    /// A desktop that granted this phone "Control system" asks for set-media-volume (percent), set-ringer (0 silent,
+    /// 1 vibrate, 2 normal), or set-dnd (1 or 0); answer `id` with [`LinkClient::system_result`].
+    SystemCommand {
+        desktop_id: String,
+        id: u64,
+        command: String,
+        value: Option<u8>,
+    },
+}
+
+/// The phone's own controls desktops show; None for what the phone cannot tell. Ringer is normal, vibrate, or silent.
+#[derive(Debug, Clone, Default, uniffi::Record)]
+pub struct PhoneControls {
+    pub media_volume: Option<u8>,
+    pub ringer: Option<String>,
+    pub dnd: Option<bool>,
+    pub locked: Option<bool>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -936,6 +961,14 @@ impl LinkClient {
         self.system_command(desktop_id, message::SystemCommandKind::SetMute, u8::from(muted)).await
     }
 
+    /// Answers a desktop's [`LinkEvent::SystemCommand`] `id`; `error`, for the desktop's user, is None when it was done.
+    pub async fn system_result(&self, desktop_id: String, id: u64, error: Option<String>) -> Result<(), LinkError> {
+        let (client, desktop) = (self.client.clone(), parse_id(&desktop_id)?);
+        let error = error.map(|error| error.chars().take(message::MAX_SYSTEM_ERROR_LEN).collect());
+        let message = Message::SystemResult(message::SystemResult { command: id, error });
+        self.run(async move { client.send(desktop, message).await }).await
+    }
+
     /// Runs one of the commands from [`LinkEvent::CommandsChanged`] on the desktop.
     pub async fn run_command(&self, desktop_id: String, command_id: String) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
@@ -1006,7 +1039,8 @@ impl LinkClient {
     }
 
     /// The phone's battery (percent), network (wifi, cellular, ethernet, none, or other), and cellular signal (0 to 4
-    /// bars, None without service), and whether the user turned off notification access, sent to every desktop on
+    /// bars, None without service), whether the user turned off notification access, and its controls, sent to every
+    /// desktop on
     /// connect and, at most every 10 s, on change.
     pub async fn set_status(
         &self,
@@ -1015,7 +1049,15 @@ impl LinkClient {
         network: String,
         signal: Option<u8>,
         notifications_off: bool,
+        controls: PhoneControls,
     ) -> Result<(), LinkError> {
+        let ringer = match controls.ringer.as_deref() {
+            None => None,
+            Some(name) => Some(
+                message::Ringer::parse(name)
+                    .ok_or_else(|| LinkError::Rejected { reason: format!("unknown ringer {name}") })?,
+            ),
+        };
         let network = message::NetworkKind::parse(&network)
             .ok_or_else(|| LinkError::Rejected { reason: format!("unknown network {network}") })?;
         let status = message::Status {
@@ -1024,10 +1066,10 @@ impl LinkClient {
             network,
             signal: signal.map(|bars| bars.min(4)),
             notifications_off,
-            media_volume: None,
-            ringer: None,
-            dnd: None,
-            locked: None,
+            media_volume: controls.media_volume.map(|percent| percent.min(100)),
+            ringer,
+            dnd: controls.dnd,
+            locked: controls.locked,
         };
         let client = self.client.clone();
         self.run(async move { client.set_status(status).await }).await
@@ -1157,7 +1199,12 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
         },
         ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
         ClientEvent::Transfer(event) => return transfer_event(event),
-        ClientEvent::SystemCommand { .. } => return None,
+        ClientEvent::SystemCommand { from, id, command } => LinkEvent::SystemCommand {
+            desktop_id: from.to_string(),
+            id,
+            command: command.command.as_str().to_owned(),
+            value: command.value,
+        },
         ClientEvent::Message { from, message } => {
             let desktop_id = from.to_string();
             match message {
@@ -1201,9 +1248,18 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                 Message::Capabilities(capabilities) => {
                     LinkEvent::CapabilitiesChanged { desktop_id, can: capabilities.can }
                 }
-                Message::DesktopStatus(status) => {
-                    LinkEvent::DesktopStatusChanged { desktop_id, volume: status.volume, muted: status.muted }
-                }
+                Message::DesktopStatus(status) => LinkEvent::DesktopStatusChanged {
+                    desktop_id,
+                    volume: status.volume,
+                    muted: status.muted,
+                    battery: status.battery,
+                    charging: status.charging,
+                    brightness: status.brightness,
+                    locked: status.locked,
+                    idle: status.idle,
+                    dnd: status.dnd,
+                    profile: status.profile.map(|profile| profile.as_str().to_owned()),
+                },
                 Message::MirrorStop(stop) => LinkEvent::MirrorStopped { desktop_id, reason: stop.reason },
                 Message::MediaCommand(command) => LinkEvent::PlayerCommand {
                     desktop_id,

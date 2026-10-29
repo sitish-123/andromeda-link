@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Screenshots of every screen of the Android app, in the light and the dark theme, on the emulator against a private
-# andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME) and a desktop MPRIS test player: Home empty and paired (scrolled,
+# andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME) and a desktop MPRIS test player: Home empty, offline, and paired (scrolled,
 # and with a photo picked), the picker's Photos, Videos, and Files tabs, code entry, the QR link confirmation and its working orb, the desktop's page, the
 # per-app filter, Media, and the five onboarding pages. Proves the screens render and are reachable by their labels;
 # the images are the artifact to judge them by. Writes <theme>-<screen>.png, results.json, linkd.log, maestro.log to
@@ -45,8 +45,10 @@ dbus-daemon --config-file="$RUNTIME/bus.conf" --nofork 2> "$OUT/dbus.log" &
 for _ in $(seq 50); do [[ -S $RUNTIME/bus ]] && break; sleep 0.02; done
 export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=$RUNTIME/bus
 link() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m "org.andromeda.Link1.$1" "${@:2}"; }
+prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
 
-XDG_STATE_HOME=$RUNTIME/desktop "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
+start_linkd() { XDG_STATE_HOME=$RUNTIME/desktop "$BIN/andromeda-linkd" >> "$OUT/linkd.log" 2>&1 & LINKD=$!; }
+start_linkd
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
 link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
 python3 "$ROOT/tests/e2e/mpris_test_player.py" "$RUNTIME/player-calls.txt" &
@@ -91,16 +93,36 @@ for mode in light dark; do
   theme "$([[ $mode == dark ]] && echo yes || echo no)"
   maestro -e THEME="$mode" "$FLOWS/ui-unpaired.yaml"
   pair "$mode"
-  # A stand-in link-session reports what this desk can do. Light: everything, so the desktop's page shows every
-  # control. Dark: only notifications, so Clipboard, Touchpad and keyboard, and Presenter are hidden there.
-  CAN=$([[ $mode == dark ]] && echo notifications || echo notifications,clipboard,input,volume)
-  python3 -c 'import dbus, sys, time
+  # A stand-in link-session reports what this desk can do and its state. Light: everything, with Control system on,
+  # so every control shows and Do Not Disturb is lit. Dark: notifications and the system keys without the grant, so
+  # Home shows them not allowed, with a low battery and the desk locked.
+  ID=$(prop Devices | grep -oE "[0-9a-f]{32}" | head -n 1)
+  link SetAutoAccept "$ID" true > /dev/null
+  if [[ $mode == light ]]; then
+    CAN=notifications,clipboard,input,volume,lock,suspend,screen-off,brightness,dnd
+    STATUS='{"volume": 62, "muted": false, "battery": 82, "charging": true, "brightness": 40, "locked": false, "dnd": true}'
+    link SetGrant "$ID" system true > /dev/null
+  else
+    CAN=notifications,volume,lock,suspend,screen-off
+    STATUS='{"volume": 30, "muted": false, "battery": 14, "charging": false, "locked": true, "dnd": false}'
+  fi
+  python3 -c 'import dbus, json, sys, time
 link = dbus.Interface(dbus.SessionBus().get_object("org.andromeda.Link1", "/org/andromeda/Link1"), "org.andromeda.Link1")
 link.SetSessionCapabilities(dbus.Array(sys.argv[1].split(","), signature="s"))
-time.sleep(3600)' "$CAN" &
+kind = lambda v: dbus.Boolean(v) if isinstance(v, bool) else dbus.UInt32(v)
+link.SetDesktopStatus(dbus.Dictionary({k: kind(v) for k, v in json.loads(sys.argv[2]).items()}, signature="sv"))
+time.sleep(3600)' "$CAN" "$STATUS" &
   SESSION=$!
   maestro -e THEME="$mode" "$FLOWS/ui-paired.yaml"
   kill "$SESSION"
+  # The desktop goes away with the phone still paired: Home shows when it was last seen. Then it comes back.
+  kill "$LINKD"
+  wait "$LINKD" 2> /dev/null || true
+  maestro -e THEME="$mode" "$FLOWS/ui-offline.yaml"
+  sessions=$(grep -c "connected over" "$OUT/linkd.log")
+  start_linkd
+  for _ in $(seq 600); do (( $(grep -c "connected over" "$OUT/linkd.log") > sessions )) && break; sleep 0.1; done
+  (( $(grep -c "connected over" "$OUT/linkd.log") > sessions )) || fail "the phone did not reconnect after the desktop came back"
   maestro "$FLOWS/unpair.yaml"
   mv "$OUT/8-unpaired.png" "$OUT/$mode-unpaired.png"
   # Pairing again from a clean slate asks for notifications afresh.

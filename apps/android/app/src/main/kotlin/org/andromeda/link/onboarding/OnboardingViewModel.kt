@@ -31,7 +31,10 @@ private val OPTIONAL = setOf(Grant.Texts, Grant.AutoClipboard)
 data class OnboardingState(
     val granted: Set<Grant> = emptySet(),
 ) {
-    val complete: Boolean get() = granted.containsAll(Grant.entries - OPTIONAL)
+    val complete: Boolean get() = missing.isEmpty()
+
+    /** Required grants not given yet, in setup order. */
+    val missing: List<Grant> get() = Grant.entries - OPTIONAL - granted
 }
 
 /** The permission onboarding: what is granted, rechecked whenever the app returns from Settings or a prompt. */

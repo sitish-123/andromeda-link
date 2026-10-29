@@ -175,7 +175,7 @@ python3 "$ROOT/tests/e2e/mpris_test_player.py" "$OUT/player-calls.txt" &
 link SetGrant "$ID" system true > /dev/null || fail "D-Bus SetGrant system"
 python3 -c 'import dbus, time
 link = dbus.Interface(dbus.SessionBus().get_object("org.andromeda.Link1", "/org/andromeda/Link1"), "org.andromeda.Link1")
-link.SetSessionCapabilities(dbus.Array(["volume"], signature="s"))
+link.SetSessionCapabilities(dbus.Array(["volume", "lock"], signature="s"))
 link.SetDesktopStatus(dbus.Dictionary({"volume": dbus.UInt32(30), "muted": False}, signature="sv"))
 time.sleep(3600)' &
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
@@ -188,6 +188,12 @@ wait_for 10 "the Player volume bar did not set 0.50: $(tr "\n" " " < "$OUT/playe
 wait_for 10 "the Desktop volume bar sent no set-volume near 50: $(signal SystemCommand set-volume)" \
   eval '[[ $(signal SystemCommand set-volume) =~ uint32\ (4[5-9]|5[0-5]) ]]'
 record '{"step":"desktop-media-on-phone","player":"E2E Player","commands":["PlayPause","seek by the bar","volume by the bar","desktop volume by the bar"]}'
+
+maestro "$FLOWS/home-controls.yaml"
+wait_for 10 "Home's Volume drag sent no set-volume of 80 or more: $(signal SystemCommand set-volume)" \
+  eval '[[ $(signal SystemCommand set-volume) =~ uint32\ (8[0-9]|9[0-9]|100) ]]'
+wait_for 10 "Home's Lock sent no lock: $(signal SystemCommand lock)" eval '[[ -n $(signal SystemCommand lock) ]]'
+record '{"step":"home-controls","commands":["set-volume by dragging Home'"'"'s slider","lock"]}'
 
 # The desktop sets the phone's media volume and Do Not Disturb.
 link SendSystemCommand "$ID" set-media-volume 40 > /dev/null || fail "SendSystemCommand set-media-volume"

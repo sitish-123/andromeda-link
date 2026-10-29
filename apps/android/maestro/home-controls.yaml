@@ -1,0 +1,19 @@
+# Home's controls with Control system on: drag the Volume slider to the right end, then Lock.
+appId: org.andromeda.link
+---
+- launchApp:
+    # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
+    permissions: { notifications: allow }
+    stopApp: false
+# The previous flow leaves the Media screen open, which has Back and no tabs.
+- tapOn:
+    text: "Back"
+    optional: true
+- scrollUntilVisible:
+    element: "Lock"
+- swipe:
+    from: "Volume"
+    direction: RIGHT
+    duration: 600
+- takeScreenshot: ${OUT}/3-home-controls
+- tapOn: "Lock"

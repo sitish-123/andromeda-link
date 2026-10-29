@@ -150,7 +150,7 @@ fun LinkApp(
                         HomeScreen(
                             viewModel = home,
                             picker = picker,
-                            setupNeeded = !setup.complete,
+                            missing = setup.missing,
                             autoClipboard = Grant.AutoClipboard in setup.granted,
                             onPair = openPair,
                             onDesktop = openDesktop,
@@ -161,6 +161,14 @@ fun LinkApp(
                             onSetup = openSetup,
                             onClipboardSetup = openClipboardSetup,
                             onActivity = { screen = Screen.Activity },
+                            onRemote = {
+                                desktopId = it.id
+                                screen = Screen.Remote
+                            },
+                            onPresenter = {
+                                desktopId = it.id
+                                screen = Screen.Presenter
+                            },
                         )
                     Screen.Activity -> ActivityScreen(activity)
                     Screen.Settings ->

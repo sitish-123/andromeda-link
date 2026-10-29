@@ -1,13 +1,14 @@
-# Opens the Media screen, where the desktop's test player shows, and pauses it.
+# Opens the Media screen from Home's player card, where the desktop's test player shows, and pauses it.
 appId: org.andromeda.link
 ---
 - launchApp:
     # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
     permissions: { notifications: allow }
     stopApp: false
+# Home's player card opens Media.
 - scrollUntilVisible:
-    element: "Media"
-- tapOn: "Media"
+    element: "Desk Session"
+- tapOn: "Desk Session"
 - extendedWaitUntil:
     visible: "Desk Session"
     timeout: 15000

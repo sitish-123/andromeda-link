@@ -7,7 +7,7 @@ appId: org.andromeda.link
     permissions: { notifications: allow }
     stopApp: false
 - extendedWaitUntil:
-    visible: "WI-FI · ENCRYPTED"
+    visible: "Wi-Fi"
     timeout: 20000
 - takeScreenshot: ${OUT}/${THEME}-home
 - tapOn: "Activity tab"
@@ -67,9 +67,10 @@ appId: org.andromeda.link
 - takeScreenshot: ${OUT}/${THEME}-app-filter
 - pressKey: Back
 - pressKey: Back
+# Home's player card opens Media.
 - scrollUntilVisible:
-    element: "Media"
-- tapOn: "Media"
+    element: "Desk Session"
+- tapOn: "Desk Session"
 - extendedWaitUntil:
     visible: "Desk Session"
     timeout: 15000
@@ -95,4 +96,12 @@ appId: org.andromeda.link
 - takeScreenshot: ${OUT}/${THEME}-picker-files
 - pressKey: Back
 - takeScreenshot: ${OUT}/${THEME}-home-selected
-- tapOn: "e2e-pick-a.png"
+# Sending the picked photo puts it in Recent; the desktop auto-accepts it.
+- tapOn: "Send 1 item.*"
+- scrollUntilVisible:
+    element: "Sent, .*"
+    timeout: 20000
+- takeScreenshot: ${OUT}/${THEME}-home-recent
+- scrollUntilVisible:
+    element: "Turn on"
+- takeScreenshot: ${OUT}/${THEME}-home-bottom

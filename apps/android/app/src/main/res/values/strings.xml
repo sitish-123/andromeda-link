@@ -8,14 +8,11 @@
     <string name="last_seen_never">never</string>
     <string name="home_connection_secure">End-to-end encrypted connection</string>
     <string name="home_private_hint">Direct device-to-device. No cloud account needed.</string>
-    <string name="home_send_title">Send something over</string>
-    <string name="home_send_target">Photos, videos and files to %1$s</string>
     <string name="home_clipboard_action_hint">Text and images to connected desktops</string>
     <string name="home_media_action_hint">Playback and volume controls</string>
     <string name="home_files_disabled">File sharing is off</string>
     <string name="home_enable_in_settings">Enable this feature in device settings.</string>
     <string name="home_transfers_active">%1$d transfers in progress</string>
-    <string name="home_activity_hint">Transfer progress, results and received files</string>
     <string name="settings_intro">Your devices. Your preferences. Your control.</string>
     <string name="settings_connection">Connection</string>
     <string name="settings_connection_hint">Turn this off to connect only while Link is open.</string>
@@ -134,7 +131,6 @@
     <string name="ring_text">Tap to stop ringing</string>
     <string name="ring_stop">Stop</string>
     <string name="ring_desktop">Ring desktop</string>
-    <string name="ring_desktop_stop">Stop ringing</string>
     <string name="clipboard_empty">The clipboard is empty.</string>
     <string name="other_desktops">Other desktops</string>
     <string name="primary_desktop">Your desktop</string>
@@ -218,9 +214,6 @@
         <item quantity="other">Send %1$d items · %2$s</item>
     </plurals>
     <string name="recent_allow">See your recent photos here</string>
-    <string name="action_clipboard">Clipboard</string>
-    <string name="action_ring">Ring</string>
-    <string name="action_media">Media</string>
     <string name="stay_connected_short">Reachable in the background</string>
     <string name="notifications_row">Notifications on the desktop</string>
     <string name="notifications_row_on">On. Choose which apps</string>
@@ -252,8 +245,6 @@
     <string name="readout_bluetooth">Bluetooth · encrypted</string>
     <string name="readout_offline">Offline · seen %1$s</string>
     <string name="readout_searching">Reaching…</string>
-    <string name="readout_moving">%1$d moving</string>
-    <string name="readout_idle">Idle</string>
     <string name="empty_desktop">No desktop on the line</string>
     <string name="empty_scan_title">Scan your desktop</string>
     <string name="empty_scan_body">On the desktop, open Devices and choose Pair a phone. A QR code appears; point this phone at it.</string>
@@ -307,4 +298,54 @@
     <string name="ping_hint">Show a notification on the desktop</string>
     <string name="ping_from">%1$s pinged you</string>
     <string name="command_hint">Run on the desktop</string>
+    <string name="home_via_wifi">Wi-Fi</string>
+    <string name="home_via_bluetooth">Bluetooth</string>
+    <string name="home_via_searching">Connecting</string>
+    <string name="home_last_seen">Last seen %1$s</string>
+    <string name="home_battery">%1$d%%</string>
+    <string name="home_charging">charging</string>
+    <string name="home_locked">Locked</string>
+    <string name="home_unlocked">Unlocked</string>
+    <string name="home_volume">Volume</string>
+    <string name="home_brightness">Brightness</string>
+    <string name="home_play">Play</string>
+    <string name="home_pause">Pause</string>
+    <string name="home_on_app">%1$s, on %2$s</string>
+    <string name="key_lock">Lock</string>
+    <string name="key_sleep">Sleep</string>
+    <string name="key_screen_off">Screen off</string>
+    <string name="key_ring">Ring</string>
+    <string name="key_ringing">Stop ringing</string>
+    <string name="key_touchpad">Touchpad</string>
+    <string name="key_presenter">Presenter</string>
+    <string name="key_clipboard">Clipboard</string>
+    <string name="key_dnd">Do not disturb</string>
+    <string name="home_control_off">%1$s does not let this phone control it. Turn on Control system for this phone on %1$s.</string>
+    <string name="home_send_to">Send to %1$s</string>
+    <string name="home_recent">Recent</string>
+    <string name="home_recent_all">See all</string>
+    <string name="home_recent_empty">Files and clips you send or receive show here.</string>
+    <string name="recent_received">Received, %1$s</string>
+    <string name="recent_sent">Sent, %1$s</string>
+    <string name="recent_failed">Not sent</string>
+    <string name="recent_not_received">Not received</string>
+    <string name="recent_copied_from">Copied from %1$s</string>
+    <string name="recent_copied_to">Copied to %1$s</string>
+    <string name="recent_image">Image</string>
+    <plurals name="recent_more_files">
+        <item quantity="one">%1$s and %2$d more</item>
+        <item quantity="other">%1$s and %2$d more</item>
+    </plurals>
+    <string name="missing_notification_access">Notification access is off</string>
+    <string name="missing_dnd">Ringing through Do Not Disturb is off</string>
+    <string name="missing_post">Alerts from Link are off</string>
+    <string name="missing_battery">Battery optimisation can stop Link</string>
+    <string name="missing_calls">Call access is off</string>
+    <string name="missing_bluetooth">Bluetooth access is off</string>
+    <plurals name="missing_more">
+        <item quantity="one">And %1$d more.</item>
+        <item quantity="other">And %1$d more.</item>
+    </plurals>
+    <string name="missing_turn_on">Turn on</string>
+    <string name="home_key_not_allowed">Not allowed on the desktop</string>
 </resources>

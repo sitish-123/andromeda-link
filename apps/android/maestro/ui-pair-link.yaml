@@ -16,5 +16,5 @@ appId: org.andromeda.link
     text: "Don.t allow"
     optional: true
 - extendedWaitUntil:
-    visible: "WI-FI · ENCRYPTED"
+    visible: "Wi-Fi"
     timeout: 20000

@@ -3,55 +3,83 @@ package org.andromeda.link.devices
 import android.Manifest
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.SystemClock
 import android.text.format.DateUtils
+import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import org.andromeda.link.R
 import org.andromeda.link.core.domain.Desktop
+import org.andromeda.link.core.domain.DesktopPlayer
+import org.andromeda.link.core.domain.MediaCommandKind
+import org.andromeda.link.core.domain.PlaybackState
 import org.andromeda.link.files.MediaAccess
 import org.andromeda.link.files.MediaTile
 import org.andromeda.link.files.PhoneFiles
@@ -60,12 +88,12 @@ import org.andromeda.link.files.PickerState
 import org.andromeda.link.files.PickerTab
 import org.andromeda.link.files.PickerViewModel
 import org.andromeda.link.files.sendLabel
+import org.andromeda.link.onboarding.Grant
 import org.andromeda.link.ui.components.Glyph
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.LinkIcons
 import org.andromeda.link.ui.components.Node
 import org.andromeda.link.ui.components.PillButton
-import org.andromeda.link.ui.components.PillKind
 import org.andromeda.link.ui.components.PullRefresh
 import org.andromeda.link.ui.components.Readout
 import org.andromeda.link.ui.components.Screen
@@ -77,13 +105,18 @@ import org.andromeda.link.ui.theme.LinkTheme
 import org.andromeda.link.ui.theme.Radius
 import org.andromeda.link.ui.theme.Size
 import org.andromeda.link.ui.theme.Space
+import kotlin.math.roundToInt
 
-/** Home is the link itself: the desktop at the top of a line, this phone at the bottom, and every action a stop between. */
+/**
+ * Home is the link itself: the desktop at the top of a line, and every action a stop on it. The line is the one bold
+ * element (.agent/DESIGN.md, A3); recent transfers branch off it.
+ */
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     picker: PickerViewModel,
-    setupNeeded: Boolean,
+    /** Required grants not given yet, in setup order. */
+    missing: List<Grant>,
     /** Both grants automatic clipboard needs are given, so Home stops offering to set it up. */
     autoClipboard: Boolean,
     onPair: () -> Unit,
@@ -92,6 +125,8 @@ fun HomeScreen(
     onSetup: () -> Unit,
     onClipboardSetup: () -> Unit,
     onActivity: () -> Unit,
+    onRemote: (Desktop) -> Unit,
+    onPresenter: (Desktop) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
@@ -132,7 +167,7 @@ fun HomeScreen(
         picker.clear()
     }
     Screen(
-        title = stringResource(R.string.app_name),
+        title = null,
         toast = toast,
         onToastShown = viewModel::messageShown,
         overlay = { if (primary != null) PickerSheet(picker, pick, primary.name, send) },
@@ -147,72 +182,50 @@ fun HomeScreen(
                 }
                 val wire = primary.wire(state.refreshing)
                 val motion = rememberWireMotion(state.activeTransfers > 0)
-                val lit = wire == Wire.WiFi || wire == Wire.Bluetooth
-                TetherRow(wire, motion, Node.Desktop, first = true, nodeAt = 30.dp) {
-                    DesktopHeader(primary, state.refreshing, { viewModel.connect(primary) }) { onDesktop(primary) }
+                val desk = state.desk
+                val player = desk.player(primary.id)?.takeIf { primary.connected }
+                val clipboardSetup = primary.sharing.clipboard && !autoClipboard
+                val alert = missing.isNotEmpty() || clipboardSetup
+                TetherRow(wire, motion, Node.Desktop, first = true, nodeAt = 20.dp) {
+                    HomeHeader(primary, state, { viewModel.connect(primary) }) { onDesktop(primary) }
                     if (state.desktops.size > 1) DesktopSwitcher(state.desktops, primary, viewModel::selectDesktop)
                 }
-                TetherRow(wire, motion, Node.Dot, nodeAt = 40.dp) {
-                    val ringing = primary.id in state.ringing
-                    Row(Modifier.padding(top = Space.s8), horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
-                        QuickTile(
-                            LinkIcons.Clipboard,
-                            stringResource(R.string.action_clipboard),
-                            primary.sharing.clipboard,
-                            false,
-                            Modifier.weight(1f),
-                        ) {
-                            if (!primary.sharing.clipboard) {
-                                onDesktop(primary)
-                            } else {
-                                viewModel.sendClipboard(primary, context.getSystemService(ClipboardManager::class.java).primaryClip)
-                            }
-                        }
-                        QuickTile(
-                            LinkIcons.Ring,
-                            stringResource(if (ringing) R.string.ring_desktop_stop else R.string.action_ring),
-                            primary.sharing.ring,
-                            ringing,
-                            Modifier.weight(1f),
-                        ) { if (primary.sharing.ring) viewModel.ring(primary, !ringing) else onDesktop(primary) }
-                        QuickTile(
-                            Icons.Filled.PlayArrow,
-                            stringResource(R.string.action_media),
-                            primary.sharing.media,
-                            false,
-                            Modifier.weight(1f),
-                        ) {
-                            if (primary.sharing.media) onMedia() else onDesktop(primary)
-                        }
+                if (player != null) {
+                    TetherRow(wire, motion, Node.Dot, nodeAt = 44.dp) {
+                        PlayerCard(player, onOpen = onMedia) { command, value -> viewModel.media(player, command, value) }
+                    }
+                }
+                TetherRow(wire, motion, Node.None) {
+                    Controls(primary, state, viewModel, onDesktop, onRemote, onPresenter) {
+                        viewModel.sendClipboard(primary, context.getSystemService(ClipboardManager::class.java).primaryClip)
                     }
                 }
                 TetherRow(wire, motion, Node.Ring, nodeAt = 20.dp) {
                     if (primary.sharing.files) {
                         SendTray(primary, pick, picker, send)
                     } else {
-                        Label(stringResource(R.string.home_files_disabled), LinkTheme.type.headlineMedium)
+                        Label(stringResource(R.string.home_files_disabled), LinkTheme.type.titleMedium)
                     }
                 }
-                TetherRow(wire, motion, Node.Phone, last = true, nodeAt = 30.dp, onClick = onActivity) {
-                    Readout(
-                        if (state.activeTransfers > 0) {
-                            stringResource(R.string.readout_moving, state.activeTransfers)
+                TetherRow(wire, motion, Node.Ring, nodeAt = 20.dp, last = !alert) {
+                    RecentList(primary, state)
+                    Row(Modifier.padding(top = Space.s4)) {
+                        Spacer(Modifier.weight(1f))
+                        Label(
+                            stringResource(R.string.home_recent_all),
+                            LinkTheme.type.titleSmall,
+                            LinkTheme.colors.accentText,
+                            Modifier.clip(Radius.pill).clickable(role = Role.Button, onClick = onActivity).padding(Space.s8),
+                        )
+                    }
+                }
+                if (alert) {
+                    TetherRow(wire, motion, Node.Alert, last = true, nodeAt = 20.dp) {
+                        if (missing.isNotEmpty()) {
+                            MissingLine(missing, onSetup)
                         } else {
-                            stringResource(R.string.readout_idle)
-                        },
-                        if (state.activeTransfers > 0 && lit) LinkTheme.colors.accentText else LinkTheme.colors.textTertiary,
-                    )
-                    Label(
-                        stringResource(R.string.home_this_phone),
-                        LinkTheme.type.headlineLarge,
-                        modifier = Modifier.padding(top = Space.s4),
-                    )
-                    Label(stringResource(R.string.home_activity_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
-                    if (setupNeeded) SetupLine(stringResource(R.string.setup_banner), onSetup)
-                    if (primary.sharing.clipboard &&
-                        !autoClipboard
-                    ) {
-                        SetupLine(stringResource(R.string.home_clipboard_setup), onClipboardSetup)
+                            MissingLine(stringResource(R.string.home_clipboard_setup), null, onClipboardSetup)
+                        }
                     }
                 }
                 Spacer(Modifier.height(Space.s32))
@@ -249,6 +262,72 @@ private fun EmptyLine(onPair: () -> Unit) {
         Readout(stringResource(R.string.readout_searching), LinkTheme.colors.textTertiary)
         Label(stringResource(R.string.home_this_phone), LinkTheme.type.headlineLarge, modifier = Modifier.padding(top = Space.s4))
         Label(stringResource(R.string.home_private_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
+    }
+}
+
+/** The 7% ink wash behind keys and buttons that sit on paper. */
+@Composable
+private fun wash() = LinkTheme.colors.textPrimary.copy(alpha = 0.07f)
+
+/** The desktop as the line's top end: how it is reached, its name set large, its battery and lock, or when it was seen. */
+@Composable
+private fun HomeHeader(
+    desktop: Desktop,
+    state: HomeState,
+    onConnect: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    val colors = LinkTheme.colors
+    val via =
+        when {
+            desktop.connected && desktop.bluetooth -> stringResource(R.string.home_via_bluetooth)
+            desktop.connected -> stringResource(R.string.home_via_wifi)
+            state.refreshing -> stringResource(R.string.home_via_searching)
+            else -> stringResource(R.string.home_last_seen, lastSeen(desktop.lastSeen))
+        }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Label(via, LinkTheme.type.titleSmall, if (desktop.connected) colors.accentText else colors.textTertiary, Modifier.weight(1f))
+        val label = stringResource(R.string.desktop_open)
+        Box(
+            Modifier
+                .size(Size.touch)
+                .clip(Radius.pill)
+                .clickable(role = Role.Button, onClick = onOpen)
+                .semantics { contentDescription = label },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(Size.iconContainer).clip(Radius.pill).background(wash()), contentAlignment = Alignment.Center) {
+                Glyph(Icons.Filled.Settings, colors.textSecondary, Size.icon - 4.dp)
+            }
+        }
+    }
+    Label(desktop.name, LinkTheme.type.hero, modifier = Modifier.padding(top = Space.s4), maxLines = 2)
+    val status = state.desk.statuses[desktop.id]
+    Row(
+        Modifier.padding(top = Space.s10),
+        horizontalArrangement = Arrangement.spacedBy(Space.s16),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        status?.battery?.let { percent ->
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s6), verticalAlignment = Alignment.CenterVertically) {
+                BatteryGlyph(percent)
+                Label(stringResource(R.string.home_battery, percent), LinkTheme.type.titleMedium)
+                if (status.charging == true) Label(stringResource(R.string.home_charging), LinkTheme.type.bodyLarge, colors.textSecondary)
+            }
+        }
+        status?.locked?.let { locked ->
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s6), verticalAlignment = Alignment.CenterVertically) {
+                Glyph(if (locked) LinkIcons.Lock else LinkIcons.LockOpen, colors.textSecondary, Size.iconSmall)
+                Label(
+                    stringResource(if (locked) R.string.home_locked else R.string.home_unlocked),
+                    LinkTheme.type.bodyLarge,
+                    colors.textSecondary,
+                )
+            }
+        }
+    }
+    if (!desktop.connected) {
+        PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !state.refreshing)
     }
 }
 
@@ -292,6 +371,25 @@ internal fun DesktopHeader(
 }
 
 @Composable
+private fun BatteryGlyph(percent: Int) {
+    val colors = LinkTheme.colors
+    Box(
+        Modifier
+            .size(22.dp, 11.dp)
+            .border(1.5.dp, colors.textSecondary, RoundedCornerShape(3.dp))
+            .padding(2.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(percent / 100f)
+                .clip(Radius.micro)
+                .background(if (percent <= LOW_BATTERY) colors.warning else colors.success),
+        )
+    }
+}
+
+@Composable
 private fun DesktopSwitcher(
     desktops: List<Desktop>,
     primary: Desktop,
@@ -311,55 +409,409 @@ private fun DesktopSwitcher(
     }
 }
 
-/** Something left to set up, at the phone's end of the line: a warning dot, what it is, and a way there. */
+/** The only card on Home: the desktop's player, with the position moving locally while it plays. */
 @Composable
-private fun SetupLine(
-    text: String,
-    onClick: () -> Unit,
+private fun PlayerCard(
+    shown: DesktopPlayer,
+    onOpen: () -> Unit,
+    onCommand: (MediaCommandKind, Long?) -> Unit,
 ) {
-    Row(
+    val colors = LinkTheme.colors
+    val player = shown.player
+    val playing = player.state == PlaybackState.Playing
+    Column(
         Modifier
-            .padding(top = Space.s8)
-            .clip(Radius.pill)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = Space.s8),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Space.s8),
+            .fillMaxWidth()
+            .clip(Radius.hero)
+            .background(colors.surfaceElevated)
+            .border(1.dp, colors.borderSecondary, Radius.hero)
+            .padding(Space.s14),
     ) {
-        Box(Modifier.size(8.dp).clip(Radius.pill).background(LinkTheme.colors.warning))
-        Label(text, LinkTheme.type.titleMedium)
-        Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.textTertiary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).clip(Radius.button).clickable(role = Role.Button, onClick = onOpen),
+                horizontalArrangement = Arrangement.spacedBy(Space.s12),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Artwork(player.artwork)
+                Column(Modifier.weight(1f)) {
+                    Label(player.title.ifEmpty { player.name }, LinkTheme.type.titleLarge, maxLines = 1)
+                    val by =
+                        if (player.artist.isEmpty()) player.name else stringResource(R.string.home_on_app, player.artist, player.name)
+                    Label(by, LinkTheme.type.bodyMedium, colors.textSecondary, maxLines = 1)
+                }
+            }
+            MediaButton(LinkIcons.Previous, stringResource(R.string.media_previous), MediaCommandKind.Previous in player.can) {
+                onCommand(MediaCommandKind.Previous, null)
+            }
+            val playLabel = stringResource(if (playing) R.string.home_pause else R.string.home_play)
+            Box(
+                Modifier
+                    .size(Size.touch)
+                    .clip(Radius.pill)
+                    .background(colors.textPrimary)
+                    .clickable(enabled = MediaCommandKind.PlayPause in player.can, role = Role.Button) {
+                        onCommand(MediaCommandKind.PlayPause, null)
+                    }.semantics { contentDescription = playLabel },
+                contentAlignment = Alignment.Center,
+            ) { Glyph(if (playing) LinkIcons.Pause else Icons.Filled.PlayArrow, colors.surfacePrimary, Size.icon - 2.dp) }
+            MediaButton(LinkIcons.Next, stringResource(R.string.media_next), MediaCommandKind.Next in player.can) {
+                onCommand(MediaCommandKind.Next, null)
+            }
+        }
+        player.lengthMs?.let { length ->
+            Seek(player.positionMs, length, player.receivedAt, playing, MediaCommandKind.Seek in player.can) {
+                onCommand(MediaCommandKind.Seek, it)
+            }
+        }
     }
 }
 
-/** One of the three things you do to the desktop in a tap; lit while it is happening, dimmed when not shared. */
 @Composable
-private fun QuickTile(
+private fun Artwork(bytes: ByteArray?) {
+    val colors = LinkTheme.colors
+    val image = remember(bytes) { bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.asImageBitmap() }
+    Box(Modifier.size(52.dp).clip(Radius.button).background(colors.accent.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+        if (image != null) {
+            Image(image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Glyph(Icons.Filled.PlayArrow, colors.accentText)
+        }
+    }
+}
+
+@Composable
+private fun MediaButton(
     icon: ImageVector,
     label: String,
-    shared: Boolean,
-    active: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(Radius.pill)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) { Glyph(icon, if (enabled) LinkTheme.colors.textSecondary else LinkTheme.colors.textDisabled, Size.icon - 2.dp) }
+}
+
+/** Times either side of a thin bar; a tap or drag seeks, once the finger lifts. */
+@Composable
+private fun Seek(
+    positionMs: Long,
+    lengthMs: Long,
+    receivedAt: Long,
+    playing: Boolean,
+    seekable: Boolean,
+    onSeek: (Long) -> Unit,
+) {
+    val colors = LinkTheme.colors
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(playing, receivedAt) {
+        // Playback has no change event on this side; the bar moves once a second while it plays.
+        while (playing) {
+            now = SystemClock.elapsedRealtime()
+            delay(1_000)
+        }
+    }
+    val position = if (playing) positionMs + (now - receivedAt) else positionMs
+    val fraction = (position.toFloat() / lengthMs.coerceAtLeast(1)).coerceIn(0f, 1f)
+    Row(
+        Modifier.padding(top = Space.s10),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.s10),
+    ) {
+        Label(clock((fraction * lengthMs).toLong()), LinkTheme.type.labelMedium, colors.textTertiary)
+        DragTrack(
+            fraction,
+            stringResource(R.string.media_position),
+            seekable,
+            Modifier.weight(1f).height(Size.touch),
+            onDone = { onSeek((it * lengthMs).toLong()) },
+        ) { value, dragging ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(Radius.pill)
+                    .background(colors.surfaceInput),
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(value)
+                    .height(3.dp)
+                    .clip(Radius.pill)
+                    .background(colors.accent),
+            )
+            if (seekable) {
+                Box(Modifier.fillMaxWidth(value), contentAlignment = Alignment.CenterEnd) {
+                    Box(Modifier.size(if (dragging) 16.dp else 12.dp).clip(Radius.pill).background(colors.accent))
+                }
+            }
+        }
+        Label(clock(lengthMs), LinkTheme.type.labelMedium, colors.textTertiary)
+    }
+}
+
+private fun clock(ms: Long): String {
+    val seconds = ms / 1000
+    return if (seconds >= 3600) {
+        "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
+    } else {
+        "%d:%02d".format(seconds / 60, seconds % 60)
+    }
+}
+
+/**
+ * A horizontal track a finger taps or drags to a value from 0 to 1, reported once when the finger lifts; [draw] shows
+ * the moving value. Accessibility services set it through its progress range.
+ */
+@Composable
+private fun DragTrack(
+    value: Float,
+    label: String,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onDone: (Float) -> Unit = {},
+    draw: @Composable (value: Float, dragging: Boolean) -> Unit,
+) {
+    val done by rememberUpdatedState(onDone)
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    var width by remember { mutableIntStateOf(1) }
+    val shown = (dragging ?: value).coerceIn(0f, 1f)
+    val at = { x: Float -> (x / width).coerceIn(0f, 1f) }
+    val input =
+        if (enabled) {
+            Modifier
+                .pointerInput(Unit) { detectTapGestures { done(at(it.x)) } }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragging = at(it.x) },
+                        onDragEnd = {
+                            dragging?.let(done)
+                            dragging = null
+                        },
+                        onDragCancel = { dragging = null },
+                    ) { change, _ -> dragging = at(change.position.x) }
+                }
+        } else {
+            Modifier
+        }
+    Box(
+        modifier
+            .onSizeChanged { width = it.width.coerceAtLeast(1) }
+            .semantics {
+                contentDescription = label
+                progressBarRangeInfo = ProgressBarRangeInfo(shown, 0f..1f)
+                if (enabled) {
+                    setProgress { target ->
+                        done(target.coerceIn(0f, 1f))
+                        true
+                    }
+                }
+            }.then(input),
+        contentAlignment = Alignment.CenterStart,
+    ) { draw(shown, dragging != null) }
+}
+
+/** Volume, brightness, and the keys: what this phone can do to the desktop now. */
+@Composable
+private fun Controls(
+    desktop: Desktop,
+    state: HomeState,
+    viewModel: HomeViewModel,
+    onDesktop: (Desktop) -> Unit,
+    onRemote: (Desktop) -> Unit,
+    onPresenter: (Desktop) -> Unit,
+    onClipboard: () -> Unit,
+) {
+    val desk = state.desk
+    val can = desk.can(desktop.id).orEmpty()
+    val granted = CAN_CONTROL in can
+    val live = desktop.connected
+    val status = desk.statuses[desktop.id]
+    val ringing = desktop.id in state.ringing
+    Column {
+        val dim = Modifier.alpha(if (live) 1f else DISABLED)
+        desk.volumes[desktop.id]?.let { volume ->
+            LevelSlider(
+                LinkIcons.Ring,
+                stringResource(R.string.home_volume),
+                volume.percent,
+                live && granted,
+                dim,
+            ) { viewModel.setVolume(desktop, it) }
+        }
+        val brightness = status?.brightness
+        if (brightness != null && "brightness" in can) {
+            LevelSlider(LinkIcons.Brightness, stringResource(R.string.home_brightness), brightness, live && granted, dim) {
+                viewModel.setBrightness(desktop, it)
+            }
+        }
+        val system = { capability: String -> if (capability in can) (if (granted) KeyState.Off else KeyState.NotAllowed) else null }
+        val shared = { on: Boolean -> if (on) KeyState.Off else KeyState.NotAllowed }
+        val keys =
+            listOfNotNull(
+                system("lock")?.let { Key(LinkIcons.Lock, R.string.key_lock, it) { viewModel.lock(desktop) } },
+                system("suspend")?.let { Key(LinkIcons.Sleep, R.string.key_sleep, it) { viewModel.sleep(desktop) } },
+                system("screen-off")?.let { Key(LinkIcons.ScreenOff, R.string.key_screen_off, it) { viewModel.screenOff(desktop) } },
+                Key(
+                    LinkIcons.Ring,
+                    if (ringing) R.string.key_ringing else R.string.key_ring,
+                    if (ringing) KeyState.On else shared(desktop.sharing.ring),
+                ) { viewModel.ring(desktop, !ringing) },
+                Key(LinkIcons.Touchpad, R.string.key_touchpad, shared(desktop.control)) { onRemote(desktop) },
+                Key(LinkIcons.Presenter, R.string.key_presenter, shared(desktop.control)) { onPresenter(desktop) },
+                // A clip sent while the desktop is away waits for it, so Clipboard works offline too.
+                Key(LinkIcons.Clipboard, R.string.key_clipboard, shared(desktop.sharing.clipboard), offline = true, onClick = onClipboard),
+                system("dnd")?.let { allowed ->
+                    val on = status?.dnd == true
+                    Key(LinkIcons.Dnd, R.string.key_dnd, if (on && allowed == KeyState.Off) KeyState.On else allowed) {
+                        viewModel.setDnd(desktop, !on)
+                    }
+                },
+            )
+        Column(Modifier.padding(top = Space.s20), verticalArrangement = Arrangement.spacedBy(Space.s16)) {
+            keys.chunked(KEYS_PER_ROW).forEach { row ->
+                Row {
+                    row.forEach { key ->
+                        KeyButton(key, live || key.offline, Modifier.weight(1f)) {
+                            if (key.state ==
+                                KeyState.NotAllowed
+                            ) {
+                                onDesktop(desktop)
+                            } else {
+                                key.onClick()
+                            }
+                        }
+                    }
+                    repeat(KEYS_PER_ROW - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+        if (!granted && can.any { it in SYSTEM_CAPABILITIES }) {
+            Label(
+                stringResource(R.string.home_control_off, desktop.name),
+                LinkTheme.type.bodyMedium,
+                LinkTheme.colors.textSecondary,
+                Modifier.padding(top = Space.s14),
+            )
+        }
+    }
+}
+
+private enum class KeyState { Off, On, NotAllowed }
+
+private class Key(
+    val icon: ImageVector,
+    val label: Int,
+    val state: KeyState,
+    val offline: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun KeyButton(
+    key: Key,
+    enabled: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val colors = LinkTheme.colors
+    val label = stringResource(key.label)
+    val off = key.state == KeyState.NotAllowed
+    val on = key.state == KeyState.On
+    val notAllowed = stringResource(R.string.home_key_not_allowed)
     Column(
         modifier
+            .alpha(if (enabled) 1f else DISABLED)
             .clip(Radius.list)
-            .background(if (active) colors.accent else colors.surfaceTertiary)
-            .clickable(role = Role.Button, onClick = onClick)
-            .alpha(if (shared) 1f else 0.45f)
-            .padding(Space.s14),
-        verticalArrangement = Arrangement.spacedBy(Space.s20),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) { if (off) stateDescription = notAllowed }
+            .padding(vertical = Space.s4),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Space.s6),
     ) {
-        Glyph(icon, if (active) colors.onAccent else colors.textPrimary, Size.icon - 2.dp)
-        // Large font scales would clip the label in a third of the width, so it shrinks to fit instead.
-        BasicText(
+        val shape = RoundedCornerShape(18.dp)
+        Box(
+            Modifier
+                .size(54.dp)
+                .clip(shape)
+                .then(
+                    when {
+                        on -> Modifier.background(colors.accent)
+                        off -> Modifier.border(1.5.dp, colors.borderPrimary, shape)
+                        else -> Modifier.background(wash())
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Glyph(
+                key.icon,
+                if (on) {
+                    colors.onAccent
+                } else if (off) {
+                    colors.textDisabled
+                } else {
+                    colors.textPrimary
+                },
+                Size.icon - 2.dp,
+            )
+        }
+        Label(
             label,
-            style = LinkTheme.type.titleMedium.copy(color = if (active) colors.onAccent else colors.textPrimary),
+            if (on) LinkTheme.type.labelLarge else LinkTheme.type.bodySmall,
+            if (off) {
+                colors.textDisabled
+            } else if (on) {
+                colors.textPrimary
+            } else {
+                colors.textSecondary
+            },
             maxLines = 1,
-            autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = LinkTheme.type.titleMedium.fontSize),
         )
+    }
+}
+
+/** A 52 dp track the finger drags: solid accent up to the value, the icon riding in the fill, the number at the end. */
+@Composable
+private fun LevelSlider(
+    icon: ImageVector,
+    label: String,
+    percent: Int,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onSet: (Int) -> Unit,
+) {
+    val colors = LinkTheme.colors
+    val shape = RoundedCornerShape(16.dp)
+    DragTrack(
+        percent / 100f,
+        label,
+        enabled,
+        modifier
+            .padding(top = Space.s8)
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(shape)
+            .background(colors.surfaceInput),
+        onDone = { onSet((it * 100).roundToInt()) },
+    ) { value, _ ->
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .widthIn(min = 52.dp)
+                .fillMaxWidth(value)
+                .clip(shape)
+                .background(if (enabled) colors.accent else colors.textDisabled),
+        )
+        Row(Modifier.fillMaxWidth().padding(horizontal = Space.s16), verticalAlignment = Alignment.CenterVertically) {
+            Glyph(icon, colors.onAccent, Size.icon - 4.dp)
+            Spacer(Modifier.weight(1f))
+            Label("${(value * 100).roundToInt()}", LinkTheme.type.titleMedium, colors.textSecondary)
+        }
     }
 }
 
@@ -373,15 +825,14 @@ private fun SendTray(
 ) {
     val colors = LinkTheme.colors
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { picker.refresh() }
-    Label(stringResource(R.string.home_send_title), LinkTheme.type.headlineMedium)
-    Label(stringResource(R.string.home_send_target, desktop.name), LinkTheme.type.bodyMedium, colors.textSecondary)
+    Label(stringResource(R.string.home_send_to, desktop.name), LinkTheme.type.titleMedium)
     if (pick.access == MediaAccess.None) {
         Row(
             Modifier
                 .padding(top = Space.s12)
                 .fillMaxWidth()
                 .clip(Radius.list)
-                .background(colors.surfaceTertiary)
+                .background(wash())
                 .clickable { ask.launch(PhoneFiles.mediaPermissions) }
                 .padding(Space.s16),
             verticalAlignment = Alignment.CenterVertically,
@@ -398,11 +849,23 @@ private fun SendTray(
     }
     Row(Modifier.padding(top = Space.s12), horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
         listOf(
-            PickerTab.Photos to R.string.picker_photos,
-            PickerTab.Videos to R.string.picker_videos,
-            PickerTab.Files to R.string.picker_files,
-        ).forEach { (tab, label) ->
-            PillButton(stringResource(label), { picker.open(tab) }, Modifier.weight(1f), PillKind.Tonal)
+            Triple(PickerTab.Photos, R.string.picker_photos, LinkIcons.Photo),
+            Triple(PickerTab.Videos, R.string.picker_videos, LinkIcons.Video),
+            Triple(PickerTab.Files, R.string.picker_files, LinkIcons.Folder),
+        ).forEach { (tab, label, icon) ->
+            Row(
+                Modifier
+                    .weight(1f)
+                    .height(Size.touch)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(wash())
+                    .clickable(role = Role.Button) { picker.open(tab) },
+                horizontalArrangement = Arrangement.spacedBy(Space.s8, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Glyph(icon, colors.textPrimary, Size.iconSmall + 2.dp)
+                Label(stringResource(label), LinkTheme.type.titleMedium, maxLines = 1)
+            }
         }
     }
     if (pick.selected.isNotEmpty()) {
@@ -410,8 +873,152 @@ private fun SendTray(
     }
 }
 
+/** One recent thing that crossed the link, newest first; [time] is Unix milliseconds. */
+private data class Crossed(
+    val name: String,
+    val detail: String,
+    val time: Long,
+)
+
+/** The last three transfers and clips with this desktop, each branching off the line. */
+@Composable
+private fun RecentList(
+    desktop: Desktop,
+    state: HomeState,
+) {
+    val context = LocalContext.current
+    val colors = LinkTheme.colors
+    Label(stringResource(R.string.home_recent), LinkTheme.type.titleMedium)
+    val transfers =
+        state.desk.transfers
+            .filter { it.desktopName == desktop.name && it.files.isNotEmpty() }
+            .map { record ->
+                val first = record.files.first().name
+                val name =
+                    if (record.files.size >
+                        1
+                    ) {
+                        pluralStringResource(R.plurals.recent_more_files, record.files.size - 1, first, record.files.size - 1)
+                    } else {
+                        first
+                    }
+                val size = Formatter.formatShortFileSize(context, record.files.sumOf { it.size })
+                val detail =
+                    when {
+                        record.status !in LIVE_STATUSES && record.incoming == true -> stringResource(R.string.recent_not_received)
+                        record.status !in LIVE_STATUSES -> stringResource(R.string.recent_failed)
+                        record.incoming == true -> stringResource(R.string.recent_received, size)
+                        else -> stringResource(R.string.recent_sent, size)
+                    }
+                Crossed(name, detail, record.time)
+            }
+    val clips =
+        state.desk.clips
+            .filter { it.desktopId == null || it.desktopId == desktop.id }
+            .map { clip ->
+                Crossed(
+                    clip.text
+                        ?.lines()
+                        ?.firstOrNull { it.isNotBlank() }
+                        ?.trim() ?: stringResource(R.string.recent_image),
+                    stringResource(if (clip.incoming) R.string.recent_copied_from else R.string.recent_copied_to, desktop.name),
+                    clip.time,
+                )
+            }
+    val recent = (transfers + clips).sortedByDescending { it.time }.take(RECENT_ITEMS)
+    if (recent.isEmpty()) {
+        Label(stringResource(R.string.home_recent_empty), LinkTheme.type.bodyMedium, colors.textSecondary, Modifier.padding(top = Space.s8))
+        return
+    }
+    // The branches take the wire's colour: accent while connected, tertiary while the line is down.
+    val branch = (if (desktop.connected) colors.accent else colors.textTertiary).copy(alpha = 0.55f)
+    val now = System.currentTimeMillis()
+    recent.forEach { item ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = Space.s12)
+                .drawBehind {
+                    // From the wire, 32 dp left of the content's start, to just before the text.
+                    val y = 10.dp.toPx()
+                    drawLine(branch, Offset(-BRANCH_FROM.toPx(), y), Offset(-Space.s8.toPx(), y), 2.dp.toPx(), StrokeCap.Round)
+                },
+            horizontalArrangement = Arrangement.spacedBy(Space.s12),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Label(item.name, LinkTheme.type.bodyLarge, maxLines = 1)
+                Label(item.detail, LinkTheme.type.bodySmall, colors.textTertiary)
+            }
+            Label(
+                DateUtils
+                    .getRelativeTimeSpanString(
+                        item.time,
+                        now,
+                        DateUtils.MINUTE_IN_MILLIS,
+                        DateUtils.FORMAT_ABBREV_RELATIVE,
+                    ).toString(),
+                LinkTheme.type.bodySmall,
+                colors.textTertiary,
+            )
+        }
+    }
+}
+
+/** The first missing grant, said as what is off, and the way to turn it on. */
+@Composable
+private fun MissingLine(
+    missing: List<Grant>,
+    onSetup: () -> Unit,
+) {
+    val first =
+        when (missing.first()) {
+            Grant.NotificationAccess -> R.string.missing_notification_access
+            Grant.DoNotDisturb -> R.string.missing_dnd
+            Grant.PostNotifications -> R.string.missing_post
+            Grant.Battery -> R.string.missing_battery
+            Grant.Calls -> R.string.missing_calls
+            Grant.Bluetooth -> R.string.missing_bluetooth
+            Grant.Texts, Grant.AutoClipboard -> R.string.setup_banner
+        }
+    val more = if (missing.size > 1) pluralStringResource(R.plurals.missing_more, missing.size - 1, missing.size - 1) else null
+    MissingLine(stringResource(first), more, onSetup)
+}
+
+@Composable
+private fun MissingLine(
+    title: String,
+    detail: String?,
+    onClick: () -> Unit,
+) {
+    // The press shape reaches 8 dp past the text on each side, so its corners do not cut the text's first letter.
+    Column(
+        Modifier
+            .offset(x = -Space.s8)
+            .fillMaxWidth()
+            .clip(Radius.list)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = Space.s8, vertical = Space.s4),
+    ) {
+        Label(title, LinkTheme.type.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
+            if (detail != null) Label(detail, LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
+            Label(stringResource(R.string.missing_turn_on), LinkTheme.type.titleSmall, LinkTheme.colors.accentText)
+        }
+    }
+}
+
 @Composable
 private fun lastSeen(unixSeconds: Long): String =
     if (unixSeconds <= 0) stringResource(R.string.last_seen_never) else DateUtils.getRelativeTimeSpanString(unixSeconds * 1000).toString()
 
+private const val CAN_CONTROL = "control"
+private val SYSTEM_CAPABILITIES = setOf("lock", "suspend", "screen-off", "brightness", "dnd", "volume")
+private const val KEYS_PER_ROW = 4
+private const val RECENT_ITEMS = 3
+
+/** Transfer statuses that are not a failure; the rest (failed, declined, no-space, ...) are. */
+private val LIVE_STATUSES = setOf("offered", "transferring", "done")
+private const val LOW_BATTERY = 15
+private const val DISABLED = 0.45f
+private val BRANCH_FROM = 32.dp
 private const val RECENT = 12

@@ -1,0 +1,12 @@
+# Home with the desktop gone: last seen, Connect, and the controls dimmed, in ${THEME}. A fresh start opens Home at
+# its top; scrolling up there would pull to refresh, and the header would read "Connecting".
+appId: org.andromeda.link
+---
+- launchApp:
+    # An explicit list: by default Maestro grants every permission, READ_LOGS too, which kills the app.
+    permissions: { notifications: allow }
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Last seen .*"
+    timeout: 30000
+- takeScreenshot: ${OUT}/${THEME}-home-offline

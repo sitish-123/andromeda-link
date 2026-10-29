@@ -138,11 +138,11 @@ fun HeroSurface(
 
 /**
  * A screen: an optional back glyph and a title over content with the 20 dp page gutter, and a toast host for the
- * screen's one-line messages.
+ * screen's one-line messages. A null [title] drops the bar, for a screen whose content opens with its own heading.
  */
 @Composable
 fun Screen(
-    title: String,
+    title: String?,
     onBack: (() -> Unit)? = null,
     toast: String? = null,
     onToastShown: () -> Unit = {},
@@ -154,25 +154,27 @@ fun Screen(
     val colors = LinkTheme.colors
     Box(Modifier.fillMaxSize().background(background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = Space.s8, vertical = Space.s8),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (onBack != null) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(Size.touch)
-                                .clip(Radius.pill)
-                                .clickable(role = Role.Button, onClick = onBack)
-                                .semantics { contentDescription = "Back" },
-                        contentAlignment = Alignment.Center,
-                    ) { Glyph(Icons.AutoMirrored.Filled.ArrowBack) }
-                } else {
-                    Box(Modifier.size(Space.s12))
+            if (title != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Space.s8, vertical = Space.s8),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (onBack != null) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(Size.touch)
+                                    .clip(Radius.pill)
+                                    .clickable(role = Role.Button, onClick = onBack)
+                                    .semantics { contentDescription = "Back" },
+                            contentAlignment = Alignment.Center,
+                        ) { Glyph(Icons.AutoMirrored.Filled.ArrowBack) }
+                    } else {
+                        Box(Modifier.size(Space.s12))
+                    }
+                    Label(title, LinkTheme.type.displaySmall, modifier = Modifier.weight(1f).padding(horizontal = Space.s4), maxLines = 1)
+                    actions()
                 }
-                Label(title, LinkTheme.type.displaySmall, modifier = Modifier.weight(1f).padding(horizontal = Space.s4), maxLines = 1)
-                actions()
             }
             Column(Modifier.weight(1f).fillMaxWidth(), content = content)
         }

@@ -12,8 +12,8 @@ use link_core::identity::DeviceId;
 use link_core::proto::message::{
     CallAction, CallActionKind, DesktopStatus, InputAction, MAX_CAPABILITIES, MAX_CAPABILITY_LEN, MAX_NAME_LEN,
     MAX_NUMBER_LEN, MAX_SHARE_LEN, MAX_TEXT_BODY, Message, MirrorAction, MirrorInput, NotificationAction,
-    NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring, Ringing, Share, ShareKind, TransferId,
-    is_text_mime,
+    NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring, Ringing, Share, ShareKind, SystemCommand,
+    SystemCommandKind, TransferId, is_text_mime,
 };
 use link_core::store::StoredCommand;
 use link_core::transfer::{ClipBytes, LocalClip, Source};
@@ -590,23 +590,76 @@ impl Link {
         detail: &str,
     ) -> zbus::Result<()>;
 
-    /// A phone with the system grant asks for `set-volume` (`value` a percent) or `set-mute` (`value` 1 or 0).
+    /// A phone with the system grant, or Do Not Disturb sync, asks for a `system-command` (see messages.cddl);
+    /// `value` is 0 for a command without one. `link-session` answers `serial` with `SystemResult`; 0 wants no answer.
     #[zbus(signal)]
     async fn system_command(
         emitter: &SignalEmitter<'_>,
         device_id: &str,
         command: &str,
         value: u32,
+        serial: u64,
     ) -> zbus::Result<()>;
 
-    /// Called by `link-session`: the default output's volume (percent) and mute, sent to phones when they change.
-    async fn set_desktop_status(&self, volume: u32, muted: bool) -> fdo::Result<()> {
-        let volume = u8::try_from(volume)
-            .ok()
-            .filter(|volume| *volume <= 100)
-            .ok_or_else(|| fdo::Error::InvalidArgs("volume is a percent, 0 to 100".to_owned()))?;
-        self.hub.set_desktop_status(DesktopStatus { volume, muted }).await;
+    /// Called by `link-session`: the desktop's whole state, sent to phones when it changes. Keys: volume (u, percent)
+    /// and muted (b), both required; battery (u), charging (b), brightness (u), locked (b), idle (b), dnd (b), and
+    /// profile (s: power-saver, balanced, performance).
+    async fn set_desktop_status(&self, state: HashMap<String, zbus::OwnedVariant>) -> fdo::Result<()> {
+        let invalid = |key: &str| fdo::Error::InvalidArgs(format!("{key} is missing or out of range"));
+        let percent = |key: &str| {
+            state.get(key).and_then(|value| u32::try_from(value).ok()).and_then(|value| u8::try_from(value).ok())
+        };
+        let flag = |key: &str| state.get(key).and_then(|value| bool::try_from(value).ok());
+        let profile = match state.get("profile").map(<&str>::try_from) {
+            None => None,
+            Some(Ok(name)) => Some(
+                serde_json::from_value(serde_json::Value::String(name.to_owned())).map_err(|_| invalid("profile"))?,
+            ),
+            Some(Err(_)) => return Err(invalid("profile")),
+        };
+        let status = DesktopStatus {
+            volume: percent("volume").ok_or_else(|| invalid("volume"))?,
+            muted: flag("muted").ok_or_else(|| invalid("muted"))?,
+            battery: percent("battery"),
+            charging: flag("charging"),
+            brightness: percent("brightness"),
+            locked: flag("locked"),
+            idle: flag("idle"),
+            dnd: flag("dnd"),
+            profile,
+        };
+        Message::DesktopStatus(status.clone()).validate().map_err(|_| invalid("a percent"))?;
+        self.hub.set_desktop_status(status).await;
         Ok(())
+    }
+
+    /// Called by `link-session`: the answer to `SystemCommand` `serial`; an empty error means done.
+    async fn system_result(&self, device_id: String, serial: u64, error: String) -> fdo::Result<()> {
+        let id = DeviceId::parse(&device_id).map_err(|_| fdo::Error::InvalidArgs("not a device id".to_owned()))?;
+        self.hub.system_result(id, serial, (!error.is_empty()).then_some(error)).await;
+        Ok(())
+    }
+
+    /// Sets a phone's media volume (`set-media-volume`, percent), ringer (`set-ringer`: 0 silent, 1 vibrate,
+    /// 2 normal), or Do Not Disturb (`set-dnd`, 1 or 0), and waits up to 5 s for the phone's answer. Needs the
+    /// phone's system grant.
+    async fn send_system_command(&self, device_id: String, command: String, value: u32) -> Result<(), LinkError> {
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        let kind: SystemCommandKind = serde_json::from_value(serde_json::Value::String(command.clone()))
+            .map_err(|_| LinkError::Rejected(format!("unknown command {command}")))?;
+        let value = kind.max_value().map(|_| u8::try_from(value).unwrap_or(u8::MAX));
+        let command = SystemCommand { command: kind, value };
+        Message::SystemCommand(command.clone())
+            .validate()
+            .map_err(|_| LinkError::Rejected("the value is out of range".to_owned()))?;
+        self.hub.send_system_command(id, command).await.map_err(LinkError::Failed)
+    }
+
+    /// Connected device id to `(media volume, ringer, dnd, locked)`: a percent or -1; normal, vibrate, silent, or
+    /// empty; 1, 0, or -1 when the phone does not say.
+    #[zbus(property)]
+    fn device_controls(&self) -> HashMap<String, (i32, String, i32, i32)> {
+        self.snapshots.borrow().controls.iter().cloned().collect()
     }
 }
 
@@ -740,6 +793,9 @@ pub async fn forward(
                 if next.status != last.status {
                     link.get().await.device_status_changed(emitter).await?;
                 }
+                if next.controls != last.controls {
+                    link.get().await.device_controls_changed(emitter).await?;
+                }
                 if next.notifications_off != last.notifications_off {
                     link.get().await.notifications_off_changed(emitter).await?;
                 }
@@ -788,9 +844,10 @@ pub async fn forward(
                     Link::pinged(emitter, id.as_str(), &message.unwrap_or_default()).await?;
                 }
                 Event::RemoteInput { id, input } => emit_input(emitter, &id, input).await?,
-                Event::SystemCommand { id, command } => {
+                Event::SystemCommand { id, serial, command } => {
                     let name = wire_name(&command.command);
-                    Link::system_command(emitter, id.as_str(), &name, u32::from(command.value)).await?;
+                    let value = u32::from(command.value.unwrap_or(0));
+                    Link::system_command(emitter, id.as_str(), &name, value, serial).await?;
                 }
                 Event::Call { id, call } => {
                     let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());

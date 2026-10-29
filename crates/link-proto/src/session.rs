@@ -97,8 +97,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::TextsChanged
         | Message::TextSent(_)
         | Message::RemoteInput(_)
-        | Message::RunCommand(_)
-        | Message::SystemCommand(_) => role == Role::Desktop,
+        | Message::RunCommand(_) => role == Role::Desktop,
         Message::NotificationAction(_)
         | Message::NotificationDismiss(_)
         | Message::NotificationPull(_)
@@ -126,7 +125,9 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::MediaCommand(_)
         | Message::Ring(_)
         | Message::Ringing(_)
-        | Message::Ping(_) => true,
+        | Message::Ping(_)
+        | Message::SystemCommand(_)
+        | Message::SystemResult(_) => true,
         _ => false,
     }
 }
@@ -427,6 +428,10 @@ mod tests {
             network: NetworkKind::Cellular,
             signal: Some(3),
             notifications_off: false,
+            media_volume: None,
+            ringer: None,
+            dnd: None,
+            locked: None,
         };
         let desktop = SessionState::new(Role::Desktop).on_message(envelope(1, Message::Status(status)));
         assert_eq!(desktop, Ok(Inbound::Status(status)));

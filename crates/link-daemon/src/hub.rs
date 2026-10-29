@@ -10,9 +10,10 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    CAN_VOLUME, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE, FS_STAT,
-    Hello, Hotspot, HotspotEnd, HotspotJoined, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull,
-    Ping, RemoteInput, SYSTEM, Share, Status, SystemCommand, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect,
+    CAN_CONTROL, CAN_VOLUME, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE,
+    FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
+    NotificationPosted, NotificationPull, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status,
+    SystemCommand, SystemCommandKind, SystemResult, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect,
     WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
@@ -26,6 +27,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 /// Android shows its pairing code for 30 s; the window covers it and the user's tap.
 const BT_PAIRING_WINDOW: Duration = Duration::from_secs(60);
+/// A slider drag on the desktop moves the phone's slider live, at most this often.
+const DESKTOP_STATUS_EVERY: Duration = Duration::from_millis(150);
+/// How long a desktop's command waits for the phone's `system-result`.
+const SYSTEM_TIMEOUT: Duration = Duration::from_secs(5);
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use zbus::OwnedObjectPath;
@@ -63,6 +68,8 @@ pub struct Snapshot {
     pub grants: Vec<(String, Vec<String>)>,
     /// Connected device id to `(battery, charging, network, signal)`, the D-Bus `DeviceStatus` property.
     pub status: Vec<(String, (u32, bool, String, i32))>,
+    /// Connected device id to `(media volume, ringer, dnd, locked)`, the D-Bus `DeviceControls` property.
+    pub controls: Vec<(String, (i32, String, i32, i32))>,
     /// Connected devices whose notification access is off, the D-Bus `NotificationsOff` property.
     pub notifications_off: Vec<String>,
     /// The D-Bus `NotificationsWhileLocked` property.
@@ -137,9 +144,11 @@ pub enum Event {
         id: DeviceId,
         input: RemoteInput,
     },
-    /// The phone sets the desktop's volume.
+    /// A command for the desktop from a phone with the system grant; `serial` is its message id, which
+    /// `system_result` answers, or 0 for one nobody waits on, as from Do Not Disturb sync.
     SystemCommand {
         id: DeviceId,
+        serial: u64,
         command: SystemCommand,
     },
     Pinged {
@@ -203,6 +212,8 @@ enum Command {
     SetCapabilities { owner: String, can: Vec<String> },
     CapabilitiesGone { owner: String },
     SetDesktopStatus { status: DesktopStatus },
+    SystemResult { id: DeviceId, serial: u64, error: Option<String> },
+    SystemToPhone { id: DeviceId, command: SystemCommand, reply: oneshot::Sender<Result<(), String>> },
     Ping { id: DeviceId, message: Option<String>, reply: oneshot::Sender<Result<(), link_core::Error>> },
 }
 
@@ -269,6 +280,11 @@ pub struct Hub {
     capabilities: Option<(String, Vec<String>)>,
     /// The desktop's state as `link-session` last reported it.
     desktop_status: Option<DesktopStatus>,
+    /// When `desktop_status` last went to phones, and when a change held back by [`DESKTOP_STATUS_EVERY`] goes.
+    status_sent: Option<Instant>,
+    status_due: Option<Instant>,
+    /// `system-command`s sent to phones, by phone and message id, waiting for their `system-result`.
+    system_waiting: HashMap<(DeviceId, u64), oneshot::Sender<Result<(), String>>>,
     messages: crate::messages::Messages,
     mirrors: crate::mirror::Mirrors,
     puncher: Puncher,
@@ -345,6 +361,9 @@ impl Hub {
             features: HashMap::new(),
             capabilities: None,
             desktop_status: None,
+            status_sent: None,
+            status_due: None,
+            system_waiting: HashMap::new(),
             messages: crate::messages::Messages::default(),
             mirrors: crate::mirror::Mirrors::default(),
             puncher,
@@ -364,7 +383,9 @@ impl Hub {
             let browse_deadline = self.browsing.deadline();
             let contacts_deadline = self.messages.deadline();
             let mirror_deadline = self.mirrors.deadline();
+            let status_due = self.status_due;
             tokio::select! {
+                () = sleep_until(status_due) => self.flush_desktop_status().await,
                 () = sleep_until(mirror_deadline) => {
                     for id in self.mirrors.expire() {
                         self.tell_mirror_stop(&id, "nobody allowed it on the phone in time").await;
@@ -422,14 +443,9 @@ impl Hub {
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
             Command::SetCommands { commands, reply } => drop(reply.send(self.set_commands(commands).await)),
             Command::SetCapabilities { owner, can } => self.set_capabilities(Some((owner, can))).await,
-            Command::SetDesktopStatus { status } => {
-                if self.desktop_status.as_ref() != Some(&status) {
-                    self.desktop_status = Some(status);
-                    for id in self.sessions.keys().cloned().collect::<Vec<_>>() {
-                        self.send_desktop_status(&id).await;
-                    }
-                }
-            }
+            Command::SetDesktopStatus { status } => self.set_desktop_status(status).await,
+            Command::SystemResult { id, serial, error } => self.answer_system(&id, serial, error).await,
+            Command::SystemToPhone { id, command, reply } => self.send_system_command(id, command, reply).await,
             Command::CapabilitiesGone { owner } => {
                 if self.capabilities.as_ref().is_some_and(|(current, _)| *current == owner) {
                     self.set_capabilities(None).await;
@@ -572,12 +588,13 @@ impl Hub {
                     self.emit(Event::Received { id: from, share }).await;
                 }
             }
-            SessionEvent::Status { from, status } => {
-                if self.sessions.contains_key(&from) {
-                    self.status.insert(from, status);
-                    self.publish();
-                }
+            SessionEvent::Status { from, status } if self.sessions.contains_key(&from) => {
+                self.on_status(from, status).await;
             }
+            SessionEvent::SystemCommand { from, id, command } if self.sessions.contains_key(&from) => {
+                self.on_system_command(from, id, command).await;
+            }
+            SessionEvent::Status { .. } | SessionEvent::SystemCommand { .. } => {}
             SessionEvent::Unpaired { from } => {
                 log::info!("{from} unpaired itself");
                 self.sessions.remove(&from);
@@ -701,7 +718,11 @@ impl Hub {
                 self.leave_hotspot(&from).await;
             }
             Message::RemoteInput(input) => self.emit(Event::RemoteInput { id: from, input }).await,
-            Message::SystemCommand(command) => self.emit(Event::SystemCommand { id: from, command }).await,
+            Message::SystemResult(result) => {
+                if let Some(waiting) = self.system_waiting.remove(&(from, result.command)) {
+                    drop(waiting.send(result.error.map_or(Ok(()), Err)));
+                }
+            }
             Message::RunCommand(run) => {
                 match self.store.commands.iter().find(|stored| crate::control::id(stored) == run.id) {
                     Some(stored) => match crate::control::run(stored) {
@@ -934,8 +955,11 @@ impl Hub {
         peer.grants.set(feature, granted);
         self.save();
         self.publish();
-        if feature == Feature::Commands {
-            self.send_commands(id).await;
+        match feature {
+            Feature::Commands => self.send_commands(id).await,
+            // Tells the phone whether it obeys this desktop's commands.
+            Feature::System => self.send_capabilities(id).await,
+            _ => {}
         }
         true
     }
@@ -983,7 +1007,11 @@ impl Hub {
 
     async fn send_capabilities(&self, id: &DeviceId) {
         if self.phone_has(id, CAPABILITIES) {
-            self.send_to(id, Message::Capabilities(Capabilities { can: self.capabilities().to_vec() })).await;
+            let mut can = self.capabilities().to_vec();
+            if self.phone_has(id, SYSTEM_CONTROL) && self.store.peer(id).is_some_and(|peer| peer.grants.system) {
+                can.push(CAN_CONTROL.to_owned());
+            }
+            self.send_to(id, Message::Capabilities(Capabilities { can })).await;
         }
     }
 
@@ -991,7 +1019,114 @@ impl Hub {
         if let Some(status) = &self.desktop_status
             && self.phone_has(id, SYSTEM)
         {
-            self.send_to(id, Message::DesktopStatus(status.clone())).await;
+            let status =
+                if self.phone_has(id, SYSTEM_CONTROL) { status.clone() } else { status.clone().without_control() };
+            self.send_to(id, Message::DesktopStatus(status)).await;
+        }
+    }
+
+    async fn set_desktop_status(&mut self, status: DesktopStatus) {
+        if self.desktop_status.as_ref() == Some(&status) {
+            return;
+        }
+        let dnd_changed = self.desktop_status.as_ref().and_then(|old| old.dnd) != status.dnd;
+        self.desktop_status = Some(status);
+        let now = Instant::now();
+        match self.status_sent.map(|sent| sent + DESKTOP_STATUS_EVERY).filter(|next| *next > now) {
+            Some(next) => self.status_due = Some(next),
+            None => self.flush_desktop_status().await,
+        }
+        if dnd_changed {
+            self.sync_dnd_to_phones().await;
+        }
+    }
+
+    /// Records a phone's status; with Do Not Disturb sync, the phone's new DND goes to `link-session`.
+    async fn on_status(&mut self, from: DeviceId, status: Status) {
+        let before = self.status.insert(from.clone(), status).and_then(|old| old.dnd);
+        self.publish();
+        if let Some(dnd) = status.dnd
+            && before != Some(dnd)
+            && self.syncs_dnd(&from)
+            && self.desktop_status.as_ref().and_then(|desktop| desktop.dnd) != Some(dnd)
+        {
+            let command = SystemCommand { command: SystemCommandKind::SetDnd, value: Some(u8::from(dnd)) };
+            self.emit(Event::SystemCommand { id: from, serial: 0, command }).await;
+        }
+    }
+
+    async fn on_system_command(&self, from: DeviceId, id: u64, command: SystemCommand) {
+        if !command.command.to_desktop() {
+            log::info!("{from}: dropped a {:?} meant for a phone", command.command);
+        } else if self.store.peer(&from).is_some_and(|peer| peer.grants.system) {
+            self.emit(Event::SystemCommand { id: from, serial: id, command }).await;
+        } else {
+            log::info!("{from}: dropped a system-command its grant does not allow");
+            let error = "Control system is off for this phone on the desktop".to_owned();
+            self.answer_system(&from, id, Some(error)).await;
+        }
+    }
+
+    async fn flush_desktop_status(&mut self) {
+        self.status_due = None;
+        self.status_sent = Some(Instant::now());
+        for id in self.sessions.keys().cloned().collect::<Vec<_>>() {
+            self.send_desktop_status(&id).await;
+        }
+    }
+
+    fn syncs_dnd(&self, id: &DeviceId) -> bool {
+        self.phone_has(id, SYSTEM_CONTROL)
+            && self.store.peer(id).is_some_and(|peer| peer.grants.system && peer.grants.dnd_sync)
+    }
+
+    /// Sends the desktop's Do Not Disturb to the phones that sync it and differ.
+    async fn sync_dnd_to_phones(&self) {
+        let Some(dnd) = self.desktop_status.as_ref().and_then(|status| status.dnd) else { return };
+        for id in self.sessions.keys() {
+            if self.syncs_dnd(id) && self.status.get(id).and_then(|status| status.dnd) != Some(dnd) {
+                let command = SystemCommand { command: SystemCommandKind::SetDnd, value: Some(u8::from(dnd)) };
+                self.send_to(id, Message::SystemCommand(command)).await;
+            }
+        }
+    }
+
+    /// Answers `system-command` `serial` from `id`; 0 is one nobody waits on.
+    async fn answer_system(&self, id: &DeviceId, serial: u64, error: Option<String>) {
+        if serial != 0 && self.phone_has(id, SYSTEM_CONTROL) {
+            let error = error.map(|error| error.chars().take(MAX_SYSTEM_ERROR_LEN).collect());
+            self.send_to(id, Message::SystemResult(SystemResult { command: serial, error })).await;
+        }
+    }
+
+    async fn send_system_command(
+        &mut self,
+        id: DeviceId,
+        command: SystemCommand,
+        reply: oneshot::Sender<Result<(), String>>,
+    ) {
+        let refused = if !self.sessions.contains_key(&id) {
+            Some("the phone is not connected")
+        } else if !self.phone_has(&id, SYSTEM_CONTROL) {
+            Some("the phone's Link app is too old")
+        } else if !self.store.peer(&id).is_some_and(|peer| peer.grants.system) {
+            Some("Control system is off for this phone")
+        } else if !command.command.to_phone() {
+            Some("not a command for a phone")
+        } else {
+            None
+        };
+        if let Some(refused) = refused {
+            drop(reply.send(Err(refused.to_owned())));
+            return;
+        }
+        let Some(session) = self.sessions.get(&id) else { return };
+        match session.send_numbered(Message::SystemCommand(command)).await {
+            Ok(serial) => {
+                self.system_waiting.retain(|_, waiting| !waiting.is_closed());
+                self.system_waiting.insert((id, serial), reply);
+            }
+            Err(error) => drop(reply.send(Err(error.to_string()))),
         }
     }
 
@@ -1278,6 +1413,17 @@ impl Hub {
             })
             .collect();
         status.sort();
+        let flag = |value: Option<bool>| value.map_or(-1, i32::from);
+        let mut controls: Vec<_> = self
+            .status
+            .iter()
+            .map(|(id, status)| {
+                let ringer = status.ringer.map_or("", Ringer::as_str).to_owned();
+                let value = (status.media_volume.map_or(-1, i32::from), ringer, flag(status.dnd), flag(status.locked));
+                (id.to_string(), value)
+            })
+            .collect();
+        controls.sort();
         let mut notifications_off: Vec<String> =
             self.status.iter().filter(|(_, status)| status.notifications_off).map(|(id, _)| id.to_string()).collect();
         notifications_off.sort();
@@ -1294,6 +1440,7 @@ impl Hub {
                 auto_accept,
                 grants,
                 status,
+                controls,
                 notifications_off,
                 notify_locked: self.store.notify_locked,
                 localsend,
@@ -1437,6 +1584,21 @@ impl HubHandle {
     /// Records the desktop's state and sends it to connected phones when it changed.
     pub async fn set_desktop_status(&self, status: DesktopStatus) {
         self.tell(Command::SetDesktopStatus { status }).await;
+    }
+
+    /// Answers phone `id`'s `system-command` `serial`: done, or the error for the user.
+    pub async fn system_result(&self, id: DeviceId, serial: u64, error: Option<String>) {
+        self.tell(Command::SystemResult { id, serial, error }).await;
+    }
+
+    /// Sends phone `id` a command and waits up to [`SYSTEM_TIMEOUT`] for its answer.
+    pub async fn send_system_command(&self, id: DeviceId, command: SystemCommand) -> Result<(), String> {
+        let answer = self.request(|reply| Command::SystemToPhone { id, command, reply });
+        match tokio::time::timeout(SYSTEM_TIMEOUT, answer).await {
+            Ok(Some(result)) => result,
+            Ok(None) => Err("the phone did not answer".to_owned()),
+            Err(_) => Err("the phone did not answer in time".to_owned()),
+        }
     }
 
     /// Forgets the capabilities `owner` reported, when it still holds them.

@@ -53,8 +53,28 @@ impl Link {
         log_failure("NotificationDismiss", self.proxy.notification_dismiss(device, id).await);
     }
 
-    pub async fn report_desktop_status(&self, volume: u8, muted: bool) {
-        log_failure("SetDesktopStatus", self.proxy.set_desktop_status(u32::from(volume), muted).await);
+    pub async fn report_desktop_status(&self, volume: u8, muted: bool, state: &crate::system::State) {
+        let mut values =
+            vec![("volume", zbus::Variant::from(u32::from(volume))), ("muted", zbus::Variant::from(muted))];
+        if let Some((percent, charging)) = state.battery {
+            values.push(("battery", zbus::Variant::from(u32::from(percent))));
+            values.push(("charging", zbus::Variant::from(charging)));
+        }
+        let flags = [("locked", state.locked), ("idle", state.idle), ("dnd", state.dnd)];
+        values.extend(flags.into_iter().filter_map(|(key, flag)| Some((key, zbus::Variant::from(flag?)))));
+        if let Some(brightness) = state.brightness {
+            values.push(("brightness", zbus::Variant::from(u32::from(brightness))));
+        }
+        if let Some(profile) = &state.profile {
+            values.push(("profile", zbus::Variant::from(profile.as_str())));
+        }
+        let map = values.iter().map(|(key, value)| (*key, value)).collect();
+        log_failure("SetDesktopStatus", self.proxy.set_desktop_status(map).await);
+    }
+
+    /// Answers a phone's `SystemCommand` `serial`; `error` is for the user, None when it was done.
+    pub async fn system_result(&self, device: &str, serial: u64, error: Option<&str>) {
+        log_failure("SystemResult", self.proxy.system_result(device, serial, error.unwrap_or_default()).await);
     }
 
     /// Tells the daemon what this session can do; it forgets them when this process leaves the bus.

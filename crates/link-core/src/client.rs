@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT, MESSAGES, Message,
-    MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind, NotificationDigest, NotificationPosted,
-    NotificationRemoved, NotificationSnapshot, Punch, STATUS_SIGNAL, Share, Status, TransferId, WifiDirect,
+    CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT,
+    MESSAGES, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind, NotificationDigest,
+    NotificationPosted, NotificationRemoved, NotificationSnapshot, Punch, STATUS_SIGNAL, SYSTEM_CONTROL, Share, Status,
+    SystemCommand, SystemResult, TransferId, WifiDirect,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -68,6 +69,12 @@ pub enum ClientEvent {
     Message {
         from: DeviceId,
         message: Message,
+    },
+    /// A command from a desktop that granted this phone "Control system"; answer `id` with a `system-result`.
+    SystemCommand {
+        from: DeviceId,
+        id: u64,
+        command: SystemCommand,
     },
 }
 
@@ -165,6 +172,8 @@ pub struct ClientActor {
     present: bool,
     /// Desktops with an open transfer, kept connected like a present phone until it ends.
     busy: HashSet<DeviceId>,
+    /// Desktops whose last `capabilities` said they granted this phone "Control system".
+    controlled_by: HashSet<DeviceId>,
     /// Desktops a transfer is being started with, kept like busy ones until the transfer actor reports them.
     keeping: HashSet<DeviceId>,
     /// Desktops this phone's screen streams to, kept like busy ones, and their hotspot with them.
@@ -231,6 +240,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         transfer_events,
         present: false,
         busy: HashSet::new(),
+        controlled_by: HashSet::new(),
         keeping: HashSet::new(),
         mirroring: HashSet::new(),
         retries: HashMap::new(),
@@ -1155,9 +1165,10 @@ impl ClientActor {
         }
     }
 
-    /// The status as `id` takes it: without `signal` for a desktop from before it.
+    /// The status as `id` takes it: without the fields of a feature the desktop lacks.
     fn status_message(&self, id: &DeviceId, status: Status) -> Message {
         let has = |feature| self.phone.desktops().iter().any(|peer| peer.id == *id && peer.has(feature));
+        let status = if has(SYSTEM_CONTROL) { status } else { status.without_control() };
         Message::Status(Status {
             signal: status.signal.filter(|_| has(STATUS_SIGNAL)),
             notifications_off: status.notifications_off && has(NOTIFICATION_SYNC),
@@ -1252,10 +1263,22 @@ impl ClientActor {
             SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
             SessionEvent::Message {
                 from,
-                message: message @ (Message::Ping(_) | Message::Capabilities(_) | Message::DesktopStatus(_)),
+                message:
+                    message @ (Message::Ping(_)
+                    | Message::Capabilities(_)
+                    | Message::DesktopStatus(_)
+                    | Message::SystemResult(_)),
             } => {
+                if let Message::Capabilities(capabilities) = &message {
+                    if capabilities.can.iter().any(|can| can == CAN_CONTROL) {
+                        self.controlled_by.insert(from.clone());
+                    } else {
+                        self.controlled_by.remove(&from);
+                    }
+                }
                 self.emit(ClientEvent::Message { from, message }).await;
             }
+            SessionEvent::SystemCommand { from, id, command } => self.on_system_command(from, id, command).await,
             SessionEvent::Message { from, message } => {
                 let allowed = feature_of(&message).is_some_and(|feature| {
                     self.phone.desktops().iter().any(|peer| peer.id == from && peer.grants.allows(feature))
@@ -1267,6 +1290,27 @@ impl ClientActor {
                 }
             }
             SessionEvent::Unpaired { .. } | SessionEvent::Status { .. } => {}
+        }
+    }
+
+    /// Hands a desktop's command to the app, or refuses it when that desktop has not granted "Control system".
+    async fn on_system_command(&mut self, from: DeviceId, id: u64, command: SystemCommand) {
+        let error = if !command.command.to_phone() {
+            Some("not a command for a phone")
+        } else if !self.controlled_by.contains(&from) {
+            Some("Control system is off for this phone on the desktop")
+        } else {
+            None
+        };
+        match error {
+            None => self.emit(ClientEvent::SystemCommand { from, id, command }).await,
+            Some(error) => {
+                log::info!("{from}: refused a {:?}: {error}", command.command);
+                if let Some(session) = self.sessions.get(&from) {
+                    let result = SystemResult { command: id, error: Some(error.to_owned()) };
+                    drop(session.send(Message::SystemResult(result)).await);
+                }
+            }
         }
     }
 

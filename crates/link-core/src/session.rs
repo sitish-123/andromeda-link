@@ -6,7 +6,9 @@ use std::pin::pin;
 
 use link_proto::CloseCode;
 use link_proto::limit::Limits;
-use link_proto::message::{Envelope, HotspotEnd, Message, OfferReply, RefuseReason, Share, ShareAck, Status};
+use link_proto::message::{
+    Envelope, HotspotEnd, Message, OfferReply, RefuseReason, Share, ShareAck, Status, SystemCommand,
+};
 use link_proto::session::{Inbound, Role, SessionState};
 use tokio::sync::{mpsc, oneshot};
 
@@ -32,6 +34,12 @@ pub enum SessionEvent {
         from: DeviceId,
         message: Message,
     },
+    /// A `system-command`, already checked for its direction; `id` is its message id, which `system-result` names.
+    SystemCommand {
+        from: DeviceId,
+        id: u64,
+        command: SystemCommand,
+    },
     /// The phone's battery and network; only a desktop's sessions report this.
     Status {
         from: DeviceId,
@@ -49,7 +57,7 @@ pub struct Route {
 enum Command {
     Share { share: Share, reply: oneshot::Sender<Result<(), Error>> },
     Unpair { reply: oneshot::Sender<Result<(), Error>> },
-    Send { message: Message, reply: oneshot::Sender<Result<(), Error>> },
+    Send { message: Message, reply: oneshot::Sender<Result<u64, Error>> },
 }
 
 /// Reaches a running session. Cheap to clone; every clone stops working when the session ends.
@@ -97,6 +105,11 @@ impl SessionHandle {
 
     /// Sends a message that is not acknowledged, and returns once it is written.
     pub async fn send(&self, message: Message) -> Result<(), Error> {
+        self.send_numbered(message).await.map(drop)
+    }
+
+    /// Sends `message` and returns its message id.
+    pub async fn send_numbered(&self, message: Message) -> Result<u64, Error> {
         message.validate()?;
         let (reply, sent) = oneshot::channel();
         self.commands.send(Command::Send { message, reply }).await.map_err(|_| Error::NotConnected)?;
@@ -190,6 +203,7 @@ impl Live {
             }
             return Ok(false);
         }
+        let message_id = envelope.id;
         match self.state.on_message(envelope)? {
             Inbound::Share { id, share } => {
                 log::info!("{peer}: received a {} share", share.kind.as_str());
@@ -204,6 +218,9 @@ impl Live {
             Inbound::Unpair => {
                 self.emit(SessionEvent::Unpaired { from: peer.clone() }).await;
                 return Ok(true);
+            }
+            Inbound::Deliver(Message::SystemCommand(command)) => {
+                self.emit(SessionEvent::SystemCommand { from: peer.clone(), id: message_id, command }).await;
             }
             Inbound::Deliver(message) => self.emit(SessionEvent::Message { from: peer.clone(), message }).await,
             Inbound::Status(status) => self.emit(SessionEvent::Status { from: peer.clone(), status }).await,
@@ -228,8 +245,8 @@ impl Live {
                 drop(reply.send(Ok(())));
             }
             Command::Send { message, reply } => {
-                self.writer.send(message).await?;
-                drop(reply.send(Ok(())));
+                let id = self.writer.send(message).await?;
+                drop(reply.send(Ok(id)));
             }
         }
         Ok(())

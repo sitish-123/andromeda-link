@@ -66,12 +66,15 @@ pub enum Feature {
     Input,
     /// The phone may run the commands the desktop lists.
     Commands,
-    /// The phone may set the desktop's volume; a desktop-side switch, off after pairing.
+    /// "Control system": the phone may set the desktop's volume, brightness, lock, and the rest, and the desktop the
+    /// phone's media volume, ringer, and Do Not Disturb; a desktop-side switch, off after pairing.
     System,
+    /// Do Not Disturb follows the other side's both ways; a desktop-side switch, off after pairing.
+    DndSync,
 }
 
-/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, `messages`, `input`, and
-/// `system`. A store from before a feature gets its value after pairing.
+/// One switch per feature and paired device, all on after pairing but `browse`, `screen`, `messages`, `input`,
+/// `system`, and `dnd_sync`. A store from before a feature gets its value after pairing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 #[expect(clippy::struct_excessive_bools, reason = "one independent switch per feature")]
@@ -88,6 +91,7 @@ pub struct Grants {
     pub input: bool,
     pub commands: bool,
     pub system: bool,
+    pub dnd_sync: bool,
 }
 
 impl Default for Grants {
@@ -105,12 +109,13 @@ impl Default for Grants {
             input: false,
             commands: true,
             system: false,
+            dnd_sync: false,
         }
     }
 }
 
 impl Feature {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Clipboard,
         Self::Files,
         Self::Notifications,
@@ -123,6 +128,7 @@ impl Feature {
         Self::Input,
         Self::Commands,
         Self::System,
+        Self::DndSync,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -139,6 +145,7 @@ impl Feature {
             Self::Input => "input",
             Self::Commands => "commands",
             Self::System => "system",
+            Self::DndSync => "dnd-sync",
         }
     }
 
@@ -174,7 +181,7 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::MirrorKeyframe => Some(Feature::Screen),
         Message::RemoteInput(_) => Some(Feature::Input),
         Message::Commands(_) | Message::RunCommand(_) => Some(Feature::Commands),
-        Message::SystemCommand(_) => Some(Feature::System),
+        Message::SystemCommand(_) | Message::SystemResult(_) => Some(Feature::System),
         _ => None,
     }
 }
@@ -194,6 +201,7 @@ impl Grants {
             Feature::Input => self.input,
             Feature::Commands => self.commands,
             Feature::System => self.system,
+            Feature::DndSync => self.dnd_sync,
         }
     }
 
@@ -211,6 +219,7 @@ impl Grants {
             Feature::Input => &mut self.input,
             Feature::Commands => &mut self.commands,
             Feature::System => &mut self.system,
+            Feature::DndSync => &mut self.dnd_sync,
         };
         *flag = on;
     }

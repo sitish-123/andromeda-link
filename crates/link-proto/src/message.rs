@@ -978,6 +978,47 @@ pub struct Status {
     /// The user turned off the app's notification access; nothing is mirrored until it is on again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub notifications_off: bool,
+    /// [`SYSTEM_CONTROL`]: media volume, percent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_volume: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ringer: Option<Ringer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dnd: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+}
+
+impl Status {
+    fn valid(&self) -> bool {
+        self.battery <= 100
+            && self.signal.is_none_or(|bars| bars <= 4)
+            && self.media_volume.is_none_or(|percent| percent <= 100)
+    }
+
+    /// The status for a desktop without [`SYSTEM_CONTROL`].
+    #[must_use]
+    pub fn without_control(self) -> Self {
+        Self { media_volume: None, ringer: None, dnd: None, locked: None, ..self }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Ringer {
+    Normal,
+    Vibrate,
+    Silent,
+}
+
+impl Ringer {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Vibrate => "vibrate",
+            Self::Silent => "silent",
+        }
+    }
 }
 
 impl NetworkKind {
@@ -1178,20 +1219,61 @@ pub const CAN_CLIPBOARD: &str = "clipboard";
 pub const CAN_INPUT: &str = "input";
 pub const CAN_NOTIFICATIONS: &str = "notifications";
 pub const CAN_VOLUME: &str = "volume";
+/// Per phone: the desktop granted it "Control system", so the phone obeys the desktop's commands.
+pub const CAN_CONTROL: &str = "control";
 pub const MAX_CAPABILITIES: usize = 16;
 pub const MAX_CAPABILITY_LEN: usize = 32;
 
 /// Both hellos carry this among their `addresses` when the peer takes `desktop-status` and `system-command`; older
 /// peers close a session on those types.
 pub const SYSTEM: &str = "feature:system";
+/// Both hellos carry this, with [`SYSTEM`], when the peer takes the status fields and commands after volume and mute,
+/// and `system-result`.
+pub const SYSTEM_CONTROL: &str = "feature:system-control";
 
-/// Desktop to phone, on connect and after each change: the desktop's state. Stage 4 adds fields.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Desktop to phone, on connect and after each change: the desktop's state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DesktopStatus {
     /// The default output's volume, percent.
     pub volume: u8,
     pub muted: bool,
+    /// [`SYSTEM_CONTROL`] from here on. Percent; absent without a battery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charging: Option<bool>,
+    /// Percent; absent without a backlight.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brightness: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dnd: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<PowerProfile>,
+}
+
+impl DesktopStatus {
+    fn valid(&self) -> bool {
+        [Some(self.volume), self.battery, self.brightness].into_iter().flatten().all(|percent| percent <= 100)
+    }
+
+    /// The status for a phone without [`SYSTEM_CONTROL`].
+    #[must_use]
+    pub fn without_control(self) -> Self {
+        Self { volume: self.volume, muted: self.muted, ..Self::default() }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PowerProfile {
+    PowerSaver,
+    Balanced,
+    Performance,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1201,6 +1283,41 @@ pub enum SystemCommandKind {
     SetVolume,
     /// `value` is 1 to mute, 0 to unmute.
     SetMute,
+    /// [`SYSTEM_CONTROL`] from here on. To the desktop; `value` is the percent.
+    SetBrightness,
+    Lock,
+    Suspend,
+    ScreenOff,
+    /// Either way; `value` is 1 for on.
+    SetDnd,
+    /// To the desktop; `value` is 0 power-saver, 1 balanced, 2 performance.
+    SetProfile,
+    /// To the phone; `value` is the percent.
+    SetMediaVolume,
+    /// To the phone; `value` is 0 silent, 1 vibrate, 2 normal.
+    SetRinger,
+}
+
+impl SystemCommandKind {
+    /// False for the commands only a desktop sends.
+    pub fn to_desktop(self) -> bool {
+        !matches!(self, Self::SetMediaVolume | Self::SetRinger)
+    }
+
+    /// True for the commands a desktop may send.
+    pub fn to_phone(self) -> bool {
+        matches!(self, Self::SetMediaVolume | Self::SetRinger | Self::SetDnd)
+    }
+
+    /// The largest `value`, or `None` for a command without one.
+    pub fn max_value(self) -> Option<u8> {
+        match self {
+            Self::SetVolume | Self::SetBrightness | Self::SetMediaVolume => Some(100),
+            Self::SetMute | Self::SetDnd => Some(1),
+            Self::SetProfile | Self::SetRinger => Some(2),
+            Self::Lock | Self::Suspend | Self::ScreenOff => None,
+        }
+    }
 }
 
 /// Phone to desktop, while the desktop's system switch for the phone is on.
@@ -1208,8 +1325,31 @@ pub enum SystemCommandKind {
 #[serde(deny_unknown_fields)]
 pub struct SystemCommand {
     pub command: SystemCommandKind,
-    pub value: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<u8>,
 }
+
+impl SystemCommand {
+    fn valid(&self) -> bool {
+        match (self.command.max_value(), self.value) {
+            (Some(max), Some(value)) => value <= max,
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
+/// [`SYSTEM_CONTROL`]: the answer to the `system-command` whose message id is `command`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SystemResult {
+    pub command: u64,
+    /// For the user, when the command was not done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+pub const MAX_SYSTEM_ERROR_LEN: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1402,6 +1542,7 @@ pub enum Message {
     Capabilities(Capabilities),
     DesktopStatus(DesktopStatus),
     SystemCommand(SystemCommand),
+    SystemResult(SystemResult),
 }
 
 impl Message {
@@ -1473,6 +1614,7 @@ impl Message {
             Self::Capabilities(_) => "capabilities",
             Self::DesktopStatus(_) => "desktop-status",
             Self::SystemCommand(_) => "system-command",
+            Self::SystemResult(_) => "system-result",
         }
     }
 
@@ -1542,6 +1684,7 @@ impl Message {
             Self::Capabilities(body) => Value::serialized(body),
             Self::DesktopStatus(body) => Value::serialized(body),
             Self::SystemCommand(body) => Value::serialized(body),
+            Self::SystemResult(body) => Value::serialized(body),
         }
     }
 
@@ -1631,6 +1774,7 @@ impl Message {
             "capabilities" => Self::Capabilities(body.deserialized()?),
             "desktop-status" => Self::DesktopStatus(body.deserialized()?),
             "system-command" => Self::SystemCommand(body.deserialized()?),
+            "system-result" => Self::SystemResult(body.deserialized()?),
             other => return Err(DecodeError::UnknownType(other.to_owned())),
         };
         message.validate()?;
@@ -1677,7 +1821,7 @@ impl Message {
             Self::MediaCommand(command) => command.valid(),
             Self::ClipPull(pull) | Self::ClipData(pull) => (1..=MAX_MIME_LEN).contains(&pull.mime.len()),
             Self::ClipOffer(offer) => offer.is_valid(),
-            Self::Status(status) => status.battery <= 100 && status.signal.is_none_or(|bars| bars <= 4),
+            Self::Status(status) => status.valid(),
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),
             Self::ResumeAt(at) => unique(at.offsets.iter().map(|offset| offset.file)),
@@ -1732,11 +1876,11 @@ impl Message {
                 capabilities.can.len() <= MAX_CAPABILITIES
                     && capabilities.can.iter().all(|entry| sized(entry, 1, MAX_CAPABILITY_LEN))
             }
-            Self::DesktopStatus(status) => status.volume <= 100,
-            Self::SystemCommand(command) => match command.command {
-                SystemCommandKind::SetVolume => command.value <= 100,
-                SystemCommandKind::SetMute => command.value <= 1,
-            },
+            Self::DesktopStatus(status) => status.valid(),
+            Self::SystemCommand(command) => command.valid(),
+            Self::SystemResult(result) => {
+                result.error.as_deref().is_none_or(|error| sized(error, 1, MAX_SYSTEM_ERROR_LEN))
+            }
         };
         if valid { Ok(()) } else { Err(DecodeError::Invalid(self.kind())) }
     }

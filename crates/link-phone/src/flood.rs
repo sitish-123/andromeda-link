@@ -69,6 +69,10 @@ fn message(kind: Kind, n: u32) -> Message {
             network: NetworkKind::Wifi,
             signal: None,
             notifications_off: false,
+            media_volume: None,
+            ringer: None,
+            dnd: None,
+            locked: None,
         }),
     }
 }

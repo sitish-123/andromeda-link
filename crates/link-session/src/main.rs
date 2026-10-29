@@ -7,6 +7,7 @@ mod input;
 mod link;
 mod notify;
 mod portal;
+mod system;
 mod volume;
 
 use anyhow::Context;
@@ -55,35 +56,41 @@ async fn volume_changed(volume: &mut Option<volume::Volume>) -> anyhow::Result<(
     }
 }
 
-/// Runs a phone's `set-volume` or `set-mute`; the daemon sends it only from devices holding the system grant.
-async fn system_command(volume: &volume::Volume, command: &str, value: u32) -> anyhow::Result<()> {
+/// Runs a phone's command; the daemon sends it only from devices holding the system grant. The error is for the user.
+async fn system_command(
+    volume: Option<&volume::Volume>,
+    system: &mut system::System,
+    command: &str,
+    value: u32,
+) -> Result<(), String> {
+    let volume = || volume.ok_or_else(|| "No volume control on this desktop".to_owned());
+    let failed = |error: anyhow::Error| format!("Volume failed: {error:#}");
     match command {
-        "set-volume" => volume.set_volume(u8::try_from(value.min(100))?).await,
-        "set-mute" => volume.set_muted(value != 0).await,
-        other => {
-            log::debug!("system command {other} ignored");
-            Ok(())
-        }
+        "set-volume" => volume()?.set_volume(u8::try_from(value.min(100)).unwrap_or(100)).await.map_err(failed),
+        "set-mute" => volume()?.set_muted(value != 0).await.map_err(failed),
+        _ => system.run(command, value).await,
     }
 }
 
 /// What this session can do, as `org.andromeda.Link1.SetSessionCapabilities` takes it.
-fn capabilities(clipboard: bool, input: bool, volume: bool) -> Vec<&'static str> {
+fn capabilities(clipboard: bool, input: bool, volume: bool, system: &system::System) -> Vec<&'static str> {
     let optional = [(clipboard, "clipboard"), (input, "input"), (volume, "volume")];
-    std::iter::once("notifications").chain(optional.into_iter().filter(|(on, _)| *on).map(|(_, name)| name)).collect()
+    std::iter::once("notifications")
+        .chain(optional.into_iter().filter(|(on, _)| *on).map(|(_, name)| name))
+        .chain(system.capabilities())
+        .collect()
 }
 
-async fn report(link: &link::Link, capabilities: &[&str], volume: Option<&volume::Volume>) {
+async fn report(link: &link::Link, capabilities: &[&str], volume: Option<&volume::Volume>, system: &system::System) {
     link.report_capabilities(capabilities).await;
-    if let Some(volume) = volume {
-        report_volume(link, volume).await;
-    }
+    report_status(link, volume, system).await;
 }
 
-/// Reports the output's volume and mute to the daemon, which sends phones a change.
-async fn report_volume(link: &link::Link, volume: &volume::Volume) {
+/// Reports the desktop's state to the daemon, which sends phones a change. Without a volume there is no status.
+async fn report_status(link: &link::Link, volume: Option<&volume::Volume>, system: &system::System) {
+    let Some(volume) = volume else { return };
     match volume.read().await {
-        Ok((percent, muted)) => link.report_desktop_status(percent, muted).await,
+        Ok((percent, muted)) => link.report_desktop_status(percent, muted, &system.read().await).await,
         Err(error) => log::warn!("reading the volume: {error:#}"),
     }
 }
@@ -154,15 +161,16 @@ async fn main() -> anyhow::Result<()> {
     let mut closed = notifications.proxy.receive_signal("NotificationClosed").await?;
     let mut clip_offered = link.proxy.receive_clipboard_offered().await?;
     let mut remote_input = link.proxy.receive_remote_input().await?;
-    let mut system = link.proxy.receive_system_command().await?;
+    let mut system_commands = link.proxy.receive_system_command().await?;
     let mut terminate = signal(SignalKind::terminate())?;
     let mut daemon_owner = link.proxy.inner().receive_owner_changed().await?;
     let (mut lock_changed, mut show_locked_changed, mut access_off) = notifications.watch(&bus).await?;
     let (mut clipboard, mut input) = backends(&bus).await;
     let mut volume = attempt("WirePlumber volume", volume::Volume::connect().await);
-    let capabilities = capabilities(clipboard.is_some(), input.is_some(), volume.is_some());
+    let mut system = system::System::connect(&bus).await;
+    let capabilities = capabilities(clipboard.is_some(), input.is_some(), volume.is_some(), &system);
     log::info!("can: {}", capabilities.join(", "));
-    report(&link, &capabilities, volume.as_ref()).await;
+    report(&link, &capabilities, volume.as_ref(), &system).await;
     // The phone clip the selection serves, as (device id, clip id).
     let mut remote: Option<(String, u64)> = None;
     log::info!("running");
@@ -221,24 +229,26 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             result = pump_input(&mut input) => result.context("the input backend stopped")?,
-            Some(signal) = system.next() => {
-                let (Ok(args), Some(backend)) = (signal.args(), volume.as_ref()) else { continue };
-                match system_command(backend, args.command, args.value).await {
-                    // Without a watcher, nothing else tells the phone its command took.
-                    Ok(()) => report_volume(&link, backend).await,
-                    Err(error) => log::warn!("{} {}: {error:#}", args.command, args.value),
+            Some(signal) = system_commands.next() => {
+                let Ok(args) = signal.args() else { continue };
+                let result = system_command(volume.as_ref(), &mut system, args.command, args.value).await;
+                if let Err(error) = &result {
+                    log::warn!("{} {}: {error}", args.command, args.value);
                 }
+                link.system_result(args.device_id, args.serial, result.err().as_deref()).await;
+                // Without a watcher, nothing else tells the phone its command took.
+                report_status(&link, volume.as_ref(), &system).await;
             }
-            result = volume_changed(&mut volume) => match (result, volume.as_ref()) {
-                (Ok(()), Some(backend)) => report_volume(&link, backend).await,
-                (Err(error), _) => log::warn!("watching the volume: {error:#}"),
-                (Ok(()), None) => {}
+            result = volume_changed(&mut volume) => match result {
+                Ok(()) => report_status(&link, volume.as_ref(), &system).await,
+                Err(error) => log::warn!("watching the volume: {error:#}"),
             },
+            () = system.changed() => report_status(&link, volume.as_ref(), &system).await,
             Some(message) = lock_changed.next() => notifications.set_locked(message.body().deserialize().ok(), None).await,
             Some(change) = show_locked_changed.next() => notifications.set_locked(None, change.get().await.ok()).await,
             Some(change) = access_off.next() => notifications.set_access_off(change.get().await.unwrap_or_default()).await,
             // A restarted daemon starts with no capabilities and no status.
-            Some(Some(_)) = daemon_owner.next() => report(&link, &capabilities, volume.as_ref()).await,
+            Some(Some(_)) = daemon_owner.next() => report(&link, &capabilities, volume.as_ref(), &system).await,
             _ = terminate.recv() => return Ok(()),
             _ = tokio::signal::ctrl_c() => return Ok(()),
         }

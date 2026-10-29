@@ -119,6 +119,10 @@ mod tests {
             network: crate::message::NetworkKind::Wifi,
             signal: None,
             notifications_off: false,
+            media_volume: None,
+            ringer: None,
+            dnd: None,
+            locked: None,
         });
         assert!(limits.admit(&status, now));
     }

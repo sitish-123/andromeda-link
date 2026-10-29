@@ -9,6 +9,7 @@ use link_core::identity::DeviceId;
 use link_core::proto::message::{
     Call, CallActionKind, CallState, MediaCommand, MediaCommandKind, MediaGone, MediaPlayer, Message,
     NotificationButton, NotificationPosted, NotificationRemoved, Ping, PlaybackState, Ring, Ringing, RunCommand,
+    SystemResult,
 };
 use serde_json::{Value, json};
 
@@ -81,6 +82,13 @@ impl Held {
                 }
             }
             ClientEvent::Message { message: Message::MediaCommand(command), .. } => self.obey(command).await,
+            // As the app does: carry it out, then answer.
+            ClientEvent::SystemCommand { from, id, .. } => {
+                let result = Message::SystemResult(SystemResult { command: *id, error: None });
+                if let Err(error) = self.client.send(from.clone(), result).await {
+                    log::info!("{from}: answering a system-command: {error}");
+                }
+            }
             // As Android does: a declined call ends, and the call state goes idle.
             ClientEvent::Message { message: Message::CallAction(action), .. }
                 if action.action == CallActionKind::Decline =>
@@ -306,8 +314,13 @@ pub fn describe(from: &DeviceId, message: &Message) -> Value {
         Message::Capabilities(capabilities) => {
             json!({ "event": "capabilities", "desktop": from, "can": capabilities.can })
         }
-        Message::DesktopStatus(status) => {
-            json!({ "event": "desktop-status", "desktop": from, "volume": status.volume, "muted": status.muted })
+        Message::DesktopStatus(status) => json!({
+            "event": "desktop-status", "desktop": from, "volume": status.volume, "muted": status.muted,
+            "battery": status.battery, "charging": status.charging, "brightness": status.brightness,
+            "locked": status.locked, "idle": status.idle, "dnd": status.dnd, "profile": status.profile,
+        }),
+        Message::SystemResult(result) => {
+            json!({ "event": "system-result", "desktop": from, "command": result.command, "error": result.error })
         }
         other => json!({ "event": "message", "desktop": from, "type": other.kind() }),
     }

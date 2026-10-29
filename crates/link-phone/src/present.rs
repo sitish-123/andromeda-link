@@ -164,22 +164,42 @@ async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
     Ok(json!({ "event": "sending", "transfer": transfer.to_hex() }))
 }
 
-/// `<battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]]`, as `--status` and a `status` line take
-/// it; the signal may be empty.
+/// `<battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]][,<key>=<value>]...`, as `--status` and a
+/// `status` line take it; the signal and notifications-off may be empty. Keys: media (percent), ringer (normal,
+/// vibrate, silent), dnd and locked (0 or 1).
 pub fn parse_status(text: &str) -> anyhow::Result<Status> {
-    let mut parts = text.split(',');
-    let (Some(battery), Some(charging), Some(network), signal, off, None) =
-        (parts.next(), parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
+    let usage = "a status is <battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]][,<key>=<value>]...";
+    let (positional, keyed): (Vec<&str>, Vec<&str>) = text.split(',').partition(|part| !part.contains('='));
+    let ([battery, charging, network] | [battery, charging, network, _] | [battery, charging, network, _, _]) =
+        positional.as_slice()
     else {
-        bail!("a status is <battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]]")
+        bail!(usage)
     };
-    Ok(Status {
+    let (signal, off) = (positional.get(3).copied(), positional.get(4).copied());
+    let mut status = Status {
         battery: battery.parse().context("battery is 0 to 100")?,
-        charging: charging == "1",
+        charging: *charging == "1",
         network: NetworkKind::parse(network).context("network is wifi, cellular, ethernet, none, or other")?,
         signal: signal.filter(|bars| !bars.is_empty()).map(str::parse).transpose().context("signal is 0 to 4 bars")?,
         notifications_off: off == Some("notifications-off"),
-    })
+        media_volume: None,
+        ringer: None,
+        dnd: None,
+        locked: None,
+    };
+    for part in keyed {
+        let (key, value) = part.split_once('=').context(usage)?;
+        match key {
+            "media" => status.media_volume = Some(value.parse().context("media is 0 to 100")?),
+            "ringer" => {
+                status.ringer = Some(serde_json::from_value(Value::String(value.to_owned())).context("ringer")?);
+            }
+            "dnd" => status.dnd = Some(value == "1"),
+            "locked" => status.locked = Some(value == "1"),
+            _ => bail!("unknown status key {key}"),
+        }
+    }
+    Ok(status)
 }
 
 /// `clip <path> <mime>... [+ <path> <mime>...]...`: offers each file's bytes as its types of the clipboard, never
@@ -258,6 +278,9 @@ fn describe(event: &ClientEvent) -> Value {
         ClientEvent::Unpaired { id } => json!({ "event": "unpaired", "desktop": id }),
         ClientEvent::Transfer(event) => files::describe(event),
         ClientEvent::Message { from, message } => held::describe(from, message),
+        ClientEvent::SystemCommand { from, id, command } => json!({
+            "event": "system-command", "desktop": from, "id": id, "command": command.command, "value": command.value,
+        }),
     }
 }
 

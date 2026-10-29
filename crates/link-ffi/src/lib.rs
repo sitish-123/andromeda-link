@@ -1024,6 +1024,10 @@ impl LinkClient {
             network,
             signal: signal.map(|bars| bars.min(4)),
             notifications_off,
+            media_volume: None,
+            ringer: None,
+            dnd: None,
+            locked: None,
         };
         let client = self.client.clone();
         self.run(async move { client.set_status(status).await }).await
@@ -1153,6 +1157,7 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
         },
         ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
         ClientEvent::Transfer(event) => return transfer_event(event),
+        ClientEvent::SystemCommand { .. } => return None,
         ClientEvent::Message { from, message } => {
             let desktop_id = from.to_string();
             match message {
@@ -1220,7 +1225,7 @@ impl LinkClient {
         value: u8,
     ) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
-        let message = Message::SystemCommand(message::SystemCommand { command, value });
+        let message = Message::SystemCommand(message::SystemCommand { command, value: Some(value) });
         self.run(async move { client.send(id, message).await }).await
     }
 

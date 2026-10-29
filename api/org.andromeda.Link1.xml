@@ -149,6 +149,9 @@
          none, or other; signal is cellular bars, 0 to 4, or -1 without service. A device appears once it reported,
          and leaves when it disconnects. -->
     <property name="DeviceStatus" type="a{s(ubsi)}" access="read"/>
+    <!-- Connected device id to (media volume, ringer, dnd, locked), from phones with feature:system-control: a
+         percent or -1; normal, vibrate, silent, or empty; 1, 0, or -1 when the phone does not say. -->
+    <property name="DeviceControls" type="a{s(isii)}" access="read"/>
     <!-- Connected device ids whose notification access is off: nothing mirrors until the user turns it on. -->
     <property name="NotificationsOff" type="as" access="read"/>
     <!-- "Show phone notifications while the desktop is locked": off by default, when a locked desktop shows only
@@ -310,18 +313,34 @@
       <arg name="device_id" type="s"/>
       <arg name="message" type="s"/>
     </signal>
-    <!-- A phone holding the system grant asks for set-volume (value a percent) or set-mute (value 1 or 0);
-         link-session carries it out. -->
+    <!-- A phone holding the system grant ("Control system"), or Do Not Disturb sync, asks for a system-command:
+         set-volume, set-brightness (percent), set-mute, set-dnd (1 or 0), set-profile (0 power-saver, 1 balanced,
+         2 performance), lock, suspend, or screen-off (value 0). link-session carries it out and answers serial with
+         SystemResult; serial 0 wants no answer. -->
     <signal name="SystemCommand">
       <arg name="device_id" type="s"/>
       <arg name="command" type="s"/>
       <arg name="value" type="u"/>
+      <arg name="serial" type="t"/>
     </signal>
-    <!-- Called by link-session: the default output's volume (percent) and mute, sent to phones when they change.
-         Errors: InvalidArgs for a volume over 100. -->
+    <!-- Called by link-session: the answer to SystemCommand serial; error, for the user, is empty when it was done. -->
+    <method name="SystemResult">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="serial" type="t" direction="in"/>
+      <arg name="error" type="s" direction="in"/>
+    </method>
+    <!-- Called by link-session: the desktop's whole state, sent to phones when it changes, volume and brightness at
+         most every 150 ms. Keys: volume (u, percent) and muted (b), required; battery (u), charging (b), brightness
+         (u), locked (b), idle (b), dnd (b), profile (s: power-saver, balanced, performance). Errors: InvalidArgs. -->
     <method name="SetDesktopStatus">
-      <arg name="volume" type="u" direction="in"/>
-      <arg name="muted" type="b" direction="in"/>
+      <arg name="state" type="a{sv}" direction="in"/>
+    </method>
+    <!-- Sets a phone's set-media-volume (percent), set-ringer (0 silent, 1 vibrate, 2 normal), or set-dnd (1 or 0)
+         and waits up to 5 s for its answer. Needs the phone's system grant. Errors: Rejected, Failed. -->
+    <method name="SendSystemCommand">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="command" type="s" direction="in"/>
+      <arg name="value" type="u" direction="in"/>
     </method>
     <!-- True when a phone with a Link session reported passkey for the Bluetooth pairing under way, so the desktop's
          pairing agent confirms without asking. Answers true once per report; waits up to 10 s for the report. -->

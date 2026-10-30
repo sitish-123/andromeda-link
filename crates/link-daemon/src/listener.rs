@@ -146,14 +146,21 @@ async fn ended(connection: &Connection, peer: &Spki, result: Result<(), Error>, 
 }
 
 async fn pairing(connection: &Connection, peer: &Spki, attempt: &Attempt, context: &Context) -> Result<(), Error> {
-    let handshake = async {
+    let greeting = async {
         let mut control = Control::accept(connection, None).await?;
         let hello = control.hello_as_server(context.hello()).await?;
-        pair_as_server(connection, &mut control, &attempt.secrets, &context.own, peer).await?;
         Ok::<_, Error>((control, hello))
     };
-    match handshake.await {
-        Ok((control, hello)) => {
+    // A peer that idles or sends garbage before its code guess must not use up the window (any LAN host can connect).
+    let (mut control, hello) = match greeting.await {
+        Ok(greeted) => greeted,
+        Err(error) => {
+            context.hub.release_window(attempt.window).await;
+            return Err(error);
+        }
+    };
+    match pair_as_server(connection, &mut control, &attempt.secrets, &context.own, peer).await {
+        Ok(()) => {
             context.hub.paired(peer.clone(), hello.name.clone(), attempt.window).await;
             serve(connection, peer, control, hello, context).await
         }

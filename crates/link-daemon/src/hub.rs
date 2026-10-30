@@ -212,6 +212,7 @@ enum Command {
     Admit { spki: Spki, reply: oneshot::Sender<Admission> },
     Paired { spki: Spki, name: String, window: u64 },
     PairingFailed { reason: String, window: u64 },
+    ReleaseWindow { window: u64 },
     Connected { id: DeviceId, hello: Hello, session: SessionHandle },
     Disconnected { id: DeviceId, stable_id: usize },
     Session { id: DeviceId, reply: oneshot::Sender<Option<SessionHandle>> },
@@ -477,6 +478,7 @@ impl Hub {
                     self.emit(Event::PairingFailed { reason }).await;
                 }
             }
+            Command::ReleaseWindow { window } => self.release_window(window),
             Command::Connected { id, hello, session } => self.connected(id, hello, session).await,
             Command::Disconnected { id, stable_id } => self.disconnected(id, stable_id).await,
             Command::SendText { id, to, body, reply } => self.send_text(id, to, body, reply).await,
@@ -885,6 +887,12 @@ impl Hub {
         }
         self.close_window();
         true
+    }
+
+    fn release_window(&mut self, id: u64) {
+        if let Some(window) = self.window.as_mut().filter(|window| window.id == id) {
+            window.taken = false;
+        }
     }
 
     fn admit(&mut self, spki: &Spki) -> Admission {
@@ -1737,6 +1745,11 @@ impl HubHandle {
 
     pub async fn pairing_failed(&self, reason: String, window: u64) {
         self.tell(Command::PairingFailed { reason, window }).await;
+    }
+
+    /// Frees window `window` for the next attempt: the last one failed before it could guess the code.
+    pub async fn release_window(&self, window: u64) {
+        self.tell(Command::ReleaseWindow { window }).await;
     }
 
     pub async fn connected(&self, id: DeviceId, hello: Hello, session: SessionHandle) {

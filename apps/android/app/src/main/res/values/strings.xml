@@ -156,6 +156,9 @@
     <string name="screen_request_title">%1$s wants to show your screen</string>
     <string name="screen_request_text">Tap to allow. Android asks each time.</string>
     <string name="screen_allow">Allow</string>
+    <string name="camera_request_title">%1$s wants a photo</string>
+    <string name="camera_request_text">Tap to open the camera. The photo goes to that computer.</string>
+    <string name="camera_take">Take photo</string>
     <string name="screen_decline">Decline</string>
     <string name="screen_mirroring">Showing your screen on %1$s</string>
     <string name="screen_stop">Stop</string>

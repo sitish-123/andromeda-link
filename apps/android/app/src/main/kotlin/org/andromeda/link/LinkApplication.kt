@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.andromeda.link.calls.Calls
+import org.andromeda.link.camera.PhoneCamera
 import org.andromeda.link.clipboard.ClipHistory
 import org.andromeda.link.clipboard.ClipboardSync
 import org.andromeda.link.clipboard.ClipboardWatcher
@@ -98,6 +99,7 @@ class AppContainer(
         desktopMedia.start()
         widget.start()
         scope.launch { repository.setMessages(Messaging(contacts, texts, callLog)) }
+        scope.launch { repository.setCamera(PhoneCamera(application)) }
         ringer.start()
         screen.start()
         calls.start()

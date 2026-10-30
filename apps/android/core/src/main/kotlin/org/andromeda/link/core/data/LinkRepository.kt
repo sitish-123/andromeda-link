@@ -73,6 +73,7 @@ import org.andromeda.link.ffi.LinkException
 import org.andromeda.link.ffi.MirrorSession
 import org.andromeda.link.ffi.OutgoingFile
 import org.andromeda.link.ffi.PhoneLibrary
+import org.andromeda.link.ffi.PhoneCamera
 import org.andromeda.link.ffi.PhoneMessages
 import org.andromeda.link.ffi.RemoteView
 import org.andromeda.link.ffi.generateIdentity
@@ -458,6 +459,8 @@ class LinkRepository(
     ): Result<Unit> = call { it.setBrowseRoots(roots.map { (name, path) -> BrowseRoot(name, path) }, library) }
 
     suspend fun setMessages(messages: PhoneMessages?): Result<Unit> = call { it.setMessages(messages) }
+
+    suspend fun setCamera(camera: PhoneCamera?): Result<Unit> = call { it.setCamera(camera) }
 
     suspend fun contactsChanged(): Result<Unit> = call { it.contactsChanged() }
 

@@ -12,7 +12,7 @@ use link_core::identity::{DeviceId, Identity};
 use link_core::inbox::Inbox;
 use link_core::phone::{PairTarget, Phone};
 use link_core::proto::CloseCode;
-use link_core::proto::message::{self, Contact, Message, MessagesRefusal, Share, Text, TransferId};
+use link_core::proto::message::{self, Contact, LoggedCall, Message, MessagesRefusal, Share, Text, TransferId};
 use link_core::proto::pairing::PairingError;
 use link_core::store::{self, Peer};
 use link_core::transfer::{ClipBytes, LocalClip, Source, TransferEvent};
@@ -625,12 +625,32 @@ impl link_core::browse::Library for Library {
 
 /// The phone's contacts and texts, for desktops whose messages switch is on. Called off the main thread; may block.
 /// `contacts` returns up to `limit` from `offset` in a stable order and `texts` newest first, or None while Android
-/// denies access. `send_text` returns once Android reports the text sent or failed.
+/// denies access. `send_text` returns once Android reports the text sent or failed. `calls` and `dial` serve desktops
+/// whose calls switch is on: the call log newest first, and a call placed on the phone (`Sent` once Android took it).
 #[uniffi::export(with_foreign)]
 pub trait PhoneMessages: Send + Sync {
     fn contacts(&self, offset: u32, limit: u32) -> Option<Vec<PhoneContact>>;
     fn texts(&self, offset: u32, limit: u32) -> Option<Vec<PhoneText>>;
     fn send_text(&self, to: String, body: String) -> TextOutcome;
+    fn calls(&self, offset: u32, limit: u32) -> Option<Vec<PhoneCall>>;
+    fn dial(&self, number: String) -> TextOutcome;
+}
+
+/// One call of the log: `date` in Unix milliseconds, `duration` in seconds, `name` when the log has one.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PhoneCall {
+    pub number: String,
+    pub name: Option<String>,
+    pub date: u64,
+    pub duration: u32,
+    pub kind: CallKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CallKind {
+    Incoming,
+    Outgoing,
+    Missed,
 }
 
 /// `date` in Unix milliseconds; `sent` for one this phone sent.
@@ -679,11 +699,35 @@ impl link_core::messages::Messages for Messages {
     }
 
     fn send_text(&self, to: &str, body: &str) -> Result<(), MessagesRefusal> {
-        match self.0.send_text(to.to_owned(), body.to_owned()) {
-            TextOutcome::Sent => Ok(()),
-            TextOutcome::Denied => Err(MessagesRefusal::Denied),
-            TextOutcome::Failed => Err(MessagesRefusal::Failed),
-        }
+        outcome(self.0.send_text(to.to_owned(), body.to_owned()))
+    }
+
+    fn calls(&self, offset: u32, limit: u32) -> Result<Vec<LoggedCall>, MessagesRefusal> {
+        let calls = self.0.calls(offset, limit).ok_or(MessagesRefusal::Denied)?;
+        let call = |call: PhoneCall| LoggedCall {
+            number: call.number,
+            name: call.name,
+            date: call.date,
+            duration: call.duration,
+            kind: match call.kind {
+                CallKind::Incoming => message::CallKind::Incoming,
+                CallKind::Outgoing => message::CallKind::Outgoing,
+                CallKind::Missed => message::CallKind::Missed,
+            },
+        };
+        Ok(calls.into_iter().map(call).collect())
+    }
+
+    fn dial(&self, number: &str) -> Result<(), MessagesRefusal> {
+        outcome(self.0.dial(number.to_owned()))
+    }
+}
+
+fn outcome(outcome: TextOutcome) -> Result<(), MessagesRefusal> {
+    match outcome {
+        TextOutcome::Sent => Ok(()),
+        TextOutcome::Denied => Err(MessagesRefusal::Denied),
+        TextOutcome::Failed => Err(MessagesRefusal::Failed),
     }
 }
 
@@ -825,6 +869,12 @@ impl LinkClient {
     pub async fn texts_changed(&self) -> Result<(), LinkError> {
         let client = self.client.clone();
         self.run(async move { client.texts_changed().await }).await
+    }
+
+    /// Tells desktops with the calls switch on that the call log changed.
+    pub async fn calls_changed(&self) -> Result<(), LinkError> {
+        let client = self.client.clone();
+        self.run(async move { client.calls_changed().await }).await
     }
 
     /// Pairs from the QR code's URI and keeps the session open.

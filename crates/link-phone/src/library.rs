@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use link_core::browse::{Library, LibraryItem};
 use link_core::messages::Messages;
-use link_core::proto::message::{Contact, MessagesRefusal, Text};
+use link_core::proto::message::{Contact, LoggedCall, MessagesRefusal, Text};
 
 pub struct Folders(pub PathBuf);
 
@@ -76,6 +76,14 @@ impl Messages for Book {
             .map_err(|_| MessagesRefusal::Failed)?;
         println!("{}", serde_json::json!({ "event": "text-sent", "to": to, "body": body, "id": id }));
         Ok(())
+    }
+
+    fn calls(&self, _offset: u32, _limit: u32) -> Result<Vec<LoggedCall>, MessagesRefusal> {
+        Err(MessagesRefusal::Denied)
+    }
+
+    fn dial(&self, _number: &str) -> Result<(), MessagesRefusal> {
+        Err(MessagesRefusal::Denied)
     }
 }
 

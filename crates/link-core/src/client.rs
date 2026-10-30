@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT,
-    MESSAGES, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind, NotificationDigest,
-    NotificationPosted, NotificationRemoved, NotificationSnapshot, Punch, STATUS_SIGNAL, SYSTEM_CONTROL, Share, Status,
-    SystemCommand, SystemResult, TransferId, WifiDirect,
+    CALLS, CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES,
+    MAX_SNAPSHOT, MESSAGES, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
+    NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, Punch, STATUS_SIGNAL,
+    SYSTEM_CONTROL, Share, Status, SystemCommand, SystemResult, TransferId, WifiDirect,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -373,6 +373,11 @@ impl Client {
         self.commands.send(Command::MessagesChanged(Message::TextsChanged)).await.map_err(|_| Error::Stopped)
     }
 
+    /// Tells desktops with the calls switch on to pull the call log again.
+    pub async fn calls_changed(&self) -> Result<(), Error> {
+        self.commands.send(Command::MessagesChanged(Message::CallsChanged)).await.map_err(|_| Error::Stopped)
+    }
+
     /// The phone's battery and network: sent to every desktop on connect and, at most every 10 s, on change.
     pub async fn set_status(&self, status: Status) -> Result<(), Error> {
         self.commands.send(Command::SetStatus { status }).await.map_err(|_| Error::Stopped)
@@ -562,12 +567,16 @@ impl ClientActor {
                 if result.is_ok() && feature == Feature::Messages {
                     self.messages_changed(Some(&id), &[Message::ContactsChanged, Message::TextsChanged]).await;
                 }
+                if result.is_ok() && feature == Feature::Calls {
+                    self.messages_changed(Some(&id), &[Message::CallsChanged]).await;
+                }
                 drop(reply.send(result));
             }
             Command::SetBrowseRoots { roots } => self.phone.set_browse_roots(roots),
             Command::SetMessages { messages } => {
                 self.messages = messages;
-                self.messages_changed(None, &[Message::ContactsChanged, Message::TextsChanged]).await;
+                self.messages_changed(None, &[Message::ContactsChanged, Message::TextsChanged, Message::CallsChanged])
+                    .await;
             }
             Command::MessagesChanged(changed) => self.messages_changed(None, &[changed]).await,
             Command::Upgrade { id, reply } => {
@@ -1118,7 +1127,10 @@ impl ClientActor {
     /// Answers a contacts or texts request off the actor, when this desktop's messages switch is on.
     async fn messages_request(&mut self, from: &DeviceId, request: messages::Request) {
         let Some(handle) = self.sessions.get(from).cloned() else { return };
-        let allowed = self.phone.desktops().iter().any(|peer| peer.id == *from && peer.grants.messages);
+        let allowed =
+            self.phone.desktops().iter().any(|peer| {
+                peer.id == *from && if request.is_call() { peer.grants.calls } else { peer.grants.messages }
+            });
         let refusal = match &self.messages {
             _ if !allowed => MessagesRefusal::NotAllowed,
             None => MessagesRefusal::Denied,
@@ -1135,11 +1147,13 @@ impl ClientActor {
 
     /// Sends each of `changed` to `only`, else to every live desktop that takes them.
     async fn messages_changed(&self, only: Option<&DeviceId>, changed: &[Message]) {
-        for peer in
-            self.phone.desktops().iter().filter(|peer| peer.has(MESSAGES) && only.is_none_or(|id| *id == peer.id))
-        {
+        for peer in self.phone.desktops().iter().filter(|peer| only.is_none_or(|id| *id == peer.id)) {
             let Some(handle) = self.sessions.get(&peer.id).filter(|handle| handle.is_live()) else { continue };
             for message in changed {
+                let call = matches!(message, Message::CallsChanged);
+                if !peer.has(if call { CALLS } else { MESSAGES }) {
+                    continue;
+                }
                 if let Err(error) = handle.send(message.clone()).await {
                     log::info!("{}: sending {}: {error}", peer.id, message.kind());
                 }
@@ -1250,7 +1264,12 @@ impl ClientActor {
             }
             SessionEvent::Message {
                 from,
-                message: request @ (Message::ContactsList(_) | Message::TextsList(_) | Message::TextSend(_)),
+                message:
+                    request @ (Message::ContactsList(_)
+                    | Message::TextsList(_)
+                    | Message::TextSend(_)
+                    | Message::CallsList(_)
+                    | Message::Dial(_)),
             } => {
                 if let Some(request) = messages::Request::of(request) {
                     self.messages_request(&from, request).await;

@@ -1,11 +1,12 @@
-//! The phone side of contacts and texts: the app's, a page at a time, to desktops whose messages switch is on, and
-//! texts those desktops send through the phone.
+//! The phone side of contacts, texts, and the call log: the app's, a page at a time, to desktops whose messages (or
+//! calls) switch is on, and texts and calls those desktops place through the phone.
 
 use std::sync::Arc;
 
 use link_proto::message::{
-    Contact, Contacts, ContactsList, MAX_CALLER_LEN, MAX_CONTACT_NUMBERS, MAX_CONTACTS_PAGE, MAX_NUMBER_LEN,
-    MAX_TEXT_BODY, MAX_TEXTS_PAGE, Message, MessagesRefusal, Text, TextSend, TextSent, Texts, TextsList,
+    Calls, CallsList, Contact, Contacts, ContactsList, Dial, Dialed, LoggedCall, MAX_CALLER_LEN, MAX_CALLS_PAGE,
+    MAX_CONTACT_NUMBERS, MAX_CONTACTS_PAGE, MAX_NUMBER_LEN, MAX_TEXT_BODY, MAX_TEXTS_PAGE, Message, MessagesRefusal,
+    Text, TextSend, TextSent, Texts, TextsList,
 };
 
 use crate::session::SessionHandle;
@@ -18,12 +19,18 @@ pub trait Messages: Send + Sync {
     fn texts(&self, offset: u32, limit: u32) -> Result<Vec<Text>, MessagesRefusal>;
     /// Returns once Android reports the text sent.
     fn send_text(&self, to: &str, body: &str) -> Result<(), MessagesRefusal>;
+    /// Up to `limit` calls of the log from `offset`, newest first.
+    fn calls(&self, offset: u32, limit: u32) -> Result<Vec<LoggedCall>, MessagesRefusal>;
+    /// Returns once Android took the call; its audio stays on the phone.
+    fn dial(&self, number: &str) -> Result<(), MessagesRefusal>;
 }
 
 pub enum Request {
     Contacts(ContactsList),
     Texts(TextsList),
     Send(TextSend),
+    Calls(CallsList),
+    Dial(Dial),
 }
 
 impl Request {
@@ -32,8 +39,15 @@ impl Request {
             Message::ContactsList(list) => Some(Self::Contacts(list)),
             Message::TextsList(list) => Some(Self::Texts(list)),
             Message::TextSend(send) => Some(Self::Send(send)),
+            Message::CallsList(list) => Some(Self::Calls(list)),
+            Message::Dial(dial) => Some(Self::Dial(dial)),
             _ => None,
         }
+    }
+
+    /// Whether the desktop's calls switch, rather than its messages switch, governs it.
+    pub fn is_call(&self) -> bool {
+        matches!(self, Self::Calls(_) | Self::Dial(_))
     }
 
     pub fn refused(&self, reason: MessagesRefusal) -> Message {
@@ -44,6 +58,8 @@ impl Request {
             }
             Self::Texts(list) => Message::Texts(Texts { req: list.req, texts: Vec::new(), next: None, refused }),
             Self::Send(send) => Message::TextSent(TextSent { req: send.req, refused }),
+            Self::Calls(list) => Message::Calls(Calls { req: list.req, calls: Vec::new(), next: None, refused }),
+            Self::Dial(dial) => Message::Dialed(Dialed { req: dial.req, refused }),
         }
     }
 }
@@ -55,6 +71,11 @@ pub async fn answer(messages: Arc<dyn Messages>, session: SessionHandle, request
         Request::Texts(list) => texts_page(&*messages, list).unwrap_or_else(|reason| request.refused(reason)),
         Request::Send(send) => match messages.send_text(&send.to, &send.body) {
             Ok(()) => Message::TextSent(TextSent { req: send.req, refused: None }),
+            Err(reason) => request.refused(reason),
+        },
+        Request::Calls(list) => calls_page(&*messages, list).unwrap_or_else(|reason| request.refused(reason)),
+        Request::Dial(dial) => match messages.dial(&dial.number) {
+            Ok(()) => Message::Dialed(Dialed { req: dial.req, refused: None }),
             Err(reason) => request.refused(reason),
         },
     })
@@ -88,6 +109,23 @@ fn texts_page(messages: &dyn Messages, list: &TextsList) -> Result<Message, Mess
         .filter(|text| !text.address.is_empty())
         .collect();
     Ok(Message::Texts(Texts { req: list.req, texts, next, refused: None }))
+}
+
+fn calls_page(messages: &dyn Messages, list: &CallsList) -> Result<Message, MessagesRefusal> {
+    let (offset, limit) = (list.cursor.unwrap_or(0), page_len(MAX_CALLS_PAGE));
+    let calls = messages.calls(offset, limit)?;
+    let next = (calls.len() >= MAX_CALLS_PAGE).then(|| offset + limit);
+    let calls = calls
+        .into_iter()
+        .take(MAX_CALLS_PAGE)
+        .map(|call| LoggedCall {
+            number: cut(call.number.trim(), MAX_NUMBER_LEN),
+            name: call.name.map(|name| cut(name.trim(), MAX_CALLER_LEN)).filter(|name| !name.is_empty()),
+            ..call
+        })
+        .filter(|call| !call.number.is_empty())
+        .collect();
+    Ok(Message::Calls(Calls { req: list.req, calls, next, refused: None }))
 }
 
 fn page_len(len: usize) -> u32 {

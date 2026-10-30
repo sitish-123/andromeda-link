@@ -1,12 +1,19 @@
 //! The desktop's clipboard: its new selections go to phones, and a phone's offer becomes the selection.
 
+#[cfg(target_os = "macos")]
+pub mod mac;
+#[cfg(target_os = "linux")]
 pub mod portal;
+#[cfg(target_os = "linux")]
 pub mod wayland;
+#[cfg(target_os = "linux")]
 pub mod x11;
 
 use std::os::fd::OwnedFd;
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 
@@ -21,6 +28,7 @@ const IMAGE_MIMES: [&str; 3] = ["image/png", "image/jpeg", "image/jxl"];
 const HTML_MIME: &str = "text/html";
 const PASSWORD_HINT: &str = "x-kde-passwordManagerHint";
 /// A selection's owner has this long to write it.
+#[cfg(target_os = "linux")]
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub enum Event {
@@ -31,19 +39,32 @@ pub enum Event {
 }
 
 pub enum Backend {
+    #[cfg(target_os = "linux")]
     Wayland(Box<wayland::Wayland>),
+    #[cfg(target_os = "linux")]
     Portal(Box<portal::Portal>),
+    #[cfg(target_os = "linux")]
     X11(x11::X11),
+    #[cfg(target_os = "macos")]
+    Mac(mac::Mac),
 }
 
 impl Backend {
+    #[cfg(target_os = "macos")]
+    #[expect(clippy::unnecessary_wraps, reason = "the Linux backends' interface")]
+    pub fn native() -> Option<Self> {
+        Some(Self::Mac(mac::Mac::connect()))
+    }
+
     /// Data-control or the X11 selection, whichever the session offers without asking the user.
+    #[cfg(target_os = "linux")]
     pub fn native() -> Option<Self> {
         crate::attempt("data-control clipboard", wayland::Wayland::connect())
             .map(|backend| Self::Wayland(Box::new(backend)))
             .or_else(|| crate::attempt("X11 clipboard", x11::X11::connect()).map(Self::X11))
     }
 
+    #[cfg(target_os = "linux")]
     pub async fn portal(session: &crate::portal::Session) -> Option<Self> {
         crate::attempt("Clipboard portal", portal::Portal::connect(session).await)
             .map(|backend| Self::Portal(Box::new(backend)))
@@ -51,31 +72,54 @@ impl Backend {
 
     pub fn name(&self) -> &'static str {
         match self {
+            #[cfg(target_os = "linux")]
             Self::Wayland(backend) => backend.name(),
+            #[cfg(target_os = "linux")]
             Self::Portal(_) => "the Clipboard portal",
+            #[cfg(target_os = "linux")]
             Self::X11(_) => "the X11 CLIPBOARD selection",
+            #[cfg(target_os = "macos")]
+            Self::Mac(_) => "NSPasteboard",
         }
     }
 
     /// Makes a phone's offer the selection; pastes of it come back as `Event::Paste`.
+    #[cfg_attr(
+        target_os = "macos",
+        allow(clippy::unused_async, clippy::unused_async_trait_impl, reason = "the Linux backends' interface")
+    )]
     pub async fn offer_remote(&mut self, mimes: &[String]) -> anyhow::Result<()> {
         match self {
+            #[cfg(target_os = "linux")]
             Self::Wayland(backend) => backend.offer_remote(mimes),
+            #[cfg(target_os = "linux")]
             Self::Portal(backend) => backend.offer_remote(mimes).await,
+            #[cfg(target_os = "linux")]
             Self::X11(backend) => backend.offer_remote(mimes),
+            #[cfg(target_os = "macos")]
+            Self::Mac(backend) => {
+                backend.offer_remote(mimes);
+                Ok(())
+            }
         }
     }
 
     pub async fn next(&mut self) -> anyhow::Result<Event> {
         match self {
+            #[cfg(target_os = "linux")]
             Self::Wayland(backend) => backend.next().await,
+            #[cfg(target_os = "linux")]
             Self::Portal(backend) => backend.next().await,
+            #[cfg(target_os = "linux")]
             Self::X11(backend) => backend.next().await,
+            #[cfg(target_os = "macos")]
+            Self::Mac(backend) => backend.next().await,
         }
     }
 }
 
 /// Reads a selection's pipe to its end: empty if over `MAX_BYTES`, an error if its writer is too slow.
+#[cfg(target_os = "linux")]
 async fn read_fd(fd: OwnedFd) -> anyhow::Result<Vec<u8>> {
     let read = async {
         let reader = tokio::net::unix::pipe::Receiver::from_owned_fd(fd)?;

@@ -14,20 +14,44 @@ path = "src/main.rs"
 anyhow.workspace = true
 env_logger.workspace = true
 futures-util.workspace = true
-gstreamer = "0.25"
-gstreamer-app = "0.25"
 link-api.workspace = true
 log.workspace = true
-reis = { version = "0.7", features = ["tokio"] }
 rustix = { workspace = true, features = ["event", "time"] }
 tokio = { workspace = true, features = ["net", "process"] }
+zbus.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gstreamer = "0.25"
+gstreamer-app = "0.25"
+reis = { version = "0.7", features = ["tokio"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 wayland-protocols-misc = { version = "0.3", features = ["client"] }
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 x11rb = { version = "0.14", features = ["xfixes", "xtest"] }
 xkbcommon = { version = "0.9", default-features = false }
-zbus.workspace = true
 
-[lints]
-workspace = true
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSBitmapImageRep", "NSImageRep", "NSPasteboard"] }
+objc2-application-services = { version = "0.3", default-features = false, features = ["std", "HIServices", "AXUIElement"] }
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "AudioHardwareDeprecated"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSBundle", "NSData", "NSDictionary", "NSError", "NSObject", "NSSet", "NSString", "NSURL"] }
+objc2-io-kit = { version = "0.3", default-features = false, features = ["std", "ps", "pwr_mgt"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationAction", "UNNotificationCategory", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
+
+# The macOS backends call C and Objective-C APIs, so their modules allow unsafe code; everywhere else denies it.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+unwrap_used = "warn"
+expect_used = "warn"

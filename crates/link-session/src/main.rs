@@ -2,20 +2,32 @@
 //! through the session's notification server, the clipboard both ways, the phone as touchpad and keyboard, and the
 //! output volume, each through a backend the session offers. See "Stage 0" in `docs/link-v2.md`.
 
+#[cfg_attr(target_os = "macos", path = "macos/awake.rs")]
 mod awake;
 mod clipboard;
 mod input;
 mod link;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "linux")]
 mod notify;
+#[cfg(target_os = "linux")]
 mod portal;
+#[cfg(target_os = "linux")]
 mod screen;
+#[cfg_attr(target_os = "macos", path = "macos/system.rs")]
 mod system;
+#[cfg_attr(target_os = "macos", path = "macos/volume.rs")]
 mod volume;
 
+#[cfg(target_os = "linux")]
 use anyhow::Context;
+#[cfg(target_os = "linux")]
 use futures_util::StreamExt;
+#[cfg(target_os = "linux")]
 use tokio::signal::unix::{SignalKind, signal};
 
+#[cfg(target_os = "linux")]
 use crate::notify::{Notifications, Posted};
 
 /// The backend a connect attempt found, if any; a failure is logged and skipped.
@@ -33,6 +45,7 @@ fn attempt<T>(name: &str, result: anyhow::Result<Option<T>>) -> Option<T> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn on_wayland() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("WAYLAND_SOCKET").is_some()
 }
@@ -75,6 +88,7 @@ async fn system_command(
 }
 
 /// What this session can do, as `org.andromeda.Link1.SetSessionCapabilities` takes it.
+#[cfg(target_os = "linux")]
 fn capabilities(optional: [(bool, &'static str); 4], system: &system::System) -> Vec<&'static str> {
     std::iter::once("notifications")
         .chain(optional.into_iter().filter(|(on, _)| *on).map(|(_, name)| name))
@@ -121,6 +135,7 @@ fn on_clipboard(link: &link::Link, event: clipboard::Event, remote: Option<(Stri
 }
 
 /// The native backends, then on Wayland the portal for what they lack. The portal's first session asks the user.
+#[cfg(target_os = "linux")]
 async fn backends(bus: &zbus::Connection) -> (Option<clipboard::Backend>, Option<input::Backend>) {
     let mut clipboard = clipboard::Backend::native();
     let mut input = input::Backend::native();
@@ -146,6 +161,16 @@ async fn backends(bus: &zbus::Connection) -> (Option<clipboard::Backend>, Option
     (clipboard, input)
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> anyhow::Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,zbus=warn,tracing=warn"))
+        .format_timestamp(None)
+        .init();
+    macos::run().await
+}
+
+#[cfg(target_os = "linux")]
 #[tokio::main(flavor = "current_thread")]
 #[expect(clippy::too_many_lines, reason = "one select arm per event source")]
 async fn main() -> anyhow::Result<()> {

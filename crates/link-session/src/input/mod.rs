@@ -1,23 +1,41 @@
 //! The phone as the desktop's touchpad and keyboard, from the daemon's `RemoteInput` signal.
 
+#[cfg(target_os = "linux")]
 pub mod ei;
+#[cfg(target_os = "macos")]
+pub mod mac;
+#[cfg(target_os = "linux")]
 pub mod wayland;
+#[cfg(target_os = "linux")]
 pub mod x11;
 
 pub enum Backend {
+    #[cfg(target_os = "linux")]
     Wayland(Box<wayland::Wayland>),
+    #[cfg(target_os = "linux")]
     Ei(Box<ei::Ei>),
+    #[cfg(target_os = "linux")]
     X11(Box<x11::X11>),
+    #[cfg(target_os = "macos")]
+    Mac(mac::Mac),
 }
 
 impl Backend {
+    /// `CGEvent`, once the user gives the Accessibility permission.
+    #[cfg(target_os = "macos")]
+    pub fn native() -> Option<Self> {
+        crate::attempt("CGEvent input", mac::Mac::connect()).map(Self::Mac)
+    }
+
     /// The wlr virtual pointer and keyboard, or `XTest`, whichever the session offers without asking the user.
+    #[cfg(target_os = "linux")]
     pub fn native() -> Option<Self> {
         crate::attempt("virtual pointer input", wayland::Wayland::connect())
             .map(|backend| Self::Wayland(Box::new(backend)))
             .or_else(|| crate::attempt("XTest input", x11::X11::connect()).map(|backend| Self::X11(Box::new(backend))))
     }
 
+    #[cfg(target_os = "linux")]
     pub async fn portal(session: &crate::portal::Session) -> Option<Self> {
         let connect = async { ei::Ei::connect(session.eis().await?).await.map(Some) };
         crate::attempt("libei input", connect.await).map(|backend| Self::Ei(Box::new(backend)))
@@ -25,25 +43,39 @@ impl Backend {
 
     pub fn name(&self) -> &'static str {
         match self {
+            #[cfg(target_os = "linux")]
             Self::Wayland(_) => "wlr-virtual-pointer and virtual-keyboard",
+            #[cfg(target_os = "linux")]
             Self::Ei(_) => "libei on the RemoteDesktop portal",
+            #[cfg(target_os = "linux")]
             Self::X11(_) => "XTest",
+            #[cfg(target_os = "macos")]
+            Self::Mac(_) => "CGEvent",
         }
     }
 
     pub fn run(&mut self, action: Action) -> anyhow::Result<()> {
         match self {
+            #[cfg(target_os = "linux")]
             Self::Wayland(backend) => backend.run(action),
+            #[cfg(target_os = "linux")]
             Self::Ei(backend) => backend.run(action),
+            #[cfg(target_os = "linux")]
             Self::X11(backend) => backend.run(action),
+            #[cfg(target_os = "macos")]
+            Self::Mac(backend) => backend.run(action),
         }
     }
 
     /// Handles what the backend's server sends; only libei's needs it, the others never return.
     pub async fn pump(&mut self) -> anyhow::Result<()> {
         match self {
+            #[cfg(target_os = "linux")]
             Self::Ei(backend) => backend.pump().await,
+            #[cfg(target_os = "linux")]
             Self::Wayland(_) | Self::X11(_) => std::future::pending().await,
+            #[cfg(target_os = "macos")]
+            Self::Mac(_) => std::future::pending().await,
         }
     }
 }
@@ -72,6 +104,7 @@ const KEYS: [(&str, u32); 15] = [
 ];
 
 /// A place on a shared monitor, for remote control's direct touch.
+#[cfg_attr(target_os = "macos", allow(dead_code, reason = "macOS offers no remote control"))]
 pub struct Point {
     /// The monitor's output name, as the `ScreenCast` portal's `mapping_id`.
     pub output: Option<String>,
@@ -85,6 +118,7 @@ pub struct Point {
 pub enum Action {
     /// Relative motion in logical pixels.
     Move(f64, f64),
+    #[cfg_attr(target_os = "macos", allow(dead_code, reason = "macOS offers no remote control"))]
     Point(Point),
     Scroll(f64, f64),
     Button {

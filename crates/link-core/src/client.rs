@@ -1239,6 +1239,7 @@ impl ClientActor {
         (self.present || self.is_busy(id)) && self.phone.desktops().iter().any(|peer| peer.id == *id)
     }
 
+    #[expect(clippy::too_many_lines, reason = "one arm per message the client answers itself")]
     async fn relay(&mut self, event: SessionEvent) {
         if let SessionEvent::Message { from, message: Message::MirrorStop(_) } = &event {
             self.set_mirroring(from, false);
@@ -1246,6 +1247,9 @@ impl ClientActor {
         match event {
             SessionEvent::Message { from, message: Message::NotificationPull(pull) } => {
                 let Some(handle) = self.sessions.get(&from).cloned() else { return };
+                if !self.phone.desktops().iter().any(|peer| peer.id == from && peer.has(NOTIFICATION_SYNC)) {
+                    return log::info!("{from}: a notification pull without the notifications grant");
+                }
                 let held = self.notifications.as_ref();
                 for posted in
                     pull.ids.iter().filter_map(|id| held.and_then(|held| held.iter().find(|posted| posted.id == *id)))

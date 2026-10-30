@@ -76,6 +76,8 @@ pub struct Notifications {
     pub proxy: zbus::Proxy<'static>,
     link: Link,
     inline_reply: bool,
+    /// The server reads markup in bodies, so a phone's text is escaped for it.
+    body_markup: bool,
     icons: PathBuf,
     shown: HashMap<u32, Mirrored>,
     next_seq: u64,
@@ -113,6 +115,7 @@ impl Notifications {
             proxy,
             link,
             inline_reply: capabilities.iter().any(|capability| capability == INLINE_REPLY),
+            body_markup: capabilities.iter().any(|capability| capability == "body-markup"),
             icons: runtime.join("andromeda-link-session"),
             shown: HashMap::new(),
             next_seq: 0,
@@ -216,10 +219,9 @@ impl Notifications {
         }
         let summary = if posted.title.is_empty() { &posted.app } else { &posted.title };
         let app_icon = if icon.is_some() { "" } else { "phone" };
-        let result: zbus::Result<u32> = self
-            .proxy
-            .call("Notify", &(&posted.app, replaces, app_icon, summary, &posted.text, actions, hints, -1i32))
-            .await;
+        let body = if self.body_markup { escape_markup(&posted.text) } else { posted.text.clone() };
+        let result: zbus::Result<u32> =
+            self.proxy.call("Notify", &(&posted.app, replaces, app_icon, summary, &body, actions, hints, -1i32)).await;
         let Ok(shown) = result.inspect_err(|error| log::warn!("Notify: {error}")) else { return };
         if let Some(old) = self.shown.remove(&replaces).and_then(|old| old.icon)
             && Some(&old) != icon.as_ref()
@@ -406,4 +408,9 @@ fn png_size(png: &[u8]) -> Option<(u32, u32)> {
     let rest = png.strip_prefix(HEADER)?;
     let side = |at: usize| Some(u32::from_be_bytes(rest.get(at..at + 4)?.try_into().ok()?));
     Some((side(0)?, side(4)?))
+}
+
+/// A body as plain text to a server that reads markup: a phone's `<a href>` would otherwise show as a link.
+fn escape_markup(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }

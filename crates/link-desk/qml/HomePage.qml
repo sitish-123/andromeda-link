@@ -80,9 +80,9 @@ Flickable {
             columnSpacing: 8
             enabled: home.live
             uniformCellWidths: true
-            ActionButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Ring phone"; iconName: "ping"; onClicked: home.link.ring() }
-            ActionButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Send clipboard"; iconName: "clip"; onClicked: home.link.sendClipboard() }
-            ActionButton { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Send files"; iconName: "file"; onClicked: files.open() }
+            ActionButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredWidth: 1; text: "Ring phone"; iconName: "ping"; onClicked: home.link.ring() }
+            ActionButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredWidth: 1; text: "Send clipboard"; iconName: "clip"; onClicked: home.link.sendClipboard() }
+            ActionButton { Layout.fillWidth: true; Layout.minimumWidth: 0; Layout.preferredWidth: 1; text: "Send files"; iconName: "file"; onClicked: files.open() }
         }
 
         ColumnLayout {

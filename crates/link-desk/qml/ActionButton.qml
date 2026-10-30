@@ -5,7 +5,7 @@ import org.andromeda.Link
 AbstractButton {
     id: control
     property string iconName
-    readonly property bool compact: width < 150
+    readonly property bool compact: width < 120
     Accessible.name: text
 
     implicitHeight: 48

@@ -7,6 +7,7 @@ ApplicationWindow {
     id: window
     property var link: typeof Link !== "undefined" ? Link : null
     property var messages: typeof LinkMessages !== "undefined" ? LinkMessages : null
+    property var calls: typeof LinkCalls !== "undefined" ? LinkCalls : null
     property var activity: typeof LinkActivity !== "undefined" ? LinkActivity : null
     property var photos: typeof LinkPhotos !== "undefined" ? LinkPhotos : null
     property var files: typeof LinkFiles !== "undefined" ? LinkFiles : null
@@ -100,7 +101,13 @@ ApplicationWindow {
                     settings: window.settings
                     phoneName: window.phoneName
                 }
-                PlaceholderPage { title: "Calls" }
+                CallsPage {
+                    link: window.link
+                    api: window.calls
+                    settings: window.settings
+                    phoneName: window.phoneName
+                    onDialed: number => toast.show("Calling " + number + " on " + window.phoneName)
+                }
                 PhotosPage {
                     objectName: "photosPage"
                     link: window.link
@@ -342,6 +349,48 @@ ApplicationWindow {
             r.saveToFile(Qt.application.arguments[Qt.application.arguments.indexOf("--hold") + 1] + "/gnome-" + name + ".png")
             console.log("HOLD saved " + name)
         })
+    }
+
+    // E2E hook: `--page NAME DIR [ACTION ARG]` opens page NAME once the phone is connected and logs "PAGE state {...}"
+    // each second; once the page is ready it saves DIR/NAME-light.png and NAME-dark.png and runs ACTION(ARG) once.
+    Timer {
+        id: pageHook
+        readonly property int arg: Qt.application.arguments.indexOf("--page")
+        readonly property var args: Qt.application.arguments.slice(arg + 1)
+        readonly property var pages: ({
+            calls: { index: 2, ready: () => window.calls.ready && window.calls.calls.rowCount() > 0,
+                     state: () => ({ ready: window.calls.ready, refused: window.calls.refused,
+                                     numbers: shot.column(window.calls.calls, 0), kinds: shot.column(window.calls.calls, 3) }),
+                     dial: number => window.calls.dial(number) }
+        })
+        property int ticks: 0
+        property int step: 0
+        running: arg > 0 && window.link !== null
+        interval: 200
+        repeat: true
+        onTriggered: {
+            const p = pages[args[0]]
+            if (!window.link.connected)
+                return
+            window.page = p.index
+            if (++ticks % 5 === 0)
+                console.log("PAGE state " + JSON.stringify(p.state()))
+            if (step === 0 && p.ready()) {
+                step = 1
+                Theme.dark = false
+                body.grabToImage(r => {
+                    r.saveToFile(args[1] + "/" + args[0] + "-light.png")
+                    Theme.dark = true
+                    body.grabToImage(r => {
+                        r.saveToFile(args[1] + "/" + args[0] + "-dark.png")
+                        Theme.dark = false
+                        console.log("PAGE saved")
+                        if (args.length > 3)
+                            console.log("PAGE " + args[2] + " " + p[args[2]](args[3]))
+                    })
+                })
+            }
+        }
     }
 
     // E2E hook: `--service-test` logs each stage of: service up and phone connected, service stopped, then

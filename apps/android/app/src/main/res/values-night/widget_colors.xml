@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's LinkColors (dark): surfaceElevated, borderSecondary, borderPrimary, textPrimary, textSecondary; wash = textPrimary at 7%. -->
+<resources>
+    <color name="widget_surface">#FF161A1D</color>
+    <color name="widget_border">#FF1E2427</color>
+    <color name="widget_outline">#FF262D31</color>
+    <color name="widget_text">#FFEDEFEF</color>
+    <color name="widget_text_secondary">#FFA3AAAD</color>
+    <color name="widget_wash">#12EDEFEF</color>
+</resources>

@@ -61,7 +61,12 @@
     <string name="presence_connected">Connected to %1$s</string>
     <string name="presence_looking">Looking for %1$s</string>
     <string name="presence_ring">Ring</string>
-    <string name="presence_disconnect">Disconnect</string>
+    <string name="presence_lock">Lock</string>
+    <string name="tile_lock">Lock desktop</string>
+    <string name="tile_lock_named">Lock %1$s</string>
+    <string name="tile_ring_named">Ring %1$s</string>
+    <string name="widget_no_desktop">Pair a desktop</string>
+    <string name="widget_description">Battery, the player, and Lock, Sleep, Ring, and Send clipboard</string>
     <string name="channel_presence">Stay connected</string>
     <string name="channel_desktop_media">Desktop media</string>
     <string name="channel_shares">Shared from desktops</string>

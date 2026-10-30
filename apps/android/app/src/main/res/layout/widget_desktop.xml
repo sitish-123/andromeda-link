@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="vertical"
+    android:padding="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="@font/source_sans_3_bold"
+            android:singleLine="true"
+            android:text="@string/widget_no_desktop"
+            android:textColor="@color/widget_text"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/widget_battery_glyph"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/widget_battery"
+            android:tint="@color/widget_text_secondary"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/widget_battery"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:fontFamily="@font/source_sans_3_semibold"
+            android:textColor="@color/widget_text"
+            android:textSize="15sp"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/widget_charging"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/widget_charging"
+            android:tint="@color/widget_text_secondary"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/widget_locked"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="12dp"
+            android:contentDescription="@string/home_unlocked"
+            android:src="@drawable/widget_lock_open"
+            android:tint="@color/widget_text_secondary"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_player"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/widget_art"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/widget_art"
+            android:clipToOutline="true"
+            tools:ignore="UnusedAttribute"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="@font/source_sans_3_semibold"
+                android:singleLine="true"
+                android:textColor="@color/widget_text"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/widget_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="@font/source_sans_3_regular"
+                android:singleLine="true"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/widget_play"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/widget_play_button"
+            android:contentDescription="@string/media_play"
+            android:padding="10dp"
+            android:src="@drawable/widget_play"
+            android:tint="@color/widget_surface" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_seen"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:fontFamily="@font/source_sans_3_regular"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+    <!-- Fills the height so the keys sit at the bottom; four equal cells, so the nested weights cost nothing. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:baselineAligned="false"
+        android:gravity="bottom"
+        android:orientation="horizontal"
+        tools:ignore="NestedWeights">
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
+
+            <ImageView
+                android:id="@+id/widget_key_lock"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="center"
+                android:background="@drawable/widget_key"
+                android:contentDescription="@string/key_lock"
+                android:padding="11dp"
+                android:src="@drawable/widget_lock"
+                android:tint="@color/widget_text" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
+
+            <ImageView
+                android:id="@+id/widget_key_sleep"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="center"
+                android:background="@drawable/widget_key"
+                android:contentDescription="@string/key_sleep"
+                android:padding="11dp"
+                android:src="@drawable/widget_sleep"
+                android:tint="@color/widget_text" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
+
+            <ImageView
+                android:id="@+id/widget_key_ring"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="center"
+                android:background="@drawable/widget_key"
+                android:contentDescription="@string/ring_desktop"
+                android:padding="11dp"
+                android:src="@drawable/widget_ring"
+                android:tint="@color/widget_text" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
+
+            <ImageView
+                android:id="@+id/widget_key_clipboard"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="center"
+                android:background="@drawable/widget_key"
+                android:contentDescription="@string/clipboard_tile"
+                android:padding="11dp"
+                android:src="@drawable/widget_clipboard"
+                android:tint="@color/widget_text" />
+        </FrameLayout>
+    </LinearLayout>
+</LinearLayout>

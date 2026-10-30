@@ -25,7 +25,7 @@ Item {
         selected = s
     }
 
-    onVisibleChanged: if (visible && ready && grid.groups.length === 0) api.reload()
+    onVisibleChanged: if (visible && ready && grid.count === 0) api.reload()
     onReadyChanged: if (!ready) { selected = {}; taking = false }
     Connections {
         target: page.api
@@ -38,6 +38,11 @@ Item {
     Connections {
         target: page.link
         function onCurrentPhoneChanged() { page.selected = {} }
+    }
+    Binding {
+        target: page.api
+        property: "columns"
+        value: grid.columns
     }
 
     ColumnLayout {
@@ -139,7 +144,7 @@ Item {
                 anchors.leftMargin: -8
                 anchors.rightMargin: -8
                 visible: page.ready && page.api.error === ""
-                model: page.api.photos
+                model: page.api.lines
                 selected: page.selected
                 onToggled: path => page.toggle(path)
                 onWanted: path => page.api.want(path)
@@ -148,7 +153,7 @@ Item {
                 id: skeleton
                 y: 24
                 width: parent.width
-                visible: !page.ready || (page.api.loading && grid.groups.length === 0)
+                visible: !page.ready || (page.api.loading && grid.count === 0)
                 columns: 6
                 spacing: 8
                 Repeater {
@@ -165,7 +170,7 @@ Item {
             EmptyState {
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: -40
-                visible: page.ready && !page.api.loading && (page.api.error !== "" || grid.groups.length === 0)
+                visible: page.ready && !page.api.loading && (page.api.error !== "" || grid.count === 0)
                 iconName: "photo"
                 title: page.api.error !== "" ? "Photos did not load" : "No photos yet"
                 text: page.api.error !== "" ? page.phoneName + " said: " + page.api.error

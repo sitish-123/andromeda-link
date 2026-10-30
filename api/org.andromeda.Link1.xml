@@ -157,6 +157,8 @@
     <property name="DeviceControls" type="a{s(isii)}" access="read"/>
     <!-- Connected device ids whose notification access is off: nothing mirrors until the user turns it on. -->
     <property name="NotificationsOff" type="as" access="read"/>
+    <!-- Device id to the number of its phone notifications on show, those a locked desktop holds back included. -->
+    <property name="NotificationCounts" type="a{su}" access="read"/>
     <!-- "Show phone notifications while the desktop is locked": off by default, when a locked desktop shows only
          their count. Kept across restarts. -->
     <method name="SetNotificationsWhileLocked">

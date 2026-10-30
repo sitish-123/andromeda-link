@@ -74,6 +74,8 @@ pub struct Snapshot {
     pub controls: Vec<(String, (i32, String, i32, i32))>,
     /// Connected devices whose notification access is off, the D-Bus `NotificationsOff` property.
     pub notifications_off: Vec<String>,
+    /// The D-Bus `NotificationCounts` property.
+    pub notification_counts: Vec<(String, u32)>,
     /// The D-Bus `NotificationsWhileLocked` property.
     pub notify_locked: bool,
     /// "Visible to LocalSend", the D-Bus `LocalSendVisible` property.
@@ -685,6 +687,7 @@ impl Hub {
                         self.emit(Event::NotificationRemoved { id: from.clone(), notification }).await;
                     }
                     self.emit(Event::NotificationPosted { id: from, posted, alert }).await;
+                    self.publish();
                 }
             }
             Message::NotificationSnapshot(snapshot) => {
@@ -695,10 +698,12 @@ impl Hub {
                 if !ids.is_empty() {
                     self.send_to(&from, Message::NotificationPull(NotificationPull { ids })).await;
                 }
+                self.publish();
             }
             Message::NotificationRemoved(removed) => {
                 if self.notifications.remove(&from, &removed.id) {
                     self.emit(Event::NotificationRemoved { id: from, notification: removed.id }).await;
+                    self.publish();
                 }
             }
             media @ (Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_)) => {
@@ -757,6 +762,7 @@ impl Hub {
         for notification in self.notifications.forget(id) {
             self.emit(Event::NotificationRemoved { id: id.clone(), notification }).await;
         }
+        self.publish();
     }
 
     /// Names the adapter in pairing QR codes and opens it to pairing during each window; before [`Self::run`].
@@ -1460,6 +1466,7 @@ impl Hub {
                 status,
                 controls,
                 notifications_off,
+                notification_counts: self.notifications.counts(),
                 notify_locked: self.store.notify_locked,
                 localsend,
                 contacts,

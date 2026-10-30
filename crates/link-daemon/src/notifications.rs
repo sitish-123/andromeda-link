@@ -52,6 +52,18 @@ impl Mirror {
         Some(alert)
     }
 
+    /// Device id to its number on show, sorted.
+    pub fn counts(&self) -> Vec<(String, u32)> {
+        let mut counts: Vec<_> = self
+            .live
+            .iter()
+            .filter(|(_, live)| !live.is_empty())
+            .map(|(id, live)| (id.to_string(), u32::try_from(live.len()).unwrap_or(u32::MAX)))
+            .collect();
+        counts.sort();
+        counts
+    }
+
     /// Drops the oldest of `device` past [`MAX_SNAPSHOT`], as a snapshot lists no more, and returns their ids.
     pub fn trim(&mut self, device: &DeviceId) -> Vec<String> {
         let Some(live) = self.live.get_mut(device) else { return Vec::new() };

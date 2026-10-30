@@ -206,6 +206,11 @@ impl Link {
         self.snapshots.borrow().notifications_off.clone()
     }
 
+    #[zbus(property)]
+    fn notification_counts(&self) -> HashMap<String, u32> {
+        self.snapshots.borrow().notification_counts.iter().cloned().collect()
+    }
+
     /// Whether phone notifications show while the desktop is locked; off, only their count shows. Kept.
     async fn set_notifications_while_locked(&self, on: bool) {
         self.hub.set_notify_locked(on).await;
@@ -811,6 +816,9 @@ pub async fn forward(
                 }
                 if next.notifications_off != last.notifications_off {
                     link.get().await.notifications_off_changed(emitter).await?;
+                }
+                if next.notification_counts != last.notification_counts {
+                    link.get().await.notification_counts_changed(emitter).await?;
                 }
                 if next.notify_locked != last.notify_locked {
                     link.get().await.notifications_while_locked_changed(emitter).await?;

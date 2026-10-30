@@ -130,8 +130,13 @@ impl PhoneFs {
                 .into_iter()
                 .filter(|device| device.connected)
                 .map(|device| {
+                    // "." and ".." would name this folder and its parent, not the phone.
+                    let name = match device.name.replace('/', "∕") {
+                        name if name.is_empty() || name == "." || name == ".." => device.id.clone(),
+                        name => name,
+                    };
                     let root = Node { device: Some(device.id), path: "/".to_owned(), dir: true, size: 0, mtime: 0 };
-                    (device.name.replace('/', "∕"), root)
+                    (name, root)
                 })
                 .collect(),
             Some(device) => self

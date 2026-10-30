@@ -18,6 +18,10 @@ check:
 android-check:
     cd apps/android && ./gradlew ktlintCheck lintDebug
 
+# "Andromeda Link.app" for macOS arm64, cross-built here: target/macos (see tools/macos/build.sh for its needs).
+mac-app:
+    tools/macos/build.sh
+
 # A worktree that shares this checkout's target dir, so it does not rebuild every crate from scratch.
 worktree name:
     git worktree add ../andromeda-link-{{name}} -b {{name}}

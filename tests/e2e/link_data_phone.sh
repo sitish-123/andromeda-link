@@ -23,7 +23,20 @@ RELAY_PORT=${RELAY_PORT:-57051}
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-data-phone.XXXX)
-trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+# At the end the phone is as before the run's own pairing: its desktop (also named after this machine) gone from the
+# app's store, and All files access, which the run takes away, given back if it was on.
+restore_phone() {
+  command adb -s "$SERIAL" shell am force-stop "$PACKAGE"
+  if command adb -s "$SERIAL" shell run-as "$PACKAGE" cat files/devices.json > "$RUNTIME/devices.json" 2> /dev/null; then
+    python3 -c 'import json, sys
+store = json.load(open(sys.argv[1]))
+store["peers"] = []
+json.dump(store, open(sys.argv[1], "w"))' "$RUNTIME/devices.json"
+    command adb -s "$SERIAL" shell run-as "$PACKAGE" sh -c "'cat > files/devices.json'" < "$RUNTIME/devices.json"
+  fi
+  [[ ${ALL_FILES:-} != allow ]] || command adb -s "$SERIAL" shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow
+}
+trap 'restore_phone; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 step() { printf '%s\n' "$*" | tee -a "$OUT/steps.txt"; }
 wait_for() {
@@ -86,10 +99,14 @@ while True:
 PY
 
 adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb shell cmd statusbar collapse
+ALL_FILES=$(adb shell appops get "$PACKAGE" MANAGE_EXTERNAL_STORAGE | grep -o 'MANAGE_EXTERNAL_STORAGE: [a-z]*' | cut -d' ' -f2 || true)
 # Never uninstall: other phone runs share the app and its signing key. Clearing its data forgets other desktops.
 adb shell pm clear "$PACKAGE" > /dev/null 2>&1 || true
 adb install -r -g "$APK" > /dev/null || fail "installing $APK"
+# Clearing the data takes All files access away on ColorOS but not on every Android; the run starts without it.
+adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE default
 for permission in READ_CONTACTS READ_MEDIA_IMAGES READ_PHONE_STATE; do
   adb shell dumpsys package "$PACKAGE" | grep -q "$permission: granted=true" || fail "$permission was not granted at install"
 done

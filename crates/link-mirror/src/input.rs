@@ -50,7 +50,7 @@ pub fn window(
     height: u32,
 ) {
     let frame = Frame { width: f64::from(width), height: f64::from(height) };
-    let picture = gtk4::Picture::for_paintable(&display.paintable);
+    let picture = display.picture.clone();
     picture.set_content_fit(gtk4::ContentFit::Contain);
     picture.set_can_focus(true);
     picture.set_focusable(true);

@@ -216,30 +216,41 @@ pub fn to_luma(socket: UnixStream, out: &Path, count: u32) -> anyhow::Result<()>
     run_to_end(&pipeline, src, socket, Sound::Mute, count)
 }
 
-/// The window's pipeline: VA-API decoding when the GPU has it, into a GTK paintable, never waiting on the clock.
+/// The window's pipeline: VA-API decoding when the GPU has it, into a GTK picture, never waiting on the clock.
 pub struct Display {
     pub pipeline: gst::Pipeline,
-    pub paintable: gtk4::gdk::Paintable,
+    pub picture: gtk4::Picture,
     socket: UnixStream,
 }
 
 impl Display {
     pub fn new(socket: UnixStream) -> anyhow::Result<Self> {
-        if gst::ElementFactory::find("gtk4paintablesink").is_none() {
-            bail!("gtk4paintablesink is missing; install gst-plugin-gtk4");
-        }
         let decoder =
             if gst::ElementFactory::find("vah264dec").is_some() { "vah264dec" } else { "avdec_h264 ! videoconvert" };
         log::info!("decoding with {}", decoder.split(' ').next().unwrap_or(decoder));
-        let (pipeline, src) = build(&format!(
-            "appsrc name=src is-live=true format=time caps={CAPS} ! h264parse ! {decoder} \
-             ! gtk4paintablesink name=sink sync=false"
-        ))?;
+        let paintable_sink = gst::ElementFactory::find("gtk4paintablesink").is_some();
+        // Ubuntu 24.04 lacks the GTK 4 sink: frames then reach the picture as textures copied off an appsink.
+        let sink = if paintable_sink {
+            "gtk4paintablesink name=sink sync=false"
+        } else {
+            log::info!("gtk4paintablesink is missing, showing frames through an appsink");
+            "videoconvert ! video/x-raw,format=BGRx ! appsink name=sink sync=false max-buffers=1 drop=true"
+        };
+        let (pipeline, src) =
+            build(&format!("appsrc name=src is-live=true format=time caps={CAPS} ! h264parse ! {decoder} ! {sink}"))?;
         let sink = pipeline.by_name("sink").context("the pipeline has no sink")?;
-        let paintable = sink.property::<gtk4::gdk::Paintable>("paintable");
+        let picture = if paintable_sink {
+            gtk4::Picture::for_paintable(&sink.property::<gtk4::gdk::Paintable>("paintable"))
+        } else {
+            let picture = gtk4::Picture::new();
+            let sink =
+                sink.downcast::<gst_app::AppSink>().map_err(|_| anyhow::anyhow!("the sink is not an appsink"))?;
+            show_samples(&sink, &picture);
+            picture
+        };
         pipeline.set_state(gst::State::Playing)?;
         feed(socket.try_clone()?, src, Sound::Speakers, None);
-        Ok(Self { pipeline, paintable, socket })
+        Ok(Self { pipeline, picture, socket })
     }
 
     /// Closes the socket, which tells the daemon and then the phone to stop.
@@ -251,4 +262,37 @@ impl Display {
             log::debug!("stopping the pipeline: {error}");
         }
     }
+}
+
+/// Hands each `BGRx` frame of `sink` to `picture` on the GTK main thread.
+fn show_samples(sink: &gst_app::AppSink, picture: &gtk4::Picture) {
+    let picture = gtk4::glib::SendWeakRef::from(picture.downgrade());
+    sink.set_callbacks(
+        gst_app::AppSinkCallbacks::builder()
+            .new_sample(move |sink| {
+                let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+                let size = sample.caps().and_then(|caps| caps.structure(0)).and_then(|structure| {
+                    Some((structure.get::<i32>("width").ok()?, structure.get::<i32>("height").ok()?))
+                });
+                let Some((width, height)) = size else { return Err(gst::FlowError::NotNegotiated) };
+                let buffer = sample.buffer_owned().ok_or(gst::FlowError::Error)?;
+                let map = buffer.into_mapped_buffer_readable().map_err(|_| gst::FlowError::Error)?;
+                let stride = usize::try_from(width).map_err(|_| gst::FlowError::NotNegotiated)? * 4;
+                let texture = gtk4::gdk::MemoryTexture::new(
+                    width,
+                    height,
+                    gtk4::gdk::MemoryFormat::B8g8r8x8,
+                    &gtk4::glib::Bytes::from_owned(map),
+                    stride,
+                );
+                let picture = picture.clone();
+                gtk4::glib::MainContext::default().invoke(move || {
+                    if let Some(picture) = picture.upgrade() {
+                        picture.set_paintable(Some(&texture));
+                    }
+                });
+                Ok(gst::FlowSuccess::Ok)
+            })
+            .build(),
+    );
 }

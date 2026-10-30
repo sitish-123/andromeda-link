@@ -16,10 +16,10 @@
         <error line="125" column="13" source="compose:vm-forwarding-check" />
         <error line="158" column="13" source="standard:function-naming" />
         <error line="175" column="13" source="standard:function-naming" />
-        <error line="385" column="13" source="standard:function-naming" />
-        <error line="418" column="13" source="standard:function-naming" />
-        <error line="475" column="13" source="standard:function-naming" />
-        <error line="493" column="13" source="standard:function-naming" />
+        <error line="388" column="13" source="standard:function-naming" />
+        <error line="421" column="13" source="standard:function-naming" />
+        <error line="478" column="13" source="standard:function-naming" />
+        <error line="496" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/DeviceScreen.kt">
         <error line="63" column="5" source="standard:function-naming" />

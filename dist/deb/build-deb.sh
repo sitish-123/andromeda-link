@@ -23,6 +23,10 @@ for s in andromeda-linkd andromeda-link-mount andromeda-link-session; do
   install -d "$U/graphical-session.target.wants"
   ln -s "../$s.service" "$U/graphical-session.target.wants/$s.service"
 done
+# systemd 255 (Ubuntu 24.04) cannot drop capabilities in a user unit and exits 218/CAPABILITIES; each of these options
+# drops some. A user process has none to drop, and NoNewPrivileges still stops it gaining any.
+sed -i -E '/^(CapabilityBoundingSet|ProtectClock|ProtectKernelModules|ProtectKernelLogs|PrivateDevices)=/d' \
+  "$U/andromeda-linkd.service"
 install -Dm644 "$ROOT/dist/org.andromeda.Link1.service" "$P/usr/share/dbus-1/services/org.andromeda.Link1.service"
 install -Dm644 "$ROOT/api/org.andromeda.Link1.xml" "$P/usr/share/dbus-1/interfaces/org.andromeda.Link1.xml"
 install -Dm644 "$ROOT/dist/andromeda-link.ufw" "$P/etc/ufw/applications.d/andromeda-link"

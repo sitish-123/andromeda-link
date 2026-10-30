@@ -7,10 +7,11 @@ Item {
     id: art
     property url source
     property real radius: 14
+    property bool gradient: true
 
     Shape {
         anchors.fill: parent
-        visible: !cover.visible
+        visible: art.gradient && !cover.visible
         preferredRendererType: Shape.CurveRenderer
         ShapePath {
             strokeWidth: -1
@@ -23,13 +24,20 @@ Item {
             PathRectangle { width: art.width; height: art.height; radius: art.radius }
         }
     }
+    Rectangle {
+        anchors.fill: parent
+        visible: !art.gradient && !cover.visible
+        radius: art.radius
+        color: Theme.tert
+    }
     Image {
         id: cover
         anchors.fill: parent
         source: art.source
         visible: status === Image.Ready
         fillMode: Image.PreserveAspectCrop
-        sourceSize: Qt.size(art.width * 2, art.height * 2)
+        // A size of 0 or less before layout would fail the load.
+        sourceSize: Qt.size(Math.max(64, art.width * 2), Math.max(64, art.height * 2))
         layer.enabled: true
         layer.effect: MultiEffect {
             maskEnabled: true

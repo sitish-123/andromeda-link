@@ -6,6 +6,8 @@ Rectangle {
     id: seg
     property var options: []
     property string current
+    // Quiet tabs: the current one is a raised paper chip, not an accent fill.
+    property bool quiet: false
     signal picked(string value)
 
     implicitWidth: row.implicitWidth + 6
@@ -40,13 +42,29 @@ Rectangle {
 
                 background: Rectangle {
                     radius: 9
-                    color: opt.on && seg.enabled ? Theme.acc : opt.hovered ? Theme.hover : "transparent"
+                    color: opt.on && seg.enabled ? (seg.quiet ? Theme.bg : Theme.acc) : opt.hovered ? Theme.hover : "transparent"
+                    border.width: opt.on && seg.quiet ? 1 : 0
+                    border.color: Theme.b2
                 }
-                contentItem: Label {
-                    text: opt.text
-                    font: opt.font
-                    verticalAlignment: Text.AlignVCenter
-                    color: !seg.enabled ? Theme.dis : opt.on ? Theme.accText : Theme.t2
+                contentItem: Row {
+                    spacing: 8
+                    Label {
+                        height: parent.height
+                        text: opt.text
+                        font: opt.font
+                        verticalAlignment: Text.AlignVCenter
+                        color: !seg.enabled ? Theme.dis : opt.on ? (seg.quiet ? Theme.t1 : Theme.accText) : Theme.t2
+                    }
+                    Label {
+                        height: parent.height
+                        visible: opt.modelData.count !== undefined
+                        text: opt.modelData.count ?? ""
+                        font.pixelSize: Theme.meta
+                        font.features: Theme.tabular
+                        verticalAlignment: Text.AlignVCenter
+                        opacity: 0.7
+                        color: !seg.enabled ? Theme.dis : opt.on ? (seg.quiet ? Theme.t1 : Theme.accText) : Theme.t2
+                    }
                 }
             }
         }

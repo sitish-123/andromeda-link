@@ -1,4 +1,5 @@
-//! The app's view of `andromeda-linkd`: a D-Bus client on its own thread, events in and commands out.
+//! The app's view of `andromeda-linkd`: a D-Bus client on its own thread, events in and commands out. It talks on the
+//! session bus, or peer to peer on the daemon's socket where there is none (macOS).
 
 mod execute;
 mod player;
@@ -9,6 +10,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures_util::StreamExt;
+use futures_util::future::OptionFuture;
 use link_api::{Link1Proxy, QuickShareProxy, SERVICE};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
@@ -84,6 +86,14 @@ async fn run(mut commands: UnboundedReceiver<Command>, events: UnboundedSender<E
     }
 }
 
+/// launchd keeps the daemon alive; this starts it when the user stopped it.
+#[cfg(target_os = "macos")]
+async fn start_service() -> zbus::Result<()> {
+    let status = std::process::Command::new("launchctl").args(["start", "org.andromeda.linkd"]).status()?;
+    if status.success() { Ok(()) } else { Err(zbus::Error::Failure(format!("launchctl start: {status}"))) }
+}
+
+#[cfg(not(target_os = "macos"))]
 async fn start_service() -> zbus::Result<()> {
     let bus = zbus::Connection::session().await?;
     zbus::fdo::DBusProxy::new(&bus).await?.start_service_by_name(SERVICE.try_into()?, 0).await?;
@@ -92,20 +102,24 @@ async fn start_service() -> zbus::Result<()> {
 
 /// One connection to the service; returns Ok when the app closes, Err when the service is gone.
 async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSender<Event>) -> zbus::Result<()> {
-    let bus = zbus::Connection::session().await?;
-    let names = zbus::fdo::DBusProxy::new(&bus).await?;
-    // A call to an absent service would start it through D-Bus activation; only StartService may do that.
-    if !names.name_has_owner(SERVICE.try_into()?).await? {
-        return Err(zbus::Error::Failure("the service is not running".into()));
+    let bus = link_api::connect().await?;
+    // On the socket there are no names: the daemon is there when the connection is, and exports no MPRIS players.
+    let mut owner = None;
+    if bus.is_bus() {
+        let names = zbus::fdo::DBusProxy::new(&bus).await?;
+        // A call to an absent service would start it through D-Bus activation; only StartService may do that.
+        if !names.name_has_owner(SERVICE.try_into()?).await? {
+            return Err(zbus::Error::Failure("the service is not running".into()));
+        }
+        owner = Some(names.receive_name_owner_changed().await?);
+        for name in names.list_names().await? {
+            if name.starts_with(PLAYER_PREFIX) {
+                tokio::spawn(watch_player(bus.clone(), name.to_string(), events.clone()));
+            }
+        }
     }
     let proxy = Link1Proxy::new(&bus).await?;
     let quick_share = QuickShareProxy::new(&bus).await?;
-    let mut owner = names.receive_name_owner_changed().await?;
-    for name in names.list_names().await? {
-        if name.starts_with(PLAYER_PREFIX) {
-            tokio::spawn(watch_player(bus.clone(), name.to_string(), events.clone()));
-        }
-    }
     proxy.devices().await?;
     let _ = events.send(Event::Service(true));
     snapshot(&proxy, &quick_share, events).await?;
@@ -150,7 +164,8 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
                     let _ = events.send(event);
                 }
             }
-            Some(change) = owner.next() => {
+            () = bus.closed() => return Err(zbus::Error::Failure("the service stopped".into())),
+            Some(Some(change)) = OptionFuture::from(owner.as_mut().map(StreamExt::next)) => {
                 let args = change.args()?;
                 if args.name() == SERVICE && args.new_owner().is_none() {
                     return Err(zbus::Error::Failure("the service stopped".into()));

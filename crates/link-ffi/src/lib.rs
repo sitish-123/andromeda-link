@@ -1107,6 +1107,12 @@ impl LinkClient {
         self.run(async move { client.send(id, Message::RemoteInput(input.into())).await }).await
     }
 
+    /// Tells the desktop that this phone's presenter for it opened or closed; the desktop stays awake while it is open.
+    pub async fn set_presenting(&self, desktop_id: String, on: bool) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.presenting(id, on).await }).await
+    }
+
     /// Sets the desktop's output volume, `percent` 0 to 100; needs the desktop's system switch for this phone.
     pub async fn set_desktop_volume(&self, desktop_id: String, percent: u8) -> Result<(), LinkError> {
         self.system_command(desktop_id, message::SystemCommandKind::SetVolume, Some(percent)).await

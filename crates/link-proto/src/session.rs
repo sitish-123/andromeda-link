@@ -102,7 +102,8 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::Dialed(_)
         | Message::RemoteInput(_)
         | Message::RemoteRequest(_)
-        | Message::RunCommand(_) => role == Role::Desktop,
+        | Message::RunCommand(_)
+        | Message::Presenting(_) => role == Role::Desktop,
         Message::NotificationAction(_)
         | Message::NotificationDismiss(_)
         | Message::NotificationPull(_)

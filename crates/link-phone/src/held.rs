@@ -8,8 +8,8 @@ use link_core::client::{Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
     Call, CallActionKind, CallState, MediaCommand, MediaCommandKind, MediaGone, MediaPlayer, Message,
-    NotificationButton, NotificationPosted, NotificationRemoved, Ping, PlaybackState, Ring, Ringing, RunCommand,
-    SystemResult,
+    NotificationButton, NotificationPosted, NotificationRemoved, Ping, PlaybackState, Presenting, Ring, Ringing,
+    RunCommand, SystemResult,
 };
 use serde_json::{Value, json};
 
@@ -40,7 +40,7 @@ impl Held {
     /// `notify <json>` posts or replaces a notification (see [`notification`]); `unnotify <id>` removes it;
     /// `media <json>` plays or updates a player (a `media-player` body, plus `artwork_file`); `media-gone <player>`
     /// stops it; `media-command <json>` commands a desktop player (a `media-command` body); `reconnect` drops the
-    /// session and dials again; `present <on|off>` dials, or drops the session and stays away; `ring <on|off>` rings the desktop or stops it; `ringing <on|off>` reports this phone's
+    /// session and dials again; `present <on|off>` dials, or drops the session and stays away; `ring <on|off>` rings the desktop or stops it; `presenting <on|off>` reports the presenter open or closed; `ringing <on|off>` reports this phone's
     /// own ringing, as stopping it on the phone does; `call <json>` reports a call (a `call` body); `input <json>`
     /// moves the desktop's pointer or types (a `remote-input` body); `run <id>` runs a desktop command; `ping [text]`
     /// pings the desktop.
@@ -62,6 +62,7 @@ impl Held {
             "media-gone" => self.media_gone(rest.trim()).await,
             "media-command" => self.media_command(rest).await,
             "ring" => self.send_switch(rest, |on| Message::Ring(Ring { on })).await,
+            "presenting" => self.send_switch(rest, |on| Message::Presenting(Presenting { on })).await,
             "call" => self.call(rest).await,
             "ringing" => {
                 self.ringing = rest.trim() == "on";

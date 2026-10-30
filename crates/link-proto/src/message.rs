@@ -1395,6 +1395,9 @@ fn unique(ids: impl Iterator<Item = u64>) -> bool {
 /// `ping`; older peers close a session on those types.
 pub const CONTROL: &str = "feature:control";
 
+/// A desktop's hello carries this when it takes `presenting`; older desktops close a session on the type.
+pub const PRESENTING: &str = "feature:presenting";
+
 /// Both hellos carry this among their `addresses` when the peer takes `capabilities`; older peers close a session on
 /// the type.
 pub const CAPABILITIES: &str = "feature:capabilities";
@@ -1683,6 +1686,13 @@ pub struct Ping {
     pub message: Option<String>,
 }
 
+/// Phone to desktop: the phone's presenter opened (`on`) or closed; the desktop stays awake while it is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Presenting {
+    pub on: bool,
+}
+
 pub const MAX_COMMANDS: usize = 64;
 pub const MAX_COMMAND_ID_LEN: usize = 64;
 pub const MAX_PING_LEN: usize = 256;
@@ -1781,6 +1791,7 @@ pub enum Message {
     Commands(Commands),
     RunCommand(RunCommand),
     Ping(Ping),
+    Presenting(Presenting),
     Capabilities(Capabilities),
     DesktopStatus(DesktopStatus),
     SystemCommand(SystemCommand),
@@ -1865,6 +1876,7 @@ impl Message {
             Self::Commands(_) => "commands",
             Self::RunCommand(_) => "run-command",
             Self::Ping(_) => "ping",
+            Self::Presenting(_) => "presenting",
             Self::Capabilities(_) => "capabilities",
             Self::DesktopStatus(_) => "desktop-status",
             Self::SystemCommand(_) => "system-command",
@@ -1946,6 +1958,7 @@ impl Message {
             Self::Commands(body) => Value::serialized(body),
             Self::RunCommand(body) => Value::serialized(body),
             Self::Ping(body) => Value::serialized(body),
+            Self::Presenting(body) => Value::serialized(body),
             Self::Capabilities(body) => Value::serialized(body),
             Self::DesktopStatus(body) => Value::serialized(body),
             Self::SystemCommand(body) => Value::serialized(body),
@@ -2052,6 +2065,7 @@ impl Message {
             "commands" => Self::Commands(body.deserialized()?),
             "run-command" => Self::RunCommand(body.deserialized()?),
             "ping" => Self::Ping(body.deserialized()?),
+            "presenting" => Self::Presenting(body.deserialized()?),
             "capabilities" => Self::Capabilities(body.deserialized()?),
             "desktop-status" => Self::DesktopStatus(body.deserialized()?),
             "system-command" => Self::SystemCommand(body.deserialized()?),
@@ -2076,6 +2090,7 @@ impl Message {
             | Self::ShareAck(_)
             | Self::Ring(_)
             | Self::Ringing(_)
+            | Self::Presenting(_)
             | Self::CallAction(_)
             | Self::Resume(_)
             | Self::Cancel(_)

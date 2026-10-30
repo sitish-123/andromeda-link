@@ -181,9 +181,11 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::MirrorStop(_)
         | Message::MirrorInput(_)
         | Message::MirrorKeyframe => Some(Feature::Screen),
-        Message::RemoteInput(_) | Message::RemoteRequest(_) | Message::RemoteStarted(_) | Message::RemoteStop(_) => {
-            Some(Feature::Input)
-        }
+        Message::RemoteInput(_)
+        | Message::RemoteRequest(_)
+        | Message::RemoteStarted(_)
+        | Message::RemoteStop(_)
+        | Message::Presenting(_) => Some(Feature::Input),
         Message::Commands(_) | Message::RunCommand(_) => Some(Feature::Commands),
         Message::SystemCommand(_) | Message::SystemResult(_) => Some(Feature::System),
         _ => None,

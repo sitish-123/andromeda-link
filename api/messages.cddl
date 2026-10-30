@@ -13,7 +13,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   contacts-list-msg / contacts-msg / contacts-changed-msg /
   texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
   calls-list-msg / calls-msg / calls-changed-msg / dial-msg / dialed-msg /
-  remote-input-msg / remote-request-msg / remote-started-msg / remote-stop-msg / commands-msg / run-command-msg / ping-msg / capabilities-msg / desktop-status-msg / system-command-msg / system-result-msg /
+  remote-input-msg / remote-request-msg / remote-started-msg / remote-stop-msg / commands-msg / run-command-msg / ping-msg / presenting-msg / capabilities-msg / desktop-status-msg / system-command-msg / system-result-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
@@ -355,6 +355,9 @@ remote-started-msg = { type: "remote-started", id: uint, body: {
 } }
 remote-stop-msg = { type: "remote-stop", id: uint, body: { ? reason: tstr .size (1..128) } }
 ping-msg = { type: "ping", id: uint, body: { ? message: tstr .size (1..256) } }
+; Phone to desktop, with "feature:presenting" in the desktop's hello and the desktop's input switch on: the phone's presenter
+; opened (true) or closed (false). The desktop keeps itself awake while one is open, as while a phone mirrors.
+presenting-msg = { type: "presenting", id: uint, body: { on: bool } }
 
 ; Desktop to phone, only when both hellos listed "feature:capabilities"; on connect and after each change: what the
 ; desktop's session can do now ("clipboard", "input", "notifications", "volume"). The phone hides the rest and skips

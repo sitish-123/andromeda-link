@@ -10,7 +10,7 @@ use link_proto::CloseCode;
 use link_proto::message::{
     CALLS, CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES,
     MAX_SNAPSHOT, MESSAGES, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
-    NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, PhotoRefusal, Punch,
+    NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, PRESENTING, PhotoRefusal, Punch,
     STATUS_SIGNAL, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemResult, TransferId, WifiDirect,
 };
 use link_proto::session::Role;
@@ -352,6 +352,16 @@ impl Client {
     pub async fn stop_remote(&self, id: DeviceId) -> Result<(), Error> {
         self.commands.send(Command::Mirroring { id: id.clone(), on: false }).await.map_err(|_| Error::Stopped)?;
         self.send(id, Message::RemoteStop(MirrorStop { reason: None })).await
+    }
+
+    /// Tells the desktop that the phone's presenter for it opened or closed, so it stays awake meanwhile; a no-op
+    /// for desktops without `presenting`.
+    pub async fn presenting(&self, id: DeviceId, on: bool) -> Result<(), Error> {
+        let desktops = self.desktops().await?;
+        if !desktops.iter().any(|desktop| desktop.peer.id == id && desktop.peer.has(PRESENTING)) {
+            return Ok(());
+        }
+        self.send(id, Message::Presenting(link_proto::message::Presenting { on })).await
     }
 
     /// Offers the phone's clipboard to every connected desktop whose clipboard switch is on, and keeps it for the

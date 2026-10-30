@@ -85,13 +85,40 @@ maestro "$FLOWS/pair.yaml"
 wait_for 20 "D-Bus does not show the emulator connected: $(devices)" connected
 ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
 
+# Texts, photos and files on the phone, and the phone's own grants for this computer (as link_texts_phone.sh).
+for permission in READ_SMS SEND_SMS READ_CONTACTS READ_MEDIA_IMAGES READ_MEDIA_VIDEO; do
+  adb shell pm grant "$PACKAGE" "android.permission.$permission"
+done
+adb shell appops set "$PACKAGE" MANAGE_EXTERNAL_STORAGE allow
+adb shell am force-stop "$PACKAGE"
+adb exec-out run-as "$PACKAGE" cat files/devices.json > "$RUNTIME/devices.json"
+python3 - "$RUNTIME/devices.json" <<'PY'
+import json, sys
+store = json.load(open(sys.argv[1]))
+store["peers"][0].setdefault("grants", {}).update(messages=True, browse=True, screen=True)
+json.dump(store, open(sys.argv[1], "w"))
+PY
+adb shell run-as "$PACKAGE" sh -c "'cat > files/devices.json'" < "$RUNTIME/devices.json"
+adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
+wait_for 20 "the phone did not reconnect: $(devices)" connected
+adb emu sms send 5551234 "e2e hello from the emulator" > /dev/null
+for n in 1 2; do
+  python3 -c 'import sys, zlib, struct
+def chunk(t, d): return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+row = b"\0" + bytes([40 * int(sys.argv[1]), 120, 200]) * 64
+sys.stdout.buffer.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(row * 64)) + chunk(b"IEND", b""))' "$n" > "$RUNTIME/e2e$n.png"
+  adb push "$RUNTIME/e2e$n.png" /sdcard/DCIM/Camera/e2e$n.jpg > /dev/null
+  adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/DCIM/Camera/e2e$n.jpg > /dev/null
+done
+echo "e2e note" > "$RUNTIME/e2e-note.txt"
+
 adb shell am start -W -n org.andromeda.link.fixture/.PlayerActivity > /dev/null
 wait_for 30 "the phone's media session never reached the bus" eval \
   "gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus -m org.freedesktop.DBus.ListNames | grep -q andromeda_link_$ID"
 
 # The service has no call that lists notifications already posted, so the app must be listening before they come.
 # The software scenegraph, offscreen's default, cannot draw MultiEffect (the player artwork).
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=rhi QT_FORCE_STDERR_LOGGING=1 "$BIN/andromeda-link-qt" --shot "$OUT" > "$OUT/app.log" 2>&1 &
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=rhi QT_FORCE_STDERR_LOGGING=1 "$BIN/andromeda-link-qt" --shot "$OUT" --pages "$RUNTIME/e2e-note.txt" > "$OUT/app.log" 2>&1 &
 APP=$!
 wait_for 30 "the app never saw the service: $(tail -3 "$OUT/app.log")" said listening
 
@@ -100,6 +127,10 @@ adb shell cmd notification post -S bigtext -t "'Build finished'" "e2e-build-$$" 
 adb shell cmd notification post -t "'Parcel'" "e2e-parcel-$$" "'Your parcel arrives today'" > /dev/null
 adb shell am start -W -n org.andromeda.link.fixture/.MessageActivity > /dev/null
 wait_for 60 "the app did not show the connected phone: $(tail -3 "$OUT/app.log")" said "connected done"
+# A file sent to the phone waits for its owner's Accept there.
+wait_for 120 "the app did not send a file: $(tail -3 "$OUT/app.log")" said sent
+maestro "$FLOWS/activity-accept.yaml"
+wait_for 240 "the app did not visit every page: $(tail -3 "$OUT/app.log")" said "pages done"
 
 STATE=$(shot_state)
 echo "connected state: $STATE"
@@ -109,6 +140,23 @@ assert s["connected"] is True, "connected"
 assert s["battery"] >= 0, "battery"
 assert s["hasPlayer"] is True and s["playerTitle"].startswith("Emulator Song"), "player"
 assert s["notifications"] >= 3, "notifications"' "$STATE" || fail "connected state: $STATE"
+page_state() { grep -o "SHOT page {\"page\":\"$1\".*}" "$OUT/app.log" | tail -1 | cut -d' ' -f3-; }
+for page in messages photos files activity settings screen pairing; do
+  PSTATE=$(page_state "$page")
+  echo "$page state: $PSTATE"
+  case $page in
+    messages) check='s["ready"] and s["threads"] > 0' ;;
+    photos) check='s["ready"] and s["thumbs"] == s["photos"] > 0' ;;
+    files) check='s["ready"] and s["entries"] > 0' ;;
+    activity) check='s["ready"] and s["items"] > 0 and set(s["states"]) == {"done"}' ;;
+    settings) check='s["ready"] and "messages" in s["grants"]' ;;
+    screen) check='s["state"] == "idle"' ;;
+    pairing) check='s["state"] == "waiting" and s["codeLength"] == 6' ;;
+  esac
+  python3 -c 'import json, sys; s = json.loads(sys.argv[1]); assert '"$check" "${PSTATE:-null}" || fail "$page state: $PSTATE"
+  [[ -s $OUT/$page-light.png ]] || fail "no $page-light.png"
+done
+[[ -s $OUT/settings-dark.png ]] || fail "no settings-dark.png"
 wait_for 10 "the app's Ring did not ring the phone" heard PhoneRinging "'$ID', true"
 link Ring "$ID" false > /dev/null || fail "D-Bus Ring off"
 

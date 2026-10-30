@@ -2,3 +2,4 @@ target/
 artifacts/
 *.md
 !README.md
+.qmlls.ini

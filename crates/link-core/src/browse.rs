@@ -1,16 +1,17 @@
-//! The phone answering the desktop's browse requests: read-only listings, single entries, reads, and thumbnails under
-//! the folders the app gives and its photo library. See "Browsing" in `ARCHITECTURE.md`.
+//! The phone answering the desktop's browse requests: listings, single entries, reads, and thumbnails under the folders
+//! the app gives and its photo library, and writes and deletes inside those folders. See "Browsing" in
+//! `ARCHITECTURE.md`.
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::FileExt;
+use std::os::unix::fs::{FileExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use link_proto::message::{
-    FsData, FsEntries, FsEntry, FsError, FsList, FsRead, FsRefusal, FsStat, FsThumb, MAX_FS_CHUNK, MAX_FS_ENTRIES,
-    MAX_FS_NAME, MAX_FS_READ, Message,
+    FsData, FsDelete, FsEntries, FsEntry, FsError, FsList, FsRead, FsRefusal, FsStat, FsThumb, FsWrite, MAX_FS_CHUNK,
+    MAX_FS_ENTRIES, MAX_FS_NAME, MAX_FS_READ, Message,
 };
 
 use crate::session::SessionHandle;
@@ -128,6 +129,45 @@ impl Roots {
         }
     }
 
+    /// Where a write or delete of `path` goes: a name in a folder of a folder root, its folder resolved; the name
+    /// itself is not followed, so a link there is the link.
+    fn writable(&self, path: &str) -> Result<PathBuf, FsRefusal> {
+        let (parent, name) = path.rsplit_once('/').ok_or(FsRefusal::NotFound)?;
+        let root = parent.strip_prefix('/').unwrap_or(parent).split('/').next().unwrap_or_default();
+        if !named(name) || root.is_empty() || (root == PHOTOS && self.library.is_some()) {
+            return Err(FsRefusal::Denied);
+        }
+        match self.resolve(parent)? {
+            Target::Path(dir) if dir.is_dir() => Ok(dir.join(name)),
+            _ => Err(FsRefusal::NotAFolder),
+        }
+    }
+
+    fn write(&self, write: &FsWrite) -> Result<FsEntry, FsRefusal> {
+        let path = self.writable(&write.path)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed());
+        if write.offset == 0 {
+            options.create_new(true);
+        }
+        let file = options.open(&path).map_err(|error| match error.kind() {
+            io::ErrorKind::AlreadyExists => FsRefusal::Denied,
+            _ => refusal(&error),
+        })?;
+        file.write_all_at(&write.data, write.offset).map_err(|error| refusal(&error))?;
+        let metadata = file.metadata().map_err(|error| refusal(&error))?;
+        let name = write.path.rsplit('/').next().unwrap_or_default().to_owned();
+        Ok(FsEntry { name, dir: false, size: metadata.len(), mtime: mtime(&metadata) })
+    }
+
+    fn delete(&self, path: &str) -> Result<(), FsRefusal> {
+        let path = self.writable(path)?;
+        if fs::symlink_metadata(&path).map_err(|error| refusal(&error))?.is_dir() {
+            return Err(FsRefusal::NotAFile);
+        }
+        fs::remove_file(path).map_err(|error| refusal(&error))
+    }
+
     fn file(&self, path: &str) -> Result<PathBuf, FsRefusal> {
         match self.resolve(path)? {
             Target::Path(path) if path.is_file() => Ok(path),
@@ -144,6 +184,14 @@ pub async fn answer(roots: Roots, session: SessionHandle, request: Message) {
         Message::FsStat(stat) => vec![stat_reply(&roots, &stat)],
         Message::FsRead(read) => reading(&roots, &read),
         Message::FsThumb(thumb) => thumbnail(&roots, &thumb),
+        Message::FsWrite(write) => vec![match roots.write(&write) {
+            Ok(entry) => Message::FsEntries(FsEntries { req: write.req, entries: vec![entry], next: None }),
+            Err(reason) => error(write.req, reason),
+        }],
+        Message::FsDelete(delete) => vec![match roots.delete(&delete.path) {
+            Ok(()) => Message::FsEntries(FsEntries { req: delete.req, entries: Vec::new(), next: None }),
+            Err(reason) => error(delete.req, reason),
+        }],
         _ => Vec::new(),
     })
     .await
@@ -161,7 +209,9 @@ pub fn request_id(message: &Message) -> Option<u64> {
         Message::FsList(FsList { req, .. })
         | Message::FsStat(FsStat { req, .. })
         | Message::FsRead(FsRead { req, .. })
-        | Message::FsThumb(FsThumb { req, .. }) => Some(*req),
+        | Message::FsThumb(FsThumb { req, .. })
+        | Message::FsWrite(FsWrite { req, .. })
+        | Message::FsDelete(FsDelete { req, .. }) => Some(*req),
         _ => None,
     }
 }

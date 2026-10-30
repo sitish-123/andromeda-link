@@ -115,6 +115,8 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::FsRead(_)
         | Message::FsStat(_)
         | Message::FsThumb(_)
+        | Message::FsWrite(_)
+        | Message::FsDelete(_)
         | Message::ContactsList(_)
         | Message::TextsList(_)
         | Message::TextSend(_)

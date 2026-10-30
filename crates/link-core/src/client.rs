@@ -1262,7 +1262,13 @@ impl ClientActor {
             SessionEvent::Message { from, message: Message::HotspotRequest } => self.start_hotspot(from).await,
             SessionEvent::Message {
                 from,
-                message: request @ (Message::FsList(_) | Message::FsStat(_) | Message::FsRead(_) | Message::FsThumb(_)),
+                message:
+                    request @ (Message::FsList(_)
+                    | Message::FsStat(_)
+                    | Message::FsRead(_)
+                    | Message::FsThumb(_)
+                    | Message::FsWrite(_)
+                    | Message::FsDelete(_)),
             } => {
                 self.browse(&from, request).await;
             }

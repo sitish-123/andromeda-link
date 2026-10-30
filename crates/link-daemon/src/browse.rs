@@ -1,11 +1,13 @@
 //! The desktop side of browsing a phone: requests to it, paired with its answers by `req`. A listing follows the
-//! phone's cursors to the end; a read gathers its `fs-data` frames.
+//! phone's cursors to the end; a read gathers its `fs-data` frames; a write or delete takes one `fs-entries`.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use link_core::identity::DeviceId;
-use link_core::proto::message::{FsEntry, FsList, FsRead, FsRefusal, FsStat, FsThumb, MAX_FS_READ, Message};
+use link_core::proto::message::{
+    FsDelete, FsEntry, FsList, FsRead, FsRefusal, FsStat, FsThumb, FsWrite, MAX_FS_READ, Message,
+};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
@@ -30,6 +32,14 @@ pub enum Request {
         path: String,
         px: u16,
     },
+    Write {
+        path: String,
+        offset: u64,
+        data: Vec<u8>,
+    },
+    Delete {
+        path: String,
+    },
     /// One entry of a listing, standing in for `Stat` with a phone from before it.
     Find {
         parent: String,
@@ -38,6 +48,11 @@ pub enum Request {
 }
 
 impl Request {
+    /// Whether it changes the phone's storage, which needs `feature:fs-write` there and the Files grant here.
+    pub fn writes(&self) -> bool {
+        matches!(self, Self::Write { .. } | Self::Delete { .. })
+    }
+
     /// What a phone from before `fs-stat` understands: a stat lists the parent, a thumbnail has no stand-in.
     pub fn for_older_phone(self) -> Result<Self, Failure> {
         match self {
@@ -120,6 +135,14 @@ impl Browsing {
                 pick = Some(name);
                 let message = Message::FsList(FsList { req, path: parent.clone(), cursor: None });
                 (parent, Gathered::Entries(Vec::new()), message)
+            }
+            Request::Write { path, offset, data } => {
+                let message = Message::FsWrite(FsWrite { req, path: path.clone(), offset, data });
+                (path, Gathered::Entries(Vec::new()), message)
+            }
+            Request::Delete { path } => {
+                let message = Message::FsDelete(FsDelete { req, path: path.clone() });
+                (path, Gathered::Entries(Vec::new()), message)
             }
             Request::Thumb { path, px } => {
                 let message = Message::FsThumb(FsThumb { req, path: path.clone(), px });

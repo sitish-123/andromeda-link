@@ -173,7 +173,9 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::HotspotJoined(_)
         | Message::HotspotEnd(_)
         | Message::WifiDirectReady(_)
-        | Message::WifiDirect(_) => Some(Feature::Files),
+        | Message::WifiDirect(_)
+        | Message::FsWrite(_)
+        | Message::FsDelete(_) => Some(Feature::Files),
         Message::MirrorRequest
         | Message::MirrorStarted(_)
         | Message::MirrorStop(_)

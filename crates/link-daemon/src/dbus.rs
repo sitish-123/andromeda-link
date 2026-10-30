@@ -358,6 +358,26 @@ impl Link {
         }
     }
 
+    /// Puts `data` (at most 48 KiB) at `offset` in a file inside a folder root of a connected phone, creating it at
+    /// offset 0; returns the file's size after the write. Needs the Files grant here and the browse switch there.
+    async fn write_file(&self, device_id: String, path: String, offset: u64, data: Vec<u8>) -> Result<u64, LinkError> {
+        if !link_core::proto::message::fs_path_valid(&path) || data.len() > link_core::proto::message::MAX_FS_CHUNK {
+            return Err(LinkError::Rejected("not a browse path, or more than 48 KiB".to_owned()));
+        }
+        match self.browse(&device_id, browse::Request::Write { path, offset, data }).await? {
+            browse::Answer::Entries(entries) if entries.len() == 1 => Ok(entries[0].size),
+            _ => Err(LinkError::Failed("the phone did not answer the write with the file".to_owned())),
+        }
+    }
+
+    /// Deletes a file inside a folder root of a connected phone. Needs what `WriteFile` needs.
+    async fn delete_file(&self, device_id: String, path: String) -> Result<(), LinkError> {
+        if !link_core::proto::message::fs_path_valid(&path) {
+            return Err(LinkError::Rejected("not a browse path".to_owned()));
+        }
+        self.browse(&device_id, browse::Request::Delete { path }).await.map(drop)
+    }
+
     /// Asks the phone to mirror its screen and returns the viewer's end of the video, with its size, once the user
     /// allowed it there (up to 60 s). The socket carries the phone's access units in the stream's framing.
     async fn open_mirror(&self, device_id: String) -> Result<(zbus::OwnedFd, u32, u32), LinkError> {

@@ -69,6 +69,21 @@
       <arg name="length" type="u" direction="in"/>
       <arg name="data" type="ay" direction="out"/>
     </method>
+    <!-- Puts data (at most 48 KiB) at offset in a file inside a folder root of a connected phone (not Photos), and at
+         offset 0 creates it (.Refused denied when the name is taken); returns the file's size after the write. Needs
+         this desktop's Files grant (.Refused not-allowed) and the phone's browse switch. Errors as ListFiles. -->
+    <method name="WriteFile">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="offset" type="t" direction="in"/>
+      <arg name="data" type="ay" direction="in"/>
+      <arg name="size" type="t" direction="out"/>
+    </method>
+    <!-- Deletes a file inside a folder root of a connected phone. Needs what WriteFile needs; errors as ListFiles. -->
+    <method name="DeleteFile">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+    </method>
     <!-- Asks a connected phone to mirror its screen and returns the viewer's end of the video with its size once the
          phone's user allowed capture (up to 60 s). The socket carries H.264 access units, each a big-endian u32 length,
          u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration, 4 audio: an Opus

@@ -40,6 +40,9 @@ pub const STATUS_SIGNAL: &str = "feature:status-signal";
 /// A phone's hello carries this when it answers `fs-stat` and `fs-thumb`; older phones close a session on the types.
 pub const FS_STAT: &str = "feature:fs-stat";
 
+/// A phone's hello carries this when it answers `fs-write` and `fs-delete`; older phones close a session on the types.
+pub const FS_WRITE: &str = "feature:fs-write";
+
 /// A hello carries this when its side takes the contacts and text message types; older peers close a session on them.
 pub const MESSAGES: &str = "feature:messages";
 
@@ -594,6 +597,26 @@ pub struct FsRead {
     pub path: String,
     pub offset: u64,
     pub len: u32,
+}
+
+/// Puts `data` at `offset` in a file inside a folder root, creating it at offset 0; answered by `fs-entries` holding
+/// the file's entry after the write, or `fs-error` (`denied` when offset 0 names a file that exists).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsWrite {
+    pub req: u64,
+    pub path: String,
+    pub offset: u64,
+    #[serde(with = "serde_bytes")]
+    pub data: Vec<u8>,
+}
+
+/// Removes a file inside a folder root; answered by `fs-entries` with no entries, or `fs-error`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FsDelete {
+    pub req: u64,
+    pub path: String,
 }
 
 /// Asks for one entry; answered by `fs-entries` holding that entry alone, or `fs-error`.
@@ -1635,6 +1658,8 @@ pub enum Message {
     FsError(FsError),
     FsStat(FsStat),
     FsThumb(FsThumb),
+    FsWrite(FsWrite),
+    FsDelete(FsDelete),
     ContactsList(ContactsList),
     Contacts(Contacts),
     /// The phone's contacts changed; a desktop that keeps them asks again.
@@ -1715,6 +1740,8 @@ impl Message {
             Self::FsError(_) => "fs-error",
             Self::FsStat(_) => "fs-stat",
             Self::FsThumb(_) => "fs-thumb",
+            Self::FsWrite(_) => "fs-write",
+            Self::FsDelete(_) => "fs-delete",
             Self::ContactsList(_) => "contacts-list",
             Self::Contacts(_) => "contacts",
             Self::ContactsChanged => "contacts-changed",
@@ -1793,6 +1820,8 @@ impl Message {
             Self::FsError(body) => Value::serialized(body),
             Self::FsStat(body) => Value::serialized(body),
             Self::FsThumb(body) => Value::serialized(body),
+            Self::FsWrite(body) => Value::serialized(body),
+            Self::FsDelete(body) => Value::serialized(body),
             Self::ContactsList(body) => Value::serialized(body),
             Self::Contacts(body) => Value::serialized(body),
             Self::TextsList(body) => Value::serialized(body),
@@ -1879,6 +1908,8 @@ impl Message {
             "fs-error" => Self::FsError(body.deserialized()?),
             "fs-stat" => Self::FsStat(body.deserialized()?),
             "fs-thumb" => Self::FsThumb(body.deserialized()?),
+            "fs-write" => Self::FsWrite(body.deserialized()?),
+            "fs-delete" => Self::FsDelete(body.deserialized()?),
             "contacts-list" => Self::ContactsList(body.deserialized()?),
             "contacts" => Self::Contacts(body.deserialized()?),
             "contacts-changed" => {
@@ -1997,6 +2028,8 @@ impl Message {
             Self::FsData(data) => data.data.len() <= MAX_FS_CHUNK,
             Self::FsStat(stat) => fs_path_valid(&stat.path),
             Self::FsThumb(thumb) => fs_path_valid(&thumb.path) && (1..=MAX_FS_THUMB_PX).contains(&thumb.px),
+            Self::FsWrite(write) => fs_path_valid(&write.path) && write.data.len() <= MAX_FS_CHUNK,
+            Self::FsDelete(delete) => fs_path_valid(&delete.path),
             Self::Contacts(page) => {
                 page.contacts.len() <= MAX_CONTACTS_PAGE
                     && (page.refused.is_none() || page.contacts.is_empty())

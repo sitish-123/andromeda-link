@@ -11,10 +11,10 @@ use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
     CALLS, CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus,
-    FEATURE, FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
-    NotificationPosted, NotificationPull, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status,
-    SystemCommand, SystemCommandKind, SystemResult, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect,
-    WifiDirectReady,
+    FEATURE, FS_STAT, FS_WRITE, FsRefusal, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES,
+    MediaPlayer, Message, NotificationPosted, NotificationPull, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL,
+    Share, Status, SystemCommand, SystemCommandKind, SystemResult, Text, TransferId, WIFI_DIRECT_BY_ADDRESS,
+    WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -929,6 +929,13 @@ impl Hub {
         };
         if matches!(request, browse::Request::Read { .. }) && session.connection().quic().is_none() {
             self.ask_hotspot_once(&id, &session).await;
+        }
+        if request.writes() {
+            let granted = self.store.peer(&id).is_some_and(|peer| peer.grants.files);
+            if !granted || !self.phone_has(&id, FS_WRITE) {
+                let reason = if granted { FsRefusal::Denied } else { FsRefusal::NotAllowed };
+                return drop(reply.send(Err(browse::Failure::Refused(reason))));
+            }
         }
         let request = if self.phone_has(&id, FS_STAT) { Ok(request) } else { request.for_older_phone() };
         let request = match request {

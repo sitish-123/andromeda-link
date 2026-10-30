@@ -162,7 +162,7 @@
     <string name="screen_input_label">Link: control from the desktop</string>
     <string name="screen_input_description">Lets a paired desktop that shows this phone\'s screen tap, swipe, scroll, and type on it while you mirror. Nothing is read or sent anywhere.</string>
     <string name="channel_screen">Screen mirroring</string>
-    <string name="feature_browse_hint">The desktop opens this phone\'s storage, read-only</string>
+    <string name="feature_browse_hint">The desktop opens this phone\'s storage, copies files into it, and deletes them</string>
     <string name="feature_messages_hint">The desktop reads contacts and sends texts</string>
     <string name="feature_calls_hint">Show incoming calls on the desktop</string>
     <string name="send_files">Send files</string>

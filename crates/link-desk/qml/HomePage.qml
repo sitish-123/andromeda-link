@@ -133,9 +133,9 @@ Flickable {
                 Layout.fillWidth: true
                 Layout.topMargin: 8
                 enabled: home.live && home.link.mediaVolume >= 0
-                value: Math.max(0, home.link.mediaVolume)
+                reported: Math.max(0, home.link.mediaVolume)
                 Accessible.name: "Media volume"
-                onMoved: home.link.setMediaVolume(value)
+                onCommit: level => home.link.setMediaVolume(level)
             }
         }
 

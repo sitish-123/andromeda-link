@@ -34,6 +34,11 @@ inline QString downloadsFolder()
   return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 }
 
+inline QString picturesFolder()
+{
+  return QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+}
+
 inline void quitApp()
 {
   QCoreApplication::quit();

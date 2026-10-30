@@ -114,6 +114,22 @@ pub(super) async fn execute(
             copy_files(proxy, events, device, folder, paths);
             Ok(())
         }
+        Command::TakePhoto { device, folder } => {
+            let (proxy, events) = (proxy.clone(), events.clone());
+            tokio::spawn(async move {
+                let saved = match proxy.take_photo(&device).await {
+                    Ok(path) => save(&proxy, &device, &path, &folder).await,
+                    Err(error) => Err(error),
+                };
+                let _ = events.send(match saved {
+                    Ok(file) => {
+                        Event::Fetched { device, page: "photos", purpose: super::Fetch::Photo, paths: vec![file] }
+                    }
+                    Err(error) => Event::Failed(format!("No photo: {}", reason(&error))),
+                });
+            });
+            Ok(())
+        }
         Command::DeleteFile { device, path } => {
             proxy.delete_file(&device, &path).await?;
             let folder = path.rsplit_once('/').map_or("/", |(folder, _)| if folder.is_empty() { "/" } else { folder });

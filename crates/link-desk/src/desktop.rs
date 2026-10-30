@@ -18,6 +18,8 @@ pub mod ffi {
         fn open_path(path: &QString) -> bool;
         #[cxx_name = "downloadsFolder"]
         fn downloads_folder() -> QString;
+        #[cxx_name = "picturesFolder"]
+        fn pictures_folder() -> QString;
         #[cxx_name = "quitApp"]
         fn quit_app();
         /// Keeps the app running after its last window closes, for the tray icon.
@@ -33,11 +35,17 @@ use cxx_qt_lib::{QString, QStringList};
 use crate::client::{Command, Event, Fetch, cache};
 use crate::hub;
 
+/// Where photos the phone's camera takes for this computer go: Pictures/Phone.
+pub fn photo_folder() -> PathBuf {
+    PathBuf::from(ffi::pictures_folder().to_string()).join("Phone")
+}
+
 /// Copies the current phone's files here: Downloads to save, the cache to copy or open.
 pub fn fetch(page: &'static str, paths: &QStringList, purpose: Fetch) {
     let folder = match purpose {
         Fetch::Save => Ok(PathBuf::from(ffi::downloads_folder().to_string())),
         Fetch::Copy | Fetch::Open => cache("files"),
+        Fetch::Photo => Ok(photo_folder()),
     };
     let folder = match folder {
         Ok(folder) => folder,
@@ -54,7 +62,7 @@ pub fn fetched(purpose: Fetch, paths: &[PathBuf]) -> QString {
     let list: QStringList = paths.iter().map(|path| QString::from(&*path.to_string_lossy())).collect();
     match purpose {
         Fetch::Copy => ffi::set_clipboard_files(&list),
-        Fetch::Open => {
+        Fetch::Open | Fetch::Photo => {
             for path in list.iter() {
                 if !ffi::open_path(path) {
                     hub::publish(Event::Failed(format!("No app opens {path}")));

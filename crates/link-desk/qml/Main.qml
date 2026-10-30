@@ -110,6 +110,7 @@ ApplicationWindow {
                     onDialed: number => toast.show("Calling " + number + " on " + window.phoneName)
                 }
                 PhotosPage {
+                    id: photosPage
                     objectName: "photosPage"
                     link: window.link
                     api: window.photos
@@ -370,7 +371,10 @@ ApplicationWindow {
                                      names: shot.column(window.files.entries, 0) }),
                      cd: path => { window.files.cd(path); return true },
                      upload: file => { window.files.upload(["file://" + file]); return true },
-                     remove: path => { window.files.remove(path); return true } }
+                     remove: path => { window.files.remove(path); return true } },
+            photos: { index: 3, ready: () => window.photos.photos.rowCount() > 0,
+                      state: () => ({ photos: window.photos.photos.rowCount(), error: window.photos.error }),
+                      camera: () => { photosPage.taking = true; window.photos.takePhoto(); return true } }
         })
         property int ticks: 0
         property int step: 0

@@ -10,6 +10,7 @@ Item {
     required property var settings
     property string phoneName
     property var selected: ({})
+    property bool taking: false
     readonly property var paths: Object.keys(selected)
     readonly property bool live: link.serviceRunning && link.connected
     readonly property bool granted: (settings.grants[link.currentPhone] || []).indexOf("browse") >= 0
@@ -25,7 +26,15 @@ Item {
     }
 
     onVisibleChanged: if (visible && ready && grid.groups.length === 0) api.reload()
-    onReadyChanged: if (!ready) selected = {}
+    onReadyChanged: if (!ready) { selected = {}; taking = false }
+    Connections {
+        target: page.api
+        function onSaved() { page.taking = false }
+    }
+    Connections {
+        target: page.link
+        function onFailed() { page.taking = false }
+    }
     Connections {
         target: page.link
         function onCurrentPhoneChanged() { page.selected = {} }
@@ -55,6 +64,17 @@ Item {
                 options: [{ label: "All", value: "all" }, { label: "Photos", value: "photos" }, { label: "Videos", value: "videos" }]
                 current: page.api.filter
                 onPicked: value => page.api.filter = value
+            }
+            TonalButton {
+                objectName: "takePhoto"
+                visible: page.ready
+                enabled: !page.taking
+                iconName: "camera"
+                text: page.taking ? "Take the photo on " + page.phoneName : "Take a photo"
+                onClicked: {
+                    page.taking = true
+                    page.api.takePhoto()
+                }
             }
         }
         RowLayout {

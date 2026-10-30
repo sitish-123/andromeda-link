@@ -99,6 +99,8 @@ pub enum Fetch {
     Copy,
     /// Into the cache, for the default app.
     Open,
+    /// A photo the phone's camera took, into Pictures/Phone, then the default app.
+    Photo,
 }
 
 #[derive(Clone, Debug)]
@@ -241,6 +243,11 @@ pub enum Command {
     DeleteFile {
         device: String,
         path: String,
+    },
+    /// Has the phone take a photo, then copies it into this folder.
+    TakePhoto {
+        device: String,
+        folder: PathBuf,
     },
     /// Offers this text as the desktop's clipboard to the phones holding the clipboard grant.
     OfferClipboard(String),

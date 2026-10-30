@@ -47,6 +47,9 @@ pub mod qobject {
         fn copy(self: Pin<&mut LinkPhotos>, paths: &QStringList);
         #[qinvokable]
         fn save(self: Pin<&mut LinkPhotos>, paths: &QStringList);
+        /// Has the phone's camera take a photo; it lands in Pictures/Phone and opens.
+        #[qinvokable]
+        fn take_photo(self: Pin<&mut LinkPhotos>);
         #[qsignal]
         fn saved(self: Pin<&mut LinkPhotos>, count: i32, folder: QString);
     }
@@ -178,6 +181,9 @@ impl qobject::LinkPhotos {
             }
             Event::Fetched { purpose, paths, .. } => {
                 let folder = desktop::fetched(purpose, &paths);
+                if purpose == Fetch::Photo {
+                    self.as_mut().reload();
+                }
                 return self.saved(i32::try_from(paths.len()).unwrap_or(i32::MAX), folder);
             }
             _ => return,
@@ -304,5 +310,10 @@ impl qobject::LinkPhotos {
 
     fn save(self: Pin<&mut Self>, paths: &QStringList) {
         desktop::fetch(PAGE, paths, Fetch::Save);
+    }
+
+    fn take_photo(self: Pin<&mut Self>) {
+        let folder = desktop::photo_folder();
+        hub::to_phone(|device| Command::TakePhoto { device, folder });
     }
 }

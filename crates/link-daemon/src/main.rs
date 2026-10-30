@@ -1,4 +1,5 @@
-//! `andromeda-linkd`: the desktop side of Link. No UI; the shell drives it over D-Bus `org.andromeda.Link1`.
+//! `andromeda-linkd`: the desktop side of Link. No UI; clients drive it over `org.andromeda.Link1`, on the session bus
+//! or, where there is none, on a Unix socket.
 
 mod bluetooth;
 mod browse;
@@ -17,9 +18,11 @@ mod notifications;
 mod paths;
 mod quickshare;
 mod remote;
+mod socket;
 mod wifi_direct;
 
 use std::net::{Ipv6Addr, SocketAddr};
+use std::path::PathBuf;
 
 use anyhow::Context;
 use link_core::identity::Identity;
@@ -29,6 +32,7 @@ use link_core::stream::StreamAcceptor;
 use link_core::transport::Puncher;
 use link_core::{transfer, transport};
 use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::mpsc;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,zbus=warn,tracing=warn"))
@@ -47,7 +51,10 @@ async fn run() -> anyhow::Result<()> {
         store.port = port;
         store.save(&paths.devices)?;
     }
-    let bus = zbus::Connection::session().await.context("connecting to the session bus")?;
+    let transport = match link_api::socket_path() {
+        Some(path) => Transport::Socket(path),
+        None => Transport::Bus(zbus::Connection::session().await.context("connecting to the session bus")?),
+    };
     let name = dbus::device_name().await;
     log::info!("{} listening on port {port} as {:?}", identity.device_id(), name);
 
@@ -65,9 +72,21 @@ async fn run() -> anyhow::Result<()> {
     if let Some(address) = &bluetooth.address {
         hub.set_bluetooth(address.clone(), bluetooth.pairing_window());
     }
-    dbus::serve(&bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
+    if let Transport::Bus(bus) = &transport {
+        dbus::serve(bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
+    }
     let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
-    quickshare::serve(&bus, qs_handle, qs_watches.clone(), name.clone()).await?;
+    if let Transport::Bus(bus) = &transport {
+        quickshare::serve(bus, qs_handle.clone(), qs_watches.clone(), name.clone()).await?;
+    }
+    let api = socket::Api {
+        hub: handle.clone(),
+        snapshots,
+        nearby,
+        quick_share: qs_handle,
+        quick_share_watches: qs_watches,
+        name: name.clone(),
+    };
     let acceptor = StreamAcceptor::new(&identity)?;
     let listener =
         listener::Listener::new(endpoint.clone(), bluetooth, acceptor, handle.clone(), identity.spki().clone(), name);
@@ -76,17 +95,37 @@ async fn run() -> anyhow::Result<()> {
         result = hub.run() => result,
         () = transfer_actor.run() => Ok(()),
         result = listener.run() => result,
-        result = dbus::forward(&bus, snapshots, events, nearby) => result,
+        result = serve_api(transport, api, (events, qs_events), media_requests) => result,
         () = localsend_actor.run() => Ok(()),
         result = quick_share.run() => result,
-        result = quickshare::forward(&bus, qs_watches, qs_events) => result,
-        result = desktop_media::run(bus.clone(), handle.clone(), media_requests) => result,
         _ = terminate.recv() => Ok(()),
         _ = tokio::signal::ctrl_c() => Ok(()),
     };
     endpoint.close(quinn::VarInt::from_u32(0), b"shutdown");
     endpoint.wait_idle().await;
     result
+}
+
+enum Transport {
+    Bus(zbus::Connection),
+    Socket(PathBuf),
+}
+
+/// Forwards state and events to the API's clients; desktop media control needs MPRIS on the bus.
+async fn serve_api(
+    transport: Transport,
+    api: socket::Api,
+    (events, qs_events): (mpsc::Receiver<hub::Event>, mpsc::Receiver<quickshare::Event>),
+    media_requests: mpsc::Receiver<desktop_media::Request>,
+) -> anyhow::Result<()> {
+    match transport {
+        Transport::Socket(path) => socket::serve(&path, api, events, qs_events).await,
+        Transport::Bus(bus) => tokio::select! {
+            result = dbus::forward(&bus, api.snapshots, events, api.nearby) => result,
+            result = quickshare::forward(&bus, api.quick_share_watches, qs_events) => result,
+            result = desktop_media::run(bus.clone(), api.hub, media_requests) => result,
+        },
+    }
 }
 
 /// Unassigned at IANA; the ufw profile `Andromeda Link` opens it.

@@ -30,12 +30,25 @@ const NAME: &str = "org.andromeda.Link1";
 /// The shell passes descriptors, not types; the receiver's platform types files by name.
 const OCTET_STREAM: &str = "application/octet-stream";
 
-struct Link {
+pub struct Link {
     hub: HubHandle,
     snapshots: watch::Receiver<Snapshot>,
     nearby: watch::Receiver<Vec<(String, String)>>,
     /// Callers of `SetSessionCapabilities` whose leaving the bus is watched.
     watched: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// The socket client this copy serves, which owns its capabilities until its connection closes; None on the bus.
+    peer: Option<String>,
+}
+
+impl Link {
+    pub fn new(
+        hub: HubHandle,
+        snapshots: watch::Receiver<Snapshot>,
+        nearby: watch::Receiver<Vec<(String, String)>>,
+        peer: Option<String>,
+    ) -> Self {
+        Self { hub, snapshots, nearby, watched: std::sync::Arc::default(), peer }
+    }
 }
 
 #[derive(Debug, zbus::DBusError)]
@@ -608,6 +621,10 @@ impl Link {
         {
             return Err(fdo::Error::InvalidArgs("at most 16 capabilities, each 1 to 32 bytes".to_owned()));
         }
+        if let Some(peer) = &self.peer {
+            self.hub.set_capabilities(peer.clone(), capabilities).await;
+            return Ok(());
+        }
         let owner = header.sender().ok_or_else(|| fdo::Error::Failed("no sender".to_owned()))?.to_owned();
         // One watcher per caller: a caller that reports again keeps the one it has.
         if !self.watched.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(owner.to_string()) {
@@ -884,7 +901,7 @@ pub async fn serve(
     snapshots: watch::Receiver<Snapshot>,
     nearby: watch::Receiver<Vec<(String, String)>>,
 ) -> anyhow::Result<()> {
-    bus.object_server().at(PATH, Link { hub, snapshots, nearby, watched: std::sync::Arc::default() }).await?;
+    bus.object_server().at(PATH, Link::new(hub, snapshots, nearby, None)).await?;
     bus.request_name(NAME).await?;
     Ok(())
 }

@@ -23,6 +23,7 @@ const PORT: u16 = 4718;
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(60);
 const ADAPTER: &str = "/org/bluez/hci0";
 
+#[derive(Clone)]
 pub enum Event {
     Offer { id: u64, offer: Offer },
     Finished { id: u64, status: &'static str, files: Vec<PathBuf>, texts: Vec<(TextKind, String)>, error: String },
@@ -361,10 +362,16 @@ impl Handle {
     }
 }
 
-struct Interface {
+pub struct Interface {
     handle: Handle,
     watches: Watches,
     name: String,
+}
+
+impl Interface {
+    pub fn new(handle: Handle, watches: Watches, name: String) -> Self {
+        Self { handle, watches, name }
+    }
 }
 
 #[zbus::interface(name = "org.andromeda.Link1.QuickShare")]
@@ -445,7 +452,7 @@ impl Interface {
 }
 
 pub async fn serve(bus: &zbus::Connection, handle: Handle, watches: Watches, name: String) -> anyhow::Result<()> {
-    bus.object_server().at(PATH, Interface { handle, watches, name }).await?;
+    bus.object_server().at(PATH, Interface::new(handle, watches, name)).await?;
     Ok(())
 }
 

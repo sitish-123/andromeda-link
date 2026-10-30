@@ -11,6 +11,7 @@ name = "andromeda-linkd"
 path = "src/main.rs"
 
 [dependencies]
+link-api.workspace = true
 link-core.workspace = true
 link-quickshare.workspace = true
 futures-util.workspace = true
@@ -22,6 +23,7 @@ log.workspace = true
 quinn.workspace = true
 httparse.workspace = true
 ring.workspace = true
+rustix = { workspace = true, features = ["process"] }
 rustls.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

@@ -97,7 +97,7 @@ pub struct Snapshot {
     pub capabilities: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Event {
     PairingFinished {
         id: DeviceId,

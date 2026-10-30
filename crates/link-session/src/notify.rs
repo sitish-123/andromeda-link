@@ -76,8 +76,8 @@ pub struct Notifications {
     pub proxy: zbus::Proxy<'static>,
     link: Link,
     inline_reply: bool,
-    /// The server reads markup in bodies, so a phone's text is escaped for it.
-    body_markup: bool,
+    /// Turns a phone's text into a body: escaped for a server that reads markup.
+    body: fn(&str) -> String,
     icons: PathBuf,
     shown: HashMap<u32, Mirrored>,
     next_seq: u64,
@@ -115,7 +115,11 @@ impl Notifications {
             proxy,
             link,
             inline_reply: capabilities.iter().any(|capability| capability == INLINE_REPLY),
-            body_markup: capabilities.iter().any(|capability| capability == "body-markup"),
+            body: if capabilities.iter().any(|capability| capability == "body-markup") {
+                escape_markup
+            } else {
+                str::to_owned
+            },
             icons: runtime.join("andromeda-link-session"),
             shown: HashMap::new(),
             next_seq: 0,
@@ -219,7 +223,7 @@ impl Notifications {
         }
         let summary = if posted.title.is_empty() { &posted.app } else { &posted.title };
         let app_icon = if icon.is_some() { "" } else { "phone" };
-        let body = if self.body_markup { escape_markup(&posted.text) } else { posted.text.clone() };
+        let body = (self.body)(&posted.text);
         let result: zbus::Result<u32> =
             self.proxy.call("Notify", &(&posted.app, replaces, app_icon, summary, &body, actions, hints, -1i32)).await;
         let Ok(shown) = result.inspect_err(|error| log::warn!("Notify: {error}")) else { return };

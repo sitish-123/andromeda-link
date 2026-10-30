@@ -80,11 +80,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- The desktop's pairing QR code; the system camera opens it here. -->
+            <!-- The desktop's pairing QR code; the system camera opens it here. Not BROWSABLE, so a web page cannot
+                 open a pairing link to an attacker's desktop. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="andromeda-link" />
             </intent-filter>
         </activity>

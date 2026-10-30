@@ -1,5 +1,5 @@
 use cxx_qt::CxxQtType;
-use cxx_qt_lib::{QByteArray, QHash, QModelIndex, QVariant};
+use cxx_qt_lib::{QByteArray, QHash, QList, QModelIndex, QVariant};
 use std::pin::Pin;
 
 use super::qobject;
@@ -9,7 +9,7 @@ const USER_ROLE: i32 = 0x0100;
 
 #[derive(Default)]
 pub struct ListModelRust {
-    pub(super) roles: &'static [&'static str],
+    pub roles: &'static [&'static str],
     rows: Vec<Vec<QVariant>>,
 }
 
@@ -32,10 +32,24 @@ impl qobject::ListModel {
         i32::try_from(self.rows.len()).unwrap_or(i32::MAX)
     }
 
-    pub(super) fn replace(mut self: Pin<&mut Self>, rows: Vec<Vec<QVariant>>) {
+    pub fn replace(mut self: Pin<&mut Self>, rows: Vec<Vec<QVariant>>) {
         self.as_mut().begin_reset_model();
         self.as_mut().rust_mut().rows = rows;
         self.end_reset_model();
+    }
+}
+
+impl qobject::ListModel {
+    /// Changes one cell in place, so a view keeps its scroll position.
+    pub fn set(mut self: Pin<&mut Self>, row: usize, role: &str, value: QVariant) {
+        let Some(column) = self.roles.iter().position(|name| *name == role) else { return };
+        let mut state = self.as_mut().rust_mut();
+        let Some(cell) = state.rows.get_mut(row).and_then(|cells| cells.get_mut(column)) else { return };
+        *cell = value;
+        let index = self.index(i32::try_from(row).unwrap_or(i32::MAX), 0, &QModelIndex::default());
+        let mut roles = QList::default();
+        roles.append(USER_ROLE + i32::try_from(column).unwrap_or(0));
+        self.data_changed(&index, &index, &roles);
     }
 }
 

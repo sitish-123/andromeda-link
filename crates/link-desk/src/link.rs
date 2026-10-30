@@ -1,20 +1,19 @@
 //! The `Link` `QObject` QML binds to, and the list models it owns; state comes from the client thread.
 
 mod commands;
-mod list_model;
+pub mod list_model;
 use list_model::{ListModelRust, NOTIFICATION_ROLES, RECENT_ROLES};
 mod state;
-use state::Recent;
 
 use std::collections::HashMap;
 use std::pin::Pin;
 
+use crate::client::{Controls, Device, Event, Notification, Player, Status};
+use crate::history::History;
+use crate::hub;
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QString, QUrl, QVariant};
-use tokio::sync::mpsc::UnboundedSender;
-
-use crate::client::{self, Command, Controls, Device, Notification, Player, Status};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -30,6 +29,7 @@ pub mod qobject {
         include!("cxx-qt-lib/qlist.h");
         type QList_QVariant = cxx_qt_lib::QList<cxx_qt_lib::QVariant>;
         type QList_QUrl = cxx_qt_lib::QList<cxx_qt_lib::QUrl>;
+        type QList_i32 = cxx_qt_lib::QList<i32>;
         include!("cxx-qt-lib/qhash.h");
         type QHash_i32_QByteArray = cxx_qt_lib::QHash<cxx_qt_lib::QHashPair_i32_QByteArray>;
         include!("link-desk/src/clipboard.h");
@@ -93,6 +93,16 @@ pub mod qobject {
         fn begin_reset_model(self: Pin<&mut ListModel>);
         #[inherit]
         fn end_reset_model(self: Pin<&mut ListModel>);
+        #[inherit]
+        fn index(self: &ListModel, row: i32, column: i32, parent: &QModelIndex) -> QModelIndex;
+        #[inherit]
+        #[qsignal]
+        fn data_changed(
+            self: Pin<&mut ListModel>,
+            top_left: &QModelIndex,
+            bottom_right: &QModelIndex,
+            roles: &QList_i32,
+        );
 
         fn choose_phone(self: Pin<&mut Link>, id: QString);
         #[qinvokable]
@@ -171,7 +181,6 @@ pub struct LinkRust {
 
     notification_model: UniquePtr<qobject::ListModel>,
     recent_model: UniquePtr<qobject::ListModel>,
-    commands: Option<UnboundedSender<Command>>,
     devices: Vec<Device>,
     /// Device id to (last seen unix seconds, transport), from the service's `DeviceInfo`.
     info: HashMap<String, (i64, String)>,
@@ -180,12 +189,7 @@ pub struct LinkRust {
     players: HashMap<String, Player>,
     /// Newest last, with the unix seconds each arrived.
     posted: Vec<(Notification, u64)>,
-    /// Newest last.
-    history: Vec<Recent>,
-    /// Transfer id to the sending device, for incoming transfers.
-    offered: HashMap<String, String>,
-    /// Transfer id to (device, file names), for outgoing transfers.
-    sending: HashMap<String, (String, Vec<String>)>,
+    history: History,
 }
 
 impl Default for LinkRust {
@@ -217,37 +221,41 @@ impl Default for LinkRust {
             recent: std::ptr::null_mut(),
             notification_model: UniquePtr::null(),
             recent_model: UniquePtr::null(),
-            commands: None,
             devices: Vec::new(),
             info: HashMap::new(),
             status: HashMap::new(),
             controls: HashMap::new(),
             players: HashMap::new(),
             posted: Vec::new(),
-            history: Vec::new(),
-            offered: HashMap::new(),
-            sending: HashMap::new(),
+            history: History::default(),
         }
     }
 }
 
 impl cxx_qt::Initialize for qobject::Link {
     fn initialize(mut self: Pin<&mut Self>) {
-        let mut notifications = qobject::new_list_model();
-        let mut recent = qobject::new_list_model();
-        if let (Some(model), Some(other)) = (notifications.as_mut(), recent.as_mut()) {
-            model.rust_mut().roles = NOTIFICATION_ROLES;
-            other.rust_mut().roles = RECENT_ROLES;
-        }
-        let thread = self.qt_thread();
-        let commands = client::start(move |event| {
-            let _ = thread.queue(move |link| link.apply(event));
-        });
+        let notifications = new_list_model(NOTIFICATION_ROLES);
+        let recent = new_list_model(RECENT_ROLES);
         let mut state = self.as_mut().rust_mut();
         state.notifications = notifications.as_mut_ptr();
         state.recent = recent.as_mut_ptr();
         state.notification_model = notifications;
         state.recent_model = recent;
-        state.commands = Some(commands);
+        let thread = self.qt_thread();
+        hub::subscribe(move |event| {
+            if !matches!(event, Event::Phone(_)) {
+                let event = event.clone();
+                let _ = thread.queue(move |link| link.apply(event));
+            }
+        });
     }
+}
+
+/// A list model with these role names, for the page singletons too.
+pub fn new_list_model(roles: &'static [&'static str]) -> UniquePtr<qobject::ListModel> {
+    let mut model = qobject::new_list_model();
+    if let Some(model) = model.as_mut() {
+        model.rust_mut().roles = roles;
+    }
+    model
 }

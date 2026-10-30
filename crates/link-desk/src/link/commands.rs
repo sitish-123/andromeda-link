@@ -6,12 +6,11 @@ use cxx_qt_lib::{QList, QString, QUrl};
 
 use super::qobject;
 use crate::client::{Command, PlayerAction};
+use crate::hub;
 
 impl qobject::Link {
     pub(super) fn send(self: Pin<&mut Self>, command: Command) {
-        if let Some(commands) = &self.commands {
-            let _ = commands.send(command);
-        }
+        hub::send(command);
     }
 
     /// Sends the command built for the current phone, or says why there is none.

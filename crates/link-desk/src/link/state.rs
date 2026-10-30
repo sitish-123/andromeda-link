@@ -1,44 +1,14 @@
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QList, QMap, QString, QUrl, QVariant};
 
 use super::qobject;
 use crate::client::{Event, Notification};
-
-pub(super) struct Recent {
-    pub(super) device: String,
-    pub(super) name: String,
-    pub(super) detail: String,
-    pub(super) at: u64,
-    pub(super) thumb: String,
-    /// photo, file, or clip.
-    pub(super) kind: &'static str,
-}
-
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
-}
-
-fn age_text(at: u64) -> String {
-    match now().saturating_sub(at) / 60 {
-        0 => "now".to_owned(),
-        minutes @ 1..60 => format!("{minutes} min"),
-        minutes @ 60..1440 => format!("{} h", minutes / 60),
-        minutes => format!("{} d", minutes / 1440),
-    }
-}
-
-fn file_url(path: &str) -> String {
-    format!("file://{path}")
-}
-
-fn is_image(name: &str) -> bool {
-    let extension = name.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase()).unwrap_or_default();
-    matches!(extension.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp" | "heic" | "avif" | "bmp")
-}
+use crate::format::{age_text, file_url, now, text, variant};
+use crate::history::{Direction, State};
+use crate::hub;
 
 /// The notification rows for one phone, grouped by app for the view: the app with the newest notification first,
 /// newest first within each.
@@ -69,14 +39,6 @@ fn notification_rows(posted: &[(Notification, u64)], id: &str) -> Vec<Vec<QVaria
         .collect()
 }
 
-fn variant<T: cxx_qt_lib::QVariantValue>(value: &T) -> QVariant {
-    QVariant::from(value)
-}
-
-fn text(value: &str) -> QVariant {
-    variant(&QString::from(value))
-}
-
 impl qobject::Link {
     pub(super) fn apply(mut self: Pin<&mut Self>, event: Event) {
         let mut state = self.as_mut().rust_mut();
@@ -101,66 +63,20 @@ impl qobject::Link {
             Event::NotificationRemoved { device, id } => {
                 state.posted.retain(|(old, _)| old.device != device || old.id != id);
             }
-            Event::Offered { transfer, device } => {
-                state.offered.insert(transfer, device);
-            }
-            Event::Sending { transfer, device, files } => {
-                state.sending.insert(transfer, (device, files));
-            }
-            Event::Finished { transfer, status, paths } => {
-                let incoming = state.offered.remove(&transfer);
-                let outgoing = state.sending.remove(&transfer);
-                if status == "done" {
-                    let at = now();
-                    if let Some(device) = incoming {
-                        for path in paths {
-                            let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
-                            let photo = is_image(&name);
-                            state.history.push(Recent {
-                                device: device.clone(),
-                                detail: "Received".to_owned(),
-                                thumb: if photo { file_url(&path) } else { String::new() },
-                                kind: if photo { "photo" } else { "file" },
-                                name,
-                                at,
-                            });
-                        }
-                    }
-                    if let Some((device, files)) = outgoing {
-                        for name in files {
-                            let kind = if is_image(&name) { "photo" } else { "file" };
-                            let detail = "Sent".to_owned();
-                            state.history.push(Recent {
-                                device: device.clone(),
-                                name,
-                                detail,
-                                at,
-                                thumb: String::new(),
-                                kind,
-                            });
-                        }
-                    }
-                }
-            }
-            Event::Received { device, text } => {
-                let name = text.lines().next().unwrap_or_default().to_owned();
-                let detail = "Copied from phone".to_owned();
-                state.history.push(Recent { device, name, detail, at: now(), thumb: String::new(), kind: "clip" });
-            }
-            Event::ClipSent(text) => {
-                let name = text.lines().next().unwrap_or_default().to_owned();
-                let device = state.current_phone.to_string();
-                let detail = "Sent clipboard".to_owned();
-                state.history.push(Recent { device, name, detail, at: now(), thumb: String::new(), kind: "clip" });
-            }
             Event::Player { device, player } => match player {
                 Some(player) => drop(state.players.insert(device, player)),
                 None => drop(state.players.remove(&device)),
             },
-            Event::Tick => {}
             Event::Failed(message) => {
                 self.as_mut().failed(QString::from(&message));
                 return;
+            }
+            Event::Tick => {}
+            other => {
+                let phone = state.current_phone.to_string();
+                if !state.history.apply(&other, &phone) {
+                    return;
+                }
             }
         }
         self.refresh();
@@ -177,6 +93,9 @@ impl qobject::Link {
             state = self.as_mut().rust_mut();
         }
         let id = state.current_phone.to_string();
+        if hub::phone() != id {
+            hub::set_phone(&id);
+        }
 
         let mut phones = QList::default();
         for device in &state.devices {
@@ -201,11 +120,21 @@ impl qobject::Link {
         let notifications = notification_rows(&state.posted, &id);
         let recent = state
             .history
+            .items
             .iter()
             .rev()
-            .filter(|item| item.device == id)
+            .filter(|item| item.device == id && item.state == State::Done)
             .map(|item| {
-                vec![text(&item.name), text(&item.detail), text(&age_text(item.at)), text(&item.thumb), text(item.kind)]
+                let detail = match item.direction {
+                    Direction::Received => "Received",
+                    Direction::Sent => "Sent",
+                    Direction::CopiedFrom => "Copied from phone",
+                    Direction::CopiedTo => "Sent clipboard",
+                    Direction::Saved => "Saved from phone",
+                };
+                let thumb =
+                    if item.kind() == "photo" && !item.path.is_empty() { file_url(&item.path) } else { String::new() };
+                vec![text(&item.name), text(detail), text(&age_text(item.at)), text(&thumb), text(item.kind())]
             })
             .collect();
         if let Some(model) = state.notification_model.as_mut() {

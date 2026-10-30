@@ -41,10 +41,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -53,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -73,17 +76,22 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.andromeda.link.R
 import org.andromeda.link.core.domain.Desktop
 import org.andromeda.link.core.domain.DesktopPlayer
+import org.andromeda.link.core.domain.DesktopStatus
+import org.andromeda.link.core.domain.DesktopVolume
 import org.andromeda.link.core.domain.MediaCommandKind
 import org.andromeda.link.core.domain.PlaybackState
+import org.andromeda.link.core.domain.RecentClip
+import org.andromeda.link.core.domain.TransferRecord
 import org.andromeda.link.files.MediaAccess
 import org.andromeda.link.files.MediaTile
 import org.andromeda.link.files.PhoneFiles
 import org.andromeda.link.files.PickerSheet
-import org.andromeda.link.files.PickerState
 import org.andromeda.link.files.PickerTab
 import org.andromeda.link.files.PickerViewModel
 import org.andromeda.link.files.sendLabel
@@ -128,7 +136,9 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
-    val pick by picker.state.collectAsStateWithLifecycle()
+    val pick = picker.state.collectAsStateWithLifecycle()
+    // Only open and close recompose Home; the sheet and the tray read the rest themselves.
+    val pickOpen by remember { derivedStateOf { pick.value.open } }
     val context = LocalContext.current
     val resources = context.resources
     val notificationPermission =
@@ -161,17 +171,18 @@ fun HomeScreen(
         }
     val primary = state.primary
     val send = {
-        primary?.let { viewModel.sendFiles(it, pick.selected.keys.toList()) }
+        val selected = pick.value.selected
+        primary?.let { viewModel.sendFiles(it, selected.keys.toList()) }
         picker.clear()
     }
     Screen(
         title = null,
         toast = toast,
         onToastShown = viewModel::messageShown,
-        overlay = { if (primary != null) PickerSheet(picker, pick, primary.name, send) },
+        overlay = { if (primary != null) PickerSheet(picker, pick.value, primary.name, send) },
     ) {
         // Under the open picker, Home's photos and buttons would duplicate the sheet's for TalkBack.
-        val hidden = if (pick.open) Modifier.clearAndSetSemantics {} else Modifier
+        val hidden = if (pickOpen) Modifier.clearAndSetSemantics {} else Modifier
         PullRefresh(state.refreshing, viewModel::refresh, Modifier.fillMaxSize().then(hidden)) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = Space.s16)) {
                 if (primary == null) {
@@ -183,7 +194,7 @@ fun HomeScreen(
                 val clipboardSetup = primary.sharing.clipboard && !autoClipboard
                 val alert = missing.isNotEmpty() || clipboardSetup
                 Section {
-                    HomeHeader(primary, state, { viewModel.connect(primary) }) { onDesktop(primary) }
+                    HomeHeader(primary, desk.statuses[primary.id], state.refreshing, { viewModel.connect(primary) }) { onDesktop(primary) }
                     if (state.desktops.size > 1) DesktopSwitcher(state.desktops, primary, viewModel::selectDesktop)
                 }
                 if (player != null) {
@@ -192,19 +203,29 @@ fun HomeScreen(
                     }
                 }
                 Section {
-                    Controls(primary, state, viewModel, onDesktop, onRemote, onPresenter) {
+                    Controls(
+                        primary,
+                        desk.can(primary.id),
+                        desk.statuses[primary.id],
+                        desk.volumes[primary.id],
+                        primary.id in state.ringing,
+                        viewModel,
+                        onDesktop,
+                        onRemote,
+                        onPresenter,
+                    ) {
                         viewModel.sendClipboard(primary, context.getSystemService(ClipboardManager::class.java).primaryClip)
                     }
                 }
                 Section {
                     if (primary.sharing.files) {
-                        SendTray(primary, pick, picker, send)
+                        SendTray(primary, picker, send)
                     } else {
                         Label(stringResource(R.string.home_files_disabled), LinkTheme.type.titleMedium)
                     }
                 }
                 Section {
-                    RecentList(primary, state)
+                    RecentList(primary, desk.transfers, desk.clips)
                     Row(Modifier.padding(top = Space.s4)) {
                         Spacer(Modifier.weight(1f))
                         Label(
@@ -260,12 +281,12 @@ private fun wash() = LinkTheme.colors.textPrimary.copy(alpha = 0.07f)
 @Composable
 private fun HomeHeader(
     desktop: Desktop,
-    state: HomeState,
+    status: DesktopStatus?,
+    refreshing: Boolean,
     onConnect: () -> Unit,
     onOpen: () -> Unit,
 ) {
     val colors = LinkTheme.colors
-    val status = state.desk.statuses[desktop.id]
     val via =
         when {
             desktop.connected && desktop.bluetooth ->
@@ -274,7 +295,7 @@ private fun HomeHeader(
                     stringResource(R.string.home_via_bluetooth),
                 )
             desktop.connected -> stringResource(R.string.home_connected_via, stringResource(R.string.home_via_wifi))
-            state.refreshing -> stringResource(R.string.home_via_searching)
+            refreshing -> stringResource(R.string.home_via_searching)
             else -> stringResource(R.string.home_last_seen, lastSeen(desktop.lastSeen))
         }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -302,7 +323,7 @@ private fun HomeHeader(
                 horizontalArrangement = Arrangement.spacedBy(Space.s6),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ConnectionOrb(desktop.connected, size = Space.s16, working = state.refreshing)
+                ConnectionOrb(desktop.connected, size = Space.s16, working = refreshing)
                 Label(via, LinkTheme.type.titleSmall, if (desktop.connected) colors.accentText else colors.textTertiary)
             }
         }
@@ -331,7 +352,7 @@ private fun HomeHeader(
         }
     }
     if (!desktop.connected) {
-        PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !state.refreshing)
+        PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !refreshing)
     }
 }
 
@@ -478,7 +499,11 @@ private fun PlayerCard(
 @Composable
 private fun Artwork(bytes: ByteArray?) {
     val colors = LinkTheme.colors
-    val image = remember(bytes) { bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.asImageBitmap() }
+    // The last image stays up while the next one decodes.
+    val image =
+        produceState<ImageBitmap?>(null, bytes) {
+            value = withContext(Dispatchers.Default) { bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.asImageBitmap() }
+        }.value
     Box(Modifier.size(52.dp).clip(Radius.button).background(colors.accent.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
         if (image != null) {
             Image(image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -650,24 +675,25 @@ private fun DragTrack(
 @Composable
 private fun Controls(
     desktop: Desktop,
-    state: HomeState,
+    /** Null when the desktop does not list its capabilities. */
+    capabilities: Set<String>?,
+    status: DesktopStatus?,
+    volume: DesktopVolume?,
+    ringing: Boolean,
     viewModel: HomeViewModel,
     onDesktop: (Desktop) -> Unit,
     onRemote: (Desktop) -> Unit,
     onPresenter: (Desktop) -> Unit,
     onClipboard: () -> Unit,
 ) {
-    val desk = state.desk
-    val can = desk.can(desktop.id).orEmpty()
+    val can = capabilities.orEmpty()
     val granted = CAN_CONTROL in can
     // As on the Device page: a desktop that does not list its capabilities hides nothing.
-    val input = desk.can(desktop.id)?.contains(CAN_INPUT) ?: true
+    val input = capabilities?.contains(CAN_INPUT) ?: true
     val live = desktop.connected
-    val status = desk.statuses[desktop.id]
-    val ringing = desktop.id in state.ringing
     Column {
         val dim = Modifier.alpha(if (live) 1f else DISABLED)
-        desk.volumes[desktop.id]?.let { volume ->
+        volume?.let { volume ->
             LevelSlider(
                 LinkIcons.Ring,
                 stringResource(R.string.home_volume),
@@ -874,10 +900,10 @@ private fun LevelSlider(
 @Composable
 private fun SendTray(
     desktop: Desktop,
-    pick: PickerState,
     picker: PickerViewModel,
     onSend: () -> Unit,
 ) {
+    val pick by picker.state.collectAsStateWithLifecycle()
     val colors = LinkTheme.colors
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { picker.refresh() }
     Label(stringResource(R.string.home_send_to, desktop.name), LinkTheme.type.titleMedium)
@@ -939,48 +965,51 @@ private data class Crossed(
 @Composable
 private fun RecentList(
     desktop: Desktop,
-    state: HomeState,
+    transfers: List<TransferRecord>,
+    clips: List<RecentClip>,
 ) {
     val context = LocalContext.current
+    val resources = context.resources
     val colors = LinkTheme.colors
     Label(stringResource(R.string.home_recent), LinkTheme.type.titleMedium)
-    val transfers =
-        state.desk.transfers
-            .filter { it.desktopName == desktop.name && it.files.isNotEmpty() }
-            .map { record ->
-                val first = record.files.first().name
-                val name =
-                    if (record.files.size >
-                        1
-                    ) {
-                        pluralStringResource(R.plurals.recent_more_files, record.files.size - 1, first, record.files.size - 1)
-                    } else {
-                        first
+    val recent =
+        remember(desktop.id, desktop.name, transfers, clips, resources) {
+            val sent =
+                transfers
+                    .filter { it.desktopName == desktop.name && it.files.isNotEmpty() }
+                    .map { record ->
+                        val first = record.files.first().name
+                        val more = record.files.size - 1
+                        val name = if (more > 0) resources.getQuantityString(R.plurals.recent_more_files, more, first, more) else first
+                        val size = Formatter.formatShortFileSize(context, record.files.sumOf { it.size })
+                        val failed = record.status !in LIVE_STATUSES
+                        val detail =
+                            when {
+                                failed && record.incoming == true -> resources.getString(R.string.recent_not_received)
+                                failed -> resources.getString(R.string.recent_failed)
+                                record.incoming == true -> resources.getString(R.string.recent_received, size)
+                                else -> resources.getString(R.string.recent_sent, size)
+                            }
+                        Crossed(name, detail, record.time)
                     }
-                val size = Formatter.formatShortFileSize(context, record.files.sumOf { it.size })
-                val detail =
-                    when {
-                        record.status !in LIVE_STATUSES && record.incoming == true -> stringResource(R.string.recent_not_received)
-                        record.status !in LIVE_STATUSES -> stringResource(R.string.recent_failed)
-                        record.incoming == true -> stringResource(R.string.recent_received, size)
-                        else -> stringResource(R.string.recent_sent, size)
+            val copied =
+                clips
+                    .filter { it.desktopId == null || it.desktopId == desktop.id }
+                    .map { clip ->
+                        Crossed(
+                            clip.text
+                                ?.lines()
+                                ?.firstOrNull { it.isNotBlank() }
+                                ?.trim() ?: resources.getString(R.string.recent_image),
+                            resources.getString(
+                                if (clip.incoming) R.string.recent_copied_from else R.string.recent_copied_to,
+                                desktop.name,
+                            ),
+                            clip.time,
+                        )
                     }
-                Crossed(name, detail, record.time)
-            }
-    val clips =
-        state.desk.clips
-            .filter { it.desktopId == null || it.desktopId == desktop.id }
-            .map { clip ->
-                Crossed(
-                    clip.text
-                        ?.lines()
-                        ?.firstOrNull { it.isNotBlank() }
-                        ?.trim() ?: stringResource(R.string.recent_image),
-                    stringResource(if (clip.incoming) R.string.recent_copied_from else R.string.recent_copied_to, desktop.name),
-                    clip.time,
-                )
-            }
-    val recent = (transfers + clips).sortedByDescending { it.time }.take(RECENT_ITEMS)
+            (sent + copied).sortedByDescending { it.time }.take(RECENT_ITEMS)
+        }
     if (recent.isEmpty()) {
         Label(stringResource(R.string.home_recent_empty), LinkTheme.type.bodyMedium, colors.textSecondary, Modifier.padding(top = Space.s8))
         return

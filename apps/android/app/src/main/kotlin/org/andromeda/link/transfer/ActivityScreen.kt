@@ -88,20 +88,25 @@ fun ActivityScreen(viewModel: ActivityViewModel) {
             null -> null
         }
     val clips =
-        allClips.filter {
-            when (filter) {
-                Filter.All -> true
-                Filter.Received -> it.incoming
-                Filter.Sent -> !it.incoming
+        remember(allClips, filter) {
+            allClips.filter {
+                when (filter) {
+                    Filter.All -> true
+                    Filter.Received -> it.incoming
+                    Filter.Sent -> !it.incoming
+                }
             }
         }
-    val shown =
-        transfers.filter {
-            when (filter) {
-                Filter.All -> true
-                Filter.Received -> it.incoming == true
-                Filter.Sent -> it.incoming == false
-            }
+    val days =
+        remember(transfers, filter) {
+            transfers
+                .filter {
+                    when (filter) {
+                        Filter.All -> true
+                        Filter.Received -> it.incoming == true
+                        Filter.Sent -> it.incoming == false
+                    }
+                }.groupBy { day(it.time) }
         }
     val downloads = stringResource(R.string.activity_downloads)
     Screen(
@@ -143,7 +148,7 @@ fun ActivityScreen(viewModel: ActivityViewModel) {
             if (clips.isNotEmpty()) {
                 item(key = "clips") { ClipCard(clips, viewModel::copyAgain) }
             }
-            if (shown.isEmpty() && clips.isEmpty()) {
+            if (days.isEmpty() && clips.isEmpty()) {
                 item {
                     Column(Modifier.padding(top = Space.s32), verticalArrangement = Arrangement.spacedBy(Space.s8)) {
                         Readout(stringResource(R.string.activity_empty_readout), LinkTheme.colors.textTertiary)
@@ -152,7 +157,7 @@ fun ActivityScreen(viewModel: ActivityViewModel) {
                     }
                 }
             }
-            shown.groupBy { day(it.time) }.forEach { (day, records) ->
+            days.forEach { (day, records) ->
                 item(key = "day-$day") { Readout(dayLabel(day), modifier = Modifier.padding(start = Space.s4, top = Space.s12)) }
                 items(records, key = { it.transferId }) { transfer ->
                     TransferCard(

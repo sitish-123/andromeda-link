@@ -16,8 +16,10 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -77,8 +79,9 @@ fun LinkApp(
     val pairing = viewModel { PairingViewModel(container.repository) }
     val picker = viewModel { PickerViewModel(container.files) }
     val onboarding = viewModel { OnboardingViewModel(container.application, container.mirror, container.ringer) }
-    val activity = viewModel { ActivityViewModel(container.repository, container.clipboard, container.clipHistory) }
-    val pick by picker.state.collectAsStateWithLifecycle()
+    val pick = picker.state.collectAsStateWithLifecycle()
+    // Only open and close recompose the app; selection and lists recompose the picker alone.
+    val pickOpen by remember { derivedStateOf { pick.value.open } }
     val setup by onboarding.state.collectAsStateWithLifecycle()
     // Grants change in Settings and over adb, so they are rechecked whenever the app returns.
     LifecycleResumeEffect(Unit) {
@@ -173,7 +176,10 @@ fun LinkApp(
                                 screen = Screen.Presenter
                             },
                         )
-                    Screen.Activity -> ActivityScreen(activity)
+                    Screen.Activity ->
+                        ActivityScreen(
+                            viewModel { ActivityViewModel(container.repository, container.clipboard, container.clipHistory) },
+                        )
                     Screen.Settings ->
                         SettingsScreen(
                             home,
@@ -251,7 +257,7 @@ fun LinkApp(
                 }
             }
         }
-        if (screen in rootScreens && !pick.open && !(screen == Screen.Settings && methodSheet)) {
+        if (screen in rootScreens && !pickOpen && !(screen == Screen.Settings && methodSheet)) {
             PillNav(
                 rootScreens.indexOf(screen),
                 listOf(

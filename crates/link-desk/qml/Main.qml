@@ -63,6 +63,7 @@ ApplicationWindow {
     Connections {
         target: window.files
         function onSaved(count, folder) { toast.show("Saved " + count + " to " + folder) }
+        function onCopied(count, folder) { toast.show("Copied " + count + " to " + folder + " on " + window.phoneName) }
     }
 
     Rectangle {
@@ -351,8 +352,10 @@ ApplicationWindow {
         })
     }
 
-    // E2E hook: `--page NAME DIR [ACTION ARG]` opens page NAME once the phone is connected and logs "PAGE state {...}"
-    // each second; once the page is ready it saves DIR/NAME-light.png and NAME-dark.png and runs ACTION(ARG) once.
+    // E2E hook: `--page NAME DIR [ACTION ARG]...` opens page NAME once the phone is connected and logs "PAGE state
+    // {...}" each second. Once the page is ready it saves DIR/NAME-light.png and NAME-dark.png, then runs each ACTION(ARG)
+    // of the page in turn, a second apart, logging "PAGE ACTION result". "await FILE" waits until FILE exists; "shot
+    // NAME" saves DIR/NAME-light.png and NAME-dark.png.
     Timer {
         id: pageHook
         readonly property int arg: Qt.application.arguments.indexOf("--page")
@@ -361,10 +364,35 @@ ApplicationWindow {
             calls: { index: 2, ready: () => window.calls.ready && window.calls.calls.rowCount() > 0,
                      state: () => ({ ready: window.calls.ready, refused: window.calls.refused,
                                      numbers: shot.column(window.calls.calls, 0), kinds: shot.column(window.calls.calls, 3) }),
-                     dial: number => window.calls.dial(number) }
+                     dial: number => window.calls.dial(number) },
+            files: { index: 4, ready: () => window.files.entries.rowCount() > 0,
+                     state: () => ({ path: window.files.path, writable: window.files.writable, error: window.files.error,
+                                     names: shot.column(window.files.entries, 0) }),
+                     cd: path => { window.files.cd(path); return true },
+                     upload: file => { window.files.upload(["file://" + file]); return true },
+                     remove: path => { window.files.remove(path); return true } }
         })
         property int ticks: 0
         property int step: 0
+        property int next: 2
+        function exists(file) {
+            const x = new XMLHttpRequest()
+            x.open("GET", "file://" + file, false)
+            x.send()
+            return x.responseText !== "" || x.status === 200
+        }
+        function shots(name, done) {
+            Theme.dark = false
+            body.grabToImage(r => {
+                r.saveToFile(args[1] + "/" + name + "-light.png")
+                Theme.dark = true
+                body.grabToImage(r => {
+                    r.saveToFile(args[1] + "/" + name + "-dark.png")
+                    Theme.dark = false
+                    done()
+                })
+            })
+        }
         running: arg > 0 && window.link !== null
         interval: 200
         repeat: true
@@ -377,18 +405,22 @@ ApplicationWindow {
                 console.log("PAGE state " + JSON.stringify(p.state()))
             if (step === 0 && p.ready()) {
                 step = 1
-                Theme.dark = false
-                body.grabToImage(r => {
-                    r.saveToFile(args[1] + "/" + args[0] + "-light.png")
-                    Theme.dark = true
-                    body.grabToImage(r => {
-                        r.saveToFile(args[1] + "/" + args[0] + "-dark.png")
-                        Theme.dark = false
-                        console.log("PAGE saved")
-                        if (args.length > 3)
-                            console.log("PAGE " + args[2] + " " + p[args[2]](args[3]))
-                    })
-                })
+                shots(args[0], () => { console.log("PAGE saved"); step = 2 })
+            } else if (step === 2 && next + 1 < args.length && ticks % 5 === 0) {
+                const [action, value] = [args[next], args[next + 1]]
+                if (action === "await") {
+                    if (!exists(value))
+                        return
+                    next += 2
+                    console.log("PAGE await " + value)
+                } else if (action === "shot") {
+                    step = 1
+                    next += 2
+                    shots(value, () => { console.log("PAGE shot " + value); step = 2 })
+                } else {
+                    next += 2
+                    console.log("PAGE " + action + " " + p[action](value))
+                }
             }
         }
     }

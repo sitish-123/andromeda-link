@@ -15,6 +15,16 @@ Item {
     readonly property bool live: link.serviceRunning && link.connected
     readonly property bool granted: (settings.grants[link.currentPhone] || []).indexOf("browse") >= 0
     readonly property bool ready: live && granted
+    readonly property bool writable: ready && api.writable
+    readonly property string folderName: api.crumbs.length > 0 ? api.crumbs[api.crumbs.length - 1].name : ""
+    property string deleting: ""
+
+    function send(urls) {
+        if (page.writable)
+            page.api.upload(urls)
+        else
+            page.link.sendFiles(urls)
+    }
 
     function toggle(path) {
         const s = Object.assign({}, selected)
@@ -34,8 +44,8 @@ Item {
     FileDialog {
         id: picker
         fileMode: FileDialog.OpenFiles
-        title: "Send files to " + page.phoneName
-        onAccepted: page.link.sendFiles(selectedFiles)
+        title: page.writable ? "Copy files into " + page.folderName : "Send files to " + page.phoneName
+        onAccepted: page.send(selectedFiles)
     }
 
     DropArea {
@@ -44,7 +54,7 @@ Item {
         enabled: page.live
         onDropped: event => {
             if (event.hasUrls)
-                page.link.sendFiles(event.urls)
+                page.send(event.urls)
         }
     }
 
@@ -129,6 +139,17 @@ Item {
             onTurnOn: page.settings.setGrant(page.link.currentPhone, "browse", true)
         }
 
+        Label {
+            Layout.fillWidth: true
+            Layout.topMargin: 8
+            visible: page.ready && page.api.path === "/" && !page.api.loading && list.count > 0 && !page.hasStorage
+            text: "All files access is off on " + page.phoneName + ", so only Photos shows and nothing can be copied in. "
+                  + "Turn it on in Link on the phone, under Browse files."
+            wrapMode: Text.WordWrap
+            font.pixelSize: Theme.body
+            color: Theme.t2
+        }
+
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: 8
@@ -139,6 +160,7 @@ Item {
             Head { Layout.fillWidth: true; text: "Name" }
             Head { Layout.preferredWidth: 96; horizontalAlignment: Text.AlignRight; text: "Size" }
             Head { Layout.preferredWidth: 140; Layout.leftMargin: 16; text: "Modified" }
+            Item { implicitWidth: 32 }
         }
         Rectangle {
             Layout.fillWidth: true
@@ -161,6 +183,8 @@ Item {
                 width: list.width
                 first: index === 0
                 selected: !!page.selected[path]
+                deletable: page.writable && !folder
+                onDeleteAsked: page.deleting = path
                 onClicked: folder ? page.api.cd(path) : page.toggle(path)
                 onOpened: if (!folder) page.api.openFile(path)
             }
@@ -208,9 +232,69 @@ Item {
                 Label {
                     anchors.verticalCenter: parent.verticalCenter
                     textFormat: Text.StyledText
-                    text: "<b>Drop files here</b> to send them to " + page.phoneName
+                    text: page.writable ? "<b>Drop files here</b> to copy them into " + page.folderName
+                                        : "<b>Drop files here</b> to send them to " + page.phoneName
                     font.pixelSize: Theme.body
                     color: Theme.t2
+                }
+            }
+        }
+    }
+
+    readonly property bool hasStorage: {
+        const m = page.api.entries
+        for (let i = 0; i < list.count; i++)
+            if (m.data(m.index(i, 0), 256) !== "Photos")
+                return true
+        return false
+    }
+
+    Popup {
+        id: confirm
+        anchors.centerIn: parent
+        modal: true
+        visible: page.deleting !== ""
+        onClosed: page.deleting = ""
+        padding: 24
+        width: 420
+        background: Rectangle {
+            radius: 20
+            color: Theme.elev
+            border.width: 1
+            border.color: Theme.b2
+        }
+        Overlay.modal: Rectangle { color: Qt.alpha("black", 0.4) }
+        contentItem: ColumnLayout {
+            spacing: 8
+            Label {
+                Layout.fillWidth: true
+                text: "Delete \u201c" + page.deleting.split("/").pop() + "\u201d?"
+                font.pixelSize: Theme.title
+                font.weight: Font.DemiBold
+                elide: Text.ElideMiddle
+            }
+            Label {
+                Layout.fillWidth: true
+                text: "It is deleted from " + page.phoneName + ". This cannot be undone."
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.body
+                color: Theme.t2
+            }
+            RowLayout {
+                Layout.topMargin: 16
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                TonalButton {
+                    text: "Cancel"
+                    onClicked: confirm.close()
+                }
+                TonalButton {
+                    kind: "warn"
+                    text: "Delete"
+                    onClicked: {
+                        page.api.remove(page.deleting)
+                        confirm.close()
+                    }
                 }
             }
         }

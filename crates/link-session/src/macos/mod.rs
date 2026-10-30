@@ -14,16 +14,15 @@ use crate::{
 };
 
 pub async fn run() -> anyhow::Result<()> {
-    // The daemon's connection; the macOS service host replaces the session bus with its own socket.
-    let bus = zbus::Connection::session().await?;
-    let link = link::Link::connect(&bus).await?;
+    // There is no session bus: the daemon's socket, which closes when the daemon stops; launchd then restarts this.
+    let daemon = link_api::connect().await.context("connecting to andromeda-linkd")?;
+    let link = link::Link::connect(&daemon).await?;
     let mut posted = link.proxy.receive_notification_posted().await?;
     let mut removed = link.proxy.receive_notification_removed().await?;
     let mut clip_offered = link.proxy.receive_clipboard_offered().await?;
     let mut remote_input = link.proxy.receive_remote_input().await?;
     let mut system_commands = link.proxy.receive_system_command().await?;
     let mut terminate = signal(SignalKind::terminate())?;
-    let mut daemon_owner = link.proxy.inner().receive_owner_changed().await?;
     let mut keep_awake = link.proxy.receive_keep_awake_changed().await;
     let mut awake = awake::Awake::default();
     awake.set(link.proxy.keep_awake().await.unwrap_or(false));
@@ -104,10 +103,7 @@ pub async fn run() -> anyhow::Result<()> {
             },
             () = system.changed() => report_status(&link, volume.as_ref(), &system).await,
             Some(change) = keep_awake.next() => awake.set(change.get().await.unwrap_or(false)),
-            Some(owner) = daemon_owner.next() => match owner {
-                Some(_) => report(&link, &capabilities, volume.as_ref(), &system).await,
-                None => awake.set(false),
-            },
+            () = daemon.closed() => anyhow::bail!("andromeda-linkd closed the connection"),
             _ = terminate.recv() => return Ok(()),
             _ = tokio::signal::ctrl_c() => return Ok(()),
         }

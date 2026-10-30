@@ -51,9 +51,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -92,14 +89,11 @@ import org.andromeda.link.onboarding.Grant
 import org.andromeda.link.ui.components.Glyph
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.LinkIcons
-import org.andromeda.link.ui.components.Node
 import org.andromeda.link.ui.components.PillButton
 import org.andromeda.link.ui.components.PullRefresh
 import org.andromeda.link.ui.components.Readout
 import org.andromeda.link.ui.components.Screen
-import org.andromeda.link.ui.components.TetherRow
-import org.andromeda.link.ui.components.Wire
-import org.andromeda.link.ui.components.rememberWireMotion
+import org.andromeda.link.ui.components.Section
 import org.andromeda.link.ui.text
 import org.andromeda.link.ui.theme.LinkTheme
 import org.andromeda.link.ui.theme.Radius
@@ -180,34 +174,32 @@ fun HomeScreen(
                     EmptyLine(onPair)
                     return@Column
                 }
-                val wire = primary.wire(state.refreshing)
-                val motion = rememberWireMotion(state.activeTransfers > 0)
                 val desk = state.desk
                 val player = desk.player(primary.id)?.takeIf { primary.connected }
                 val clipboardSetup = primary.sharing.clipboard && !autoClipboard
                 val alert = missing.isNotEmpty() || clipboardSetup
-                TetherRow(wire, motion, Node.Desktop, first = true, nodeAt = 20.dp) {
+                Section {
                     HomeHeader(primary, state, { viewModel.connect(primary) }) { onDesktop(primary) }
                     if (state.desktops.size > 1) DesktopSwitcher(state.desktops, primary, viewModel::selectDesktop)
                 }
                 if (player != null) {
-                    TetherRow(wire, motion, Node.Dot, nodeAt = 44.dp) {
+                    Section {
                         PlayerCard(player, onOpen = onMedia) { command, value -> viewModel.media(player, command, value) }
                     }
                 }
-                TetherRow(wire, motion, Node.None) {
+                Section {
                     Controls(primary, state, viewModel, onDesktop, onRemote, onPresenter) {
                         viewModel.sendClipboard(primary, context.getSystemService(ClipboardManager::class.java).primaryClip)
                     }
                 }
-                TetherRow(wire, motion, Node.Ring, nodeAt = 20.dp) {
+                Section {
                     if (primary.sharing.files) {
                         SendTray(primary, pick, picker, send)
                     } else {
                         Label(stringResource(R.string.home_files_disabled), LinkTheme.type.titleMedium)
                     }
                 }
-                TetherRow(wire, motion, Node.Ring, nodeAt = 20.dp, last = !alert) {
+                Section {
                     RecentList(primary, state)
                     Row(Modifier.padding(top = Space.s4)) {
                         Spacer(Modifier.weight(1f))
@@ -220,7 +212,7 @@ fun HomeScreen(
                     }
                 }
                 if (alert) {
-                    TetherRow(wire, motion, Node.Alert, last = true, nodeAt = 20.dp) {
+                    Section {
                         if (missing.isNotEmpty()) {
                             MissingLine(missing, onSetup)
                         } else {
@@ -234,19 +226,10 @@ fun HomeScreen(
     }
 }
 
-internal fun Desktop.wire(reaching: Boolean): Wire =
-    when {
-        connected && bluetooth -> Wire.Bluetooth
-        connected -> Wire.WiFi
-        reaching -> Wire.Searching
-        else -> Wire.Down
-    }
-
-/** Nothing paired: the line hangs from the phone toward an empty, dashed desktop, and scanning closes it. */
+/** Nothing paired: an empty desktop, the scan action, and this phone. */
 @Composable
 private fun EmptyLine(onPair: () -> Unit) {
-    val motion = rememberWireMotion(false)
-    TetherRow(Wire.Searching, motion, Node.Empty, first = true, nodeAt = 30.dp) {
+    Section {
         Readout(stringResource(R.string.empty_desktop), LinkTheme.colors.textTertiary)
         Label(stringResource(R.string.empty_scan_title), LinkTheme.type.hero, modifier = Modifier.padding(top = Space.s8))
         Label(
@@ -258,8 +241,7 @@ private fun EmptyLine(onPair: () -> Unit) {
         PillButton(stringResource(R.string.scan_action), onPair, Modifier.padding(top = Space.s24).fillMaxWidth())
         Spacer(Modifier.height(Space.s48))
     }
-    TetherRow(Wire.Searching, motion, Node.Phone, last = true, nodeAt = 30.dp) {
-        Readout(stringResource(R.string.readout_searching), LinkTheme.colors.textTertiary)
+    Section {
         Label(stringResource(R.string.home_this_phone), LinkTheme.type.headlineLarge, modifier = Modifier.padding(top = Space.s4))
         Label(stringResource(R.string.home_private_hint), LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
     }
@@ -891,19 +873,12 @@ private fun RecentList(
         Label(stringResource(R.string.home_recent_empty), LinkTheme.type.bodyMedium, colors.textSecondary, Modifier.padding(top = Space.s8))
         return
     }
-    // The branches take the wire's colour: accent while connected, tertiary while the line is down.
-    val branch = (if (desktop.connected) colors.accent else colors.textTertiary).copy(alpha = 0.55f)
     val now = System.currentTimeMillis()
     recent.forEach { item ->
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(top = Space.s12)
-                .drawBehind {
-                    // From the wire, 32 dp left of the content's start, to just before the text.
-                    val y = 10.dp.toPx()
-                    drawLine(branch, Offset(-BRANCH_FROM.toPx(), y), Offset(-Space.s8.toPx(), y), 2.dp.toPx(), StrokeCap.Round)
-                },
+                .padding(top = Space.s12),
             horizontalArrangement = Arrangement.spacedBy(Space.s12),
         ) {
             Column(Modifier.weight(1f)) {
@@ -980,5 +955,4 @@ private const val RECENT_ITEMS = 3
 private val LIVE_STATUSES = setOf("offered", "transferring", "done")
 private const val LOW_BATTERY = 15
 private const val DISABLED = 0.45f
-private val BRANCH_FROM = 32.dp
 private const val RECENT = 12

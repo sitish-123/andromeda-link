@@ -43,14 +43,12 @@ import org.andromeda.link.ui.components.DashboardCard
 import org.andromeda.link.ui.components.Glyph
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.LinkIcons
-import org.andromeda.link.ui.components.Node
 import org.andromeda.link.ui.components.PaperHeading
 import org.andromeda.link.ui.components.PaperRow
 import org.andromeda.link.ui.components.PillButton
 import org.andromeda.link.ui.components.PillKind
 import org.andromeda.link.ui.components.Screen
-import org.andromeda.link.ui.components.TetherRow
-import org.andromeda.link.ui.components.rememberWireMotion
+import org.andromeda.link.ui.components.Section
 import org.andromeda.link.ui.text
 import org.andromeda.link.ui.theme.LinkTheme
 import org.andromeda.link.ui.theme.Radius
@@ -82,10 +80,8 @@ fun DeviceScreen(
         toast = state.failure?.text(resources),
         onToastShown = viewModel::failureShown,
     ) {
-        val wire = desktop.wire(state.busy)
-        val motion = rememberWireMotion(false)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            TetherRow(wire, motion, Node.Desktop, first = true, nodeAt = 20.dp) {
+            Section {
                 val via =
                     when {
                         desktop.connected && desktop.bluetooth -> stringResource(R.string.home_via_bluetooth)
@@ -103,7 +99,7 @@ fun DeviceScreen(
                     )
                 }
             }
-            TetherRow(wire, motion, Node.Ring, nodeAt = 40.dp) {
+            Section {
                 PaperHeading(stringResource(R.string.device_phone_grants, desktop.name))
                 val sharing = desktop.sharing
                 listOf(
@@ -159,7 +155,7 @@ fun DeviceScreen(
                     }
                 }
             }
-            TetherRow(wire, motion, Node.Ring, nodeAt = 40.dp) {
+            Section {
                 PaperHeading(stringResource(R.string.device_desktop_grants, desktop.name))
                 val allowed = state.capabilities?.contains(CAN_CONTROL) == true
                 PaperRow(
@@ -208,7 +204,7 @@ fun DeviceScreen(
                 )
             }
             if (desktop.control && state.commands.isNotEmpty()) {
-                TetherRow(wire, motion, Node.Ring, nodeAt = 40.dp) {
+                Section {
                     PaperHeading(stringResource(R.string.device_run_on, desktop.name))
                     FlowRow(
                         Modifier.padding(top = Space.s8),
@@ -221,7 +217,7 @@ fun DeviceScreen(
                     }
                 }
             }
-            TetherRow(wire, motion, Node.Ring, last = true, nodeAt = 30.dp) {
+            Section {
                 Label(
                     stringResource(R.string.device_unpair, desktop.name),
                     LinkTheme.type.titleMedium,

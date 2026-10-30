@@ -223,10 +223,9 @@
     <string name="setup_banner">A few permissions are missing</string>
     <string name="setup_banner_action">Fix</string>
     <string name="home_this_phone">This phone</string>
-    <string name="readout_searching">Reaching…</string>
-    <string name="empty_desktop">No desktop on the line</string>
+    <string name="empty_desktop">No desktop paired</string>
     <string name="empty_scan_title">Scan your desktop</string>
-    <string name="empty_scan_body">On the desktop, open Devices and choose Pair a phone. A QR code appears; point this phone at it.</string>
+    <string name="empty_scan_body">On the desktop, open Link and choose Pair a phone. A QR code appears; point this phone at it.</string>
     <string name="scan_action">Scan QR code</string>
     <string name="scan_code_instead">Type the 6-digit code instead</string>
     <string name="scan_hint">Point at the QR code in your desktop\'s Devices panel</string>

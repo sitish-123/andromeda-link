@@ -1,0 +1,16 @@
+# Puts the Link widget on the home screen through the Pixel launcher's widget picker: search, tap the preview, Add.
+appId: com.google.android.apps.nexuslauncher
+---
+- pressKey: Home
+- waitForAnimationToEnd
+- longPressOn:
+    point: "50%,45%"
+- tapOn: "Widgets"
+- tapOn:
+    id: ".*widgets_search_bar_edit_text"
+- inputText: "Andromeda"
+- tapOn: "Andromeda Link"
+- tapOn: "Battery, the player, and Lock, Sleep, Ring, and Send clipboard"
+- tapOn: "Add"
+- waitForAnimationToEnd
+- pressKey: Home

@@ -2,7 +2,7 @@
 # Screenshots of every screen of the Android app, in the light and the dark theme, on the emulator against a private
 # andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME) and a desktop MPRIS test player: Home empty, offline, and paired (scrolled,
 # and with a photo picked), the picker's Photos, Videos, and Files tabs, code entry, the QR link confirmation and its working orb, the desktop's page, the
-# per-app filter, Media, and the five onboarding pages. Proves the screens render and are reachable by their labels;
+# per-app filter, Media, the five onboarding pages, and the home screen widget (<theme>-widget, <theme>-widget-offline). Proves the screens render and are reachable by their labels;
 # the images are the artifact to judge them by. Writes <theme>-<screen>.png, results.json, linkd.log, maestro.log to
 # $OUT (default ./artifacts/link-android-ui). Run under flock /tmp/link-emulator.lock.
 set -euo pipefail
@@ -88,6 +88,9 @@ pair() {
   adb shell am start -W -a android.intent.action.VIEW -d "'$uri'" "$PACKAGE" > /dev/null
   maestro -e THEME="$1" "$FLOWS/ui-pair-link.yaml"
 }
+# The name the desktop reports: no hostnamed on the private bus, so the kernel hostname.
+DESKTOP=$(cat /proc/sys/kernel/hostname)
+widget() { maestro -e THEME="$mode" -e SHOT="$1" -e DESKTOP="$DESKTOP" -e WAIT="$2" "$FLOWS/widget-shot.yaml"; }
 
 for mode in light dark; do
   theme "$([[ $mode == dark ]] && echo yes || echo no)"
@@ -113,12 +116,18 @@ kind = lambda v: dbus.Boolean(v) if isinstance(v, bool) else dbus.UInt32(v)
 link.SetDesktopStatus(dbus.Dictionary({k: kind(v) for k, v in json.loads(sys.argv[2]).items()}, signature="sv"))
 time.sleep(3600)' "$CAN" "$STATUS" &
   SESSION=$!
+  if ! adb shell dumpsys appwidget | grep -q "provider=.*$PACKAGE/.*widget.DesktopWidgetProvider"; then
+    maestro "$FLOWS/widget-add.yaml"
+    adb shell dumpsys appwidget | grep -q "provider=.*$PACKAGE/.*widget.DesktopWidgetProvider" || fail "the widget is not on the home screen"
+  fi
   maestro -e THEME="$mode" "$FLOWS/ui-paired.yaml"
+  widget widget "$([[ $mode == light ]] && echo 82% || echo 14%)"
   kill "$SESSION"
   # The desktop goes away with the phone still paired: Home shows when it was last seen. Then it comes back.
   kill "$LINKD"
   wait "$LINKD" 2> /dev/null || true
   maestro -e THEME="$mode" "$FLOWS/ui-offline.yaml"
+  widget widget-offline "Last seen .*"
   sessions=$(grep -c "connected over" "$OUT/linkd.log")
   start_linkd
   for _ in $(seq 600); do (( $(grep -c "connected over" "$OUT/linkd.log") > sessions )) && break; sleep 0.1; done

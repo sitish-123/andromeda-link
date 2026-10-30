@@ -39,6 +39,7 @@ import org.andromeda.link.presence.StatusReporter
 import org.andromeda.link.ring.Ringer
 import org.andromeda.link.screen.ScreenMirror
 import org.andromeda.link.transfer.TransferService
+import org.andromeda.link.widget.DesktopWidget
 import java.io.File
 
 class LinkApplication : Application() {
@@ -69,6 +70,7 @@ class AppContainer(
     private val status = StatusReporter(application, repository, scope, mirror.accessOff, phoneControl.controls)
     val media = PhoneMedia(application, repository, scope)
     private val desktopMedia = DesktopMedia(application, repository, scope)
+    private val widget = DesktopWidget(application, repository, scope)
     val ringer = Ringer(application, repository, scope)
     val screen = ScreenMirror(application, repository, scope)
     val calls = Calls(application, repository, scope)
@@ -87,6 +89,7 @@ class AppContainer(
         mirror.start()
         media.start()
         desktopMedia.start()
+        widget.start()
         scope.launch { repository.setMessages(Messaging(contacts, texts)) }
         ringer.start()
         screen.start()

@@ -1,0 +1,12 @@
+# The Link widget on the home screen in ${THEME}, once it shows ${DESKTOP} and ${WAIT}.
+appId: com.google.android.apps.nexuslauncher
+---
+- pressKey: Home
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "${DESKTOP}"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "${WAIT}"
+    timeout: 30000
+- takeScreenshot: ${OUT}/${THEME}-${SHOT}

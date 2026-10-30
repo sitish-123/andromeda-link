@@ -57,7 +57,10 @@ class PhoneCallLog(
 
     /** Places a call to [number] as the phone's own dialer would, without opening an activity. */
     fun dial(number: String): TextOutcome {
-        if (!granted(Manifest.permission.CALL_PHONE)) return TextOutcome.DENIED
+        // Inline, so lint sees the check before placeCall.
+        if (context.checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            return TextOutcome.DENIED
+        }
         val telecom = context.getSystemService(TelecomManager::class.java) ?: return TextOutcome.FAILED
         return runCatching { telecom.placeCall(Uri.fromParts("tel", number, null), Bundle()) }
             .fold({ TextOutcome.SENT }, { if (it is SecurityException) TextOutcome.DENIED else TextOutcome.FAILED })

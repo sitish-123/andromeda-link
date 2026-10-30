@@ -421,6 +421,16 @@ impl Link {
         self.snapshots.borrow().devices.clone()
     }
 
+    /// Device id to `last_seen` (unix seconds) and `transport` (wifi, bluetooth, or empty when not connected).
+    #[zbus(property)]
+    fn device_info(&self) -> HashMap<String, HashMap<String, zbus::Variant<'static>>> {
+        let info = self.snapshots.borrow();
+        let fields = |seen: i64, transport: &'static str| {
+            HashMap::from([("last_seen".to_owned(), seen.into()), ("transport".to_owned(), transport.into())])
+        };
+        info.info.iter().map(|(id, seen, transport)| (id.clone(), fields(*seen, transport))).collect()
+    }
+
     #[zbus(property)]
     fn pairing(&self) -> bool {
         self.snapshots.borrow().pairing
@@ -780,6 +790,9 @@ pub async fn forward(
                 let next = snapshots.borrow_and_update().clone();
                 if next.devices != last.devices {
                     link.get().await.devices_changed(emitter).await?;
+                }
+                if next.info != last.info {
+                    link.get().await.device_info_changed(emitter).await?;
                 }
                 if next.pairing != last.pairing {
                     link.get().await.pairing_changed(emitter).await?;

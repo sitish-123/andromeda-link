@@ -61,6 +61,8 @@ pub struct Attempt {
 pub struct Snapshot {
     /// `(device_id, name, connected)`, the D-Bus `Devices` property.
     pub devices: Vec<(String, String, bool)>,
+    /// `(device_id, last_seen, transport)`, the D-Bus `DeviceInfo` property; transport is wifi, bluetooth, or empty.
+    pub info: Vec<(String, i64, &'static str)>,
     pub pairing: bool,
     /// Devices whose file offers are accepted without asking, the D-Bus `AutoAccept` property.
     pub auto_accept: Vec<String>,
@@ -1403,6 +1405,18 @@ impl Hub {
             .iter()
             .map(|peer| (peer.id.to_string(), peer.name.clone(), self.sessions.contains_key(&peer.id)))
             .collect();
+        let info = self
+            .store
+            .peers
+            .iter()
+            .map(|peer| {
+                let transport = self
+                    .sessions
+                    .get(&peer.id)
+                    .map_or("", |session| if session.connection().quic().is_some() { "wifi" } else { "bluetooth" });
+                (peer.id.to_string(), i64::try_from(peer.last_seen).unwrap_or(0), transport)
+            })
+            .collect();
         let auto_accept =
             self.store.peers.iter().filter(|peer| peer.auto_accept).map(|peer| peer.id.to_string()).collect();
         let grants = self.store.peers.iter().map(|peer| (peer.id.to_string(), peer.grants.names())).collect();
@@ -1439,6 +1453,7 @@ impl Hub {
             let capabilities = self.capabilities().to_vec();
             let next = Snapshot {
                 devices,
+                info,
                 pairing,
                 auto_accept,
                 grants,

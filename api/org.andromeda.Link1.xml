@@ -143,6 +143,9 @@
     <property name="Nearby" type="a(ss)" access="read"/>
     <!-- (device_id, name, connected) -->
     <property name="Devices" type="a(ssb)" access="read"/>
+    <!-- Paired device id to its info: last_seen (x) is unix seconds of its last session, and transport (s) is wifi
+         or bluetooth while connected, else empty. -->
+    <property name="DeviceInfo" type="a{sa{sv}}" access="read"/>
     <!-- Devices whose offers are accepted without asking. -->
     <property name="AutoAccept" type="as" access="read"/>
     <!-- Connected device id to (battery percent, charging, network, signal); network is wifi, cellular, ethernet,

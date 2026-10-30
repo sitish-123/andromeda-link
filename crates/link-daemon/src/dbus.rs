@@ -13,7 +13,7 @@ use link_core::proto::message::{
     CallAction, CallActionKind, DesktopStatus, InputAction, MAX_CAPABILITIES, MAX_CAPABILITY_LEN, MAX_NAME_LEN,
     MAX_NUMBER_LEN, MAX_SHARE_LEN, MAX_TEXT_BODY, Message, MirrorAction, MirrorInput, NotificationAction,
     NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring, Ringing, Share, ShareKind, SystemCommand,
-    SystemCommandKind, TransferId, is_text_mime,
+    SystemCommandKind, TransferId, dialable, is_text_mime,
 };
 use link_core::store::StoredCommand;
 use link_core::transfer::{ClipBytes, LocalClip, Source};
@@ -508,6 +508,34 @@ impl Link {
         })
     }
 
+    /// Device id to its newest calls `(number, name or "", date in Unix ms, duration in s, kind)`, newest first, kind
+    /// "incoming", "outgoing", or "missed"; from phones whose calls switch is on.
+    #[zbus(property)]
+    fn calls(&self) -> HashMap<String, crate::messages::Calls> {
+        self.snapshots.borrow().calls.iter().cloned().collect()
+    }
+
+    /// Device id to why its phone refused the call log: "not-allowed" (its calls switch is off), "denied" (Android
+    /// does not let Link read it), or "failed".
+    #[zbus(property)]
+    fn calls_refused(&self) -> HashMap<String, String> {
+        self.snapshots.borrow().calls_refused.iter().cloned().collect()
+    }
+
+    /// Places a call on a connected phone whose calls switch is on; its audio stays on the phone. Returns once
+    /// Android took the call.
+    async fn dial(&self, device_id: String, number: String) -> Result<(), LinkError> {
+        if !dialable(&number) {
+            return Err(LinkError::Rejected("not a number a phone can dial".to_owned()));
+        }
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        self.hub.dial(id, number).await.map_err(|failure| match failure {
+            SendFailure::Refused(reason) => LinkError::Refused(reason.as_str().to_owned()),
+            SendFailure::NotConnected => LinkError::NotConnected(format!("{device_id} is not connected")),
+            SendFailure::TimedOut => LinkError::Failed("the phone did not place the call in time".to_owned()),
+        })
+    }
+
     /// The desktop is joining the phone's hotspot `ssid` to move work off Bluetooth, and leaves its own Wi-Fi for it;
     /// an empty `ssid` means it left, or the join failed.
     #[zbus(signal)]
@@ -779,6 +807,7 @@ pub async fn serve(
 }
 
 /// Turns hub snapshots into `PropertiesChanged` and hub events into signals.
+#[expect(clippy::too_many_lines, reason = "one arm per event")]
 pub async fn forward(
     bus: &zbus::Connection,
     mut snapshots: watch::Receiver<Snapshot>,
@@ -831,6 +860,12 @@ pub async fn forward(
                 }
                 if next.texts != last.texts {
                     link.get().await.texts_changed(emitter).await?;
+                }
+                if next.calls != last.calls {
+                    link.get().await.calls_changed(emitter).await?;
+                }
+                if next.calls_refused != last.calls_refused {
+                    link.get().await.calls_refused_changed(emitter).await?;
                 }
                 if next.commands != last.commands {
                     link.get().await.commands_changed(emitter).await?;

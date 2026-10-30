@@ -10,8 +10,8 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE,
-    FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
+    CALLS, CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus,
+    FEATURE, FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
     NotificationPosted, NotificationPull, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status,
     SystemCommand, SystemCommandKind, SystemResult, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect,
     WifiDirectReady,
@@ -84,6 +84,10 @@ pub struct Snapshot {
     pub contacts: Vec<(String, crate::messages::Contacts)>,
     /// Device id to its newest texts, the D-Bus `Texts` property.
     pub texts: Vec<(String, crate::messages::Texts)>,
+    /// Device id to its newest calls, the D-Bus `Calls` property.
+    pub calls: Vec<(String, crate::messages::Calls)>,
+    /// Device id to why its phone refused the call log, the D-Bus `CallsRefused` property.
+    pub calls_refused: Vec<(String, String)>,
     /// `(name, command)`, the D-Bus `Commands` property.
     pub commands: Vec<(String, String)>,
     /// What `link-session` can do now, the D-Bus `SessionCapabilities` property.
@@ -211,6 +215,7 @@ enum Command {
     DesktopPlayerGone { player: String },
     Browse { id: DeviceId, request: browse::Request, reply: browse::Reply },
     SendText { id: DeviceId, to: String, body: String, reply: crate::messages::SendReply },
+    Dial { id: DeviceId, number: String, reply: crate::messages::SendReply },
     OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
     SetCommands { commands: Vec<StoredCommand>, reply: oneshot::Sender<bool> },
     SetCapabilities { owner: String, can: Vec<String> },
@@ -443,6 +448,7 @@ impl Hub {
             Command::Connected { id, hello, session } => self.connected(id, hello, session).await,
             Command::Disconnected { id, stable_id } => self.disconnected(id, stable_id).await,
             Command::SendText { id, to, body, reply } => self.send_text(id, to, body, reply).await,
+            Command::Dial { id, number, reply } => self.dial(id, number, reply).await,
             Command::Browse { id, request, reply } => self.browse(id, request, reply).await,
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
             Command::SetCommands { commands, reply } => drop(reply.send(self.set_commands(commands).await)),
@@ -631,6 +637,15 @@ impl Hub {
                 self.messages_changed(from, changed).await;
             }
             SessionEvent::Message { from, message: Message::TextSent(sent) } => self.messages.on_sent(&from, &sent),
+            SessionEvent::Message { from, message: Message::Calls(page) } => {
+                let changed = self.messages.on_calls(&from, page);
+                self.messages_changed(from, changed).await;
+            }
+            SessionEvent::Message { from, message: Message::Dialed(dialed) } => self.messages.on_dialed(&from, &dialed),
+            SessionEvent::Message { from, message: Message::CallsChanged } if self.phone_has(&from, CALLS) => {
+                let pull = self.messages.pull_calls(from.clone());
+                self.send_to(&from, pull).await;
+            }
             SessionEvent::Message { from, message: Message::ContactsChanged } if self.phone_has(&from, MESSAGES) => {
                 let pull = self.messages.pull_contacts(from.clone());
                 self.send_to(&from, pull).await;
@@ -882,6 +897,10 @@ impl Hub {
             let texts = self.messages.pull_texts(id.clone());
             self.send_to(&id, texts).await;
         }
+        if self.phone_has(&id, CALLS) {
+            let calls = self.messages.pull_calls(id.clone());
+            self.send_to(&id, calls).await;
+        }
         self.send_commands(&id).await;
         self.send_capabilities(&id).await;
         self.send_desktop_status(&id).await;
@@ -928,6 +947,17 @@ impl Hub {
             return;
         };
         let (req, message) = self.messages.send_text(id, to, body, reply);
+        if session.send(message).await.is_err() {
+            self.messages.answer_send(req, Some(crate::messages::SendFailure::NotConnected));
+        }
+    }
+
+    async fn dial(&mut self, id: DeviceId, number: String, reply: crate::messages::SendReply) {
+        let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
+            let _ = reply.send(Err(crate::messages::SendFailure::NotConnected));
+            return;
+        };
+        let (req, message) = self.messages.dial(id, number, reply);
         if session.send(message).await.is_err() {
             self.messages.answer_send(req, Some(crate::messages::SendFailure::NotConnected));
         }
@@ -1457,6 +1487,7 @@ impl Hub {
         self.snapshots.send_if_modified(|current| {
             let localsend = self.store.localsend;
             let (contacts, texts) = (self.messages.contacts(), self.messages.texts());
+            let (calls, calls_refused) = (self.messages.calls(), self.messages.calls_refused());
             let commands =
                 self.store.commands.iter().map(|stored| (stored.name.clone(), stored.command.clone())).collect();
             let pairing = self.window.is_some();
@@ -1475,6 +1506,8 @@ impl Hub {
                 localsend,
                 contacts,
                 texts,
+                calls,
+                calls_refused,
                 commands,
                 capabilities,
             };
@@ -1587,6 +1620,15 @@ impl HubHandle {
     pub async fn send_text(&self, id: DeviceId, to: String, body: String) -> Result<(), crate::messages::SendFailure> {
         let (reply, answer) = oneshot::channel();
         if self.commands.send(Command::SendText { id, to, body, reply }).await.is_err() {
+            return Err(crate::messages::SendFailure::NotConnected);
+        }
+        answer.await.unwrap_or(Err(crate::messages::SendFailure::NotConnected))
+    }
+
+    /// Places a call on the phone; answered once Android took it, or with why not.
+    pub async fn dial(&self, id: DeviceId, number: String) -> Result<(), crate::messages::SendFailure> {
+        let (reply, answer) = oneshot::channel();
+        if self.commands.send(Command::Dial { id, number, reply }).await.is_err() {
             return Err(crate::messages::SendFailure::NotConnected);
         }
         answer.await.unwrap_or(Err(crate::messages::SendFailure::NotConnected))

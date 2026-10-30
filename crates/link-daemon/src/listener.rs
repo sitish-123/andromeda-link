@@ -8,7 +8,7 @@ use link_core::identity::Spki;
 use link_core::pairing::pair_as_server;
 use link_core::proto::message::Hello;
 use link_core::proto::message::{
-    BLUETOOTH_SCHEME, BT_PAIRING, CAPABILITIES, CLIP_ITEMS, CONTROL, MESSAGES, NOTIFICATION_SYNC, STATUS_SIGNAL,
+    BLUETOOTH_SCHEME, BT_PAIRING, CALLS, CAPABILITIES, CLIP_ITEMS, CONTROL, MESSAGES, NOTIFICATION_SYNC, STATUS_SIGNAL,
     SYSTEM, SYSTEM_CONTROL,
 };
 use link_core::proto::session::Role;
@@ -180,8 +180,18 @@ impl Context {
             addresses.push(BT_PAIRING.to_owned());
         }
         addresses.extend(
-            [STATUS_SIGNAL, MESSAGES, CONTROL, CAPABILITIES, SYSTEM, SYSTEM_CONTROL, NOTIFICATION_SYNC, CLIP_ITEMS]
-                .map(str::to_owned),
+            [
+                STATUS_SIGNAL,
+                MESSAGES,
+                CALLS,
+                CONTROL,
+                CAPABILITIES,
+                SYSTEM,
+                SYSTEM_CONTROL,
+                NOTIFICATION_SYNC,
+                CLIP_ITEMS,
+            ]
+            .map(str::to_owned),
         );
         Hello { version: VERSION, name: self.name.clone(), addresses }
     }

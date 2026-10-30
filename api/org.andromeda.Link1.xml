@@ -371,6 +371,18 @@
       <arg name="to" type="s" direction="in"/>
       <arg name="body" type="s" direction="in"/>
     </method>
+    <!-- Device id to its newest calls (number, name or "", date in Unix ms, duration in s, kind), newest first; kind
+         is incoming, outgoing, or missed. From phones whose calls switch is on. -->
+    <property name="Calls" type="a{sa(sstus)}" access="read"/>
+    <!-- Device id to why its phone refused the call log: not-allowed (its calls switch is off), denied (Android does
+         not let Link read it), or failed. -->
+    <property name="CallsRefused" type="a{ss}" access="read"/>
+    <!-- Places a call on a connected phone whose calls switch is on; the audio stays on the phone. Returns once
+         Android took the call. number holds only 0-9, +, *, and #. Errors as SendText. -->
+    <method name="Dial">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="number" type="s" direction="in"/>
+    </method>
   </interface>
   <!-- Quick Share with nearby Android devices, on the same object. Hidden until Visible is set; every offer waits for
        Accept or Decline (60 s, then declined). -->

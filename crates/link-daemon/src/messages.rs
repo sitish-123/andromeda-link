@@ -1,13 +1,14 @@
-//! The desktop side of a phone's contacts and texts: kept per phone, asked for page by page when it connects and
-//! whenever it says they changed, and texts sent through it. A phone that refuses (its messages switch is off, or
-//! Android denies it) has none here.
+//! The desktop side of a phone's contacts, texts, and call log: kept per phone, asked for page by page when it connects
+//! and whenever it says they changed, and texts sent and calls placed through it. A phone that refuses (its messages
+//! or calls switch is off, or Android denies it) has none here; for calls, its reason is kept.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    self, Contact, ContactsList, Message, MessagesRefusal, Text, TextSend, TextSent, TextsList,
+    self, CallsList, Contact, ContactsList, Dial, Dialed, LoggedCall, Message, MessagesRefusal, Text, TextSend,
+    TextSent, TextsList,
 };
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -20,11 +21,15 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(75);
 const MAX_CONTACTS: usize = 16 * 1024;
 /// The newest texts kept per phone.
 const MAX_TEXTS: usize = 256;
+/// The newest calls kept per phone.
+const MAX_CALLS: usize = 256;
 
 /// Contacts as `(name, numbers)`.
 pub type Contacts = Vec<(String, Vec<String>)>;
 /// Texts as `(id, thread, address, body, date in Unix ms, sent)`, newest first.
 pub type Texts = Vec<(u64, u64, String, String, u64, bool)>;
+/// Calls as `(number, name or "", date in Unix ms, duration in s, kind)`, newest first.
+pub type Calls = Vec<(String, String, u64, u32, String)>;
 
 pub type SendReply = oneshot::Sender<Result<(), SendFailure>>;
 
@@ -38,6 +43,7 @@ pub enum SendFailure {
 enum Gathered {
     Contacts(Vec<Contact>),
     Texts(Vec<Text>),
+    Calls(Vec<LoggedCall>),
 }
 
 struct Pull {
@@ -70,6 +76,7 @@ pub struct Messages {
     sends: HashMap<u64, Sending>,
     contacts: HashMap<DeviceId, Vec<Contact>>,
     texts: HashMap<DeviceId, Vec<Text>>,
+    calls: HashMap<DeviceId, Result<Vec<LoggedCall>, MessagesRefusal>>,
 }
 
 impl Messages {
@@ -83,6 +90,12 @@ impl Messages {
     pub fn pull_texts(&mut self, device: DeviceId) -> Message {
         let req = self.start(device, Gathered::Texts(Vec::new()));
         Message::TextsList(TextsList { req, cursor: None })
+    }
+
+    /// The request that starts pulling `device`'s newest calls.
+    pub fn pull_calls(&mut self, device: DeviceId) -> Message {
+        let req = self.start(device, Gathered::Calls(Vec::new()));
+        Message::CallsList(CallsList { req, cursor: None })
     }
 
     /// Registers a pull, replacing one of the same kind from `device`.
@@ -153,6 +166,46 @@ impl Messages {
         Changed { publish, received, ..Changed::default() }
     }
 
+    pub fn on_calls(&mut self, from: &DeviceId, page: message::Calls) -> Changed {
+        let Some(pull) = self.pulls.get_mut(&page.req).filter(|pull| pull.device == *from) else {
+            return Changed::default();
+        };
+        let Gathered::Calls(gathered) = &mut pull.gathered else { return Changed::default() };
+        if let Some(reason) = page.refused {
+            log::info!("{from}: calls refused: {}", reason.as_str());
+            self.pulls.remove(&page.req);
+            let publish = self.calls.insert(from.clone(), Err(reason)) != Some(Err(reason));
+            return Changed { publish, ..Changed::default() };
+        }
+        gathered.extend(page.calls);
+        gathered.truncate(MAX_CALLS);
+        pull.deadline = Instant::now() + PAGE_TIMEOUT;
+        if let Some(cursor) = page.next.filter(|_| gathered.len() < MAX_CALLS) {
+            let next = Message::CallsList(CallsList { req: page.req, cursor: Some(cursor) });
+            return Changed { next: Some(next), ..Changed::default() };
+        }
+        let Some(Pull { gathered: Gathered::Calls(gathered), .. }) = self.pulls.remove(&page.req) else {
+            return Changed::default();
+        };
+        let gathered = Ok(gathered);
+        let publish = self.calls.get(from) != Some(&gathered);
+        self.calls.insert(from.clone(), gathered);
+        Changed { publish, ..Changed::default() }
+    }
+
+    /// Registers a call to place through `device` and returns the message that asks it; answered like a text.
+    pub fn dial(&mut self, device: DeviceId, number: String, reply: SendReply) -> (u64, Message) {
+        self.next += 1;
+        self.sends.insert(self.next, Sending { device, reply, deadline: Instant::now() + SEND_TIMEOUT });
+        (self.next, Message::Dial(Dial { req: self.next, number }))
+    }
+
+    pub fn on_dialed(&mut self, from: &DeviceId, dialed: &Dialed) {
+        if self.sends.get(&dialed.req).is_some_and(|sending| sending.device == *from) {
+            self.answer_send(dialed.req, dialed.refused.map(SendFailure::Refused));
+        }
+    }
+
     /// Registers a text to send through `device` and returns the message that asks it.
     pub fn send_text(&mut self, device: DeviceId, to: String, body: String, reply: SendReply) -> (u64, Message) {
         self.next += 1;
@@ -204,6 +257,38 @@ impl Messages {
         all
     }
 
+    /// Device id to its newest calls, the D-Bus `Calls` property.
+    pub fn calls(&self) -> Vec<(String, Calls)> {
+        let mut all: Vec<_> = self
+            .calls
+            .iter()
+            .filter_map(|(id, calls)| Some((id, calls.as_ref().ok()?)))
+            .map(|(id, calls)| {
+                let list = calls
+                    .iter()
+                    .map(|call| {
+                        let name = call.name.clone().unwrap_or_default();
+                        (call.number.clone(), name, call.date, call.duration, call.kind.as_str().to_owned())
+                    })
+                    .collect();
+                (id.to_string(), list)
+            })
+            .collect();
+        all.sort();
+        all
+    }
+
+    /// Device id to why its phone refused the call log, the D-Bus `CallsRefused` property.
+    pub fn calls_refused(&self) -> Vec<(String, String)> {
+        let mut all: Vec<_> = self
+            .calls
+            .iter()
+            .filter_map(|(id, calls)| Some((id.to_string(), calls.as_ref().err()?.as_str().to_owned())))
+            .collect();
+        all.sort();
+        all
+    }
+
     /// Fails what waits on `device`'s session; its contacts and texts stay.
     pub fn disconnected(&mut self, device: &DeviceId) {
         let waiting: Vec<u64> =
@@ -218,6 +303,7 @@ impl Messages {
         self.disconnected(device);
         self.contacts.remove(device);
         self.texts.remove(device);
+        self.calls.remove(device);
     }
 
     pub fn deadline(&self) -> Option<Instant> {
@@ -230,7 +316,7 @@ impl Messages {
         self.pulls.retain(|_, pull| {
             let alive = pull.deadline > now;
             if !alive {
-                log::info!("{}: a contacts or texts pull timed out", pull.device);
+                log::info!("{}: a contacts, texts, or calls pull timed out", pull.device);
             }
             alive
         });

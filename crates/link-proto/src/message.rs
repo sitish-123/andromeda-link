@@ -43,6 +43,9 @@ pub const FS_STAT: &str = "feature:fs-stat";
 /// A hello carries this when its side takes the contacts and text message types; older peers close a session on them.
 pub const MESSAGES: &str = "feature:messages";
 
+/// A hello carries this when its side takes the call log and dial types; older peers close a session on them.
+pub const CALLS: &str = "feature:calls";
+
 /// A desktop's hello carries this when it takes `notification-snapshot`, `alert_once`, and `status`'s
 /// `notifications_off`, and answers with `notification-pull`; older desktops close a session on them.
 pub const NOTIFICATION_SYNC: &str = "feature:notification-sync";
@@ -787,6 +790,81 @@ pub struct TextSent {
     pub req: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refused: Option<MessagesRefusal>,
+}
+
+/// Calls per `calls` page, so a page of the longest fits a control frame.
+pub const MAX_CALLS_PAGE: usize = 64;
+
+/// Asks for a page of the phone's call log, newest first; answered by `calls`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallsList {
+    pub req: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallKind {
+    Incoming,
+    Outgoing,
+    Missed,
+}
+
+impl CallKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Incoming => "incoming",
+            Self::Outgoing => "outgoing",
+            Self::Missed => "missed",
+        }
+    }
+}
+
+/// One call of the phone's log; `date` in Unix milliseconds, `duration` in seconds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LoggedCall {
+    pub number: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub date: u64,
+    pub duration: u32,
+    pub kind: CallKind,
+}
+
+/// One page of the call log; `next` is the cursor for the rest. With `refused`, no calls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Calls {
+    pub req: u64,
+    pub calls: Vec<LoggedCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<MessagesRefusal>,
+}
+
+/// Asks the phone to place a call; the audio stays on the phone. Answered by `dialed`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Dial {
+    pub req: u64,
+    pub number: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Dialed {
+    pub req: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<MessagesRefusal>,
+}
+
+/// Digits, `+`, `*` and `#`: what a phone may dial.
+pub fn dialable(number: &str) -> bool {
+    sized(number, 1, MAX_NUMBER_LEN) && number.bytes().all(|b| b.is_ascii_digit() || b"+*#".contains(&b))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1567,6 +1645,12 @@ pub enum Message {
     TextsChanged,
     TextSend(TextSend),
     TextSent(TextSent),
+    CallsList(CallsList),
+    Calls(Calls),
+    /// The phone's call log changed; a desktop that keeps it asks again.
+    CallsChanged,
+    Dial(Dial),
+    Dialed(Dialed),
     RemoteInput(RemoteInput),
     Commands(Commands),
     RunCommand(RunCommand),
@@ -1639,6 +1723,11 @@ impl Message {
             Self::TextsChanged => "texts-changed",
             Self::TextSend(_) => "text-send",
             Self::TextSent(_) => "text-sent",
+            Self::CallsList(_) => "calls-list",
+            Self::Calls(_) => "calls",
+            Self::CallsChanged => "calls-changed",
+            Self::Dial(_) => "dial",
+            Self::Dialed(_) => "dialed",
             Self::RemoteInput(_) => "remote-input",
             Self::Commands(_) => "commands",
             Self::RunCommand(_) => "run-command",
@@ -1660,7 +1749,8 @@ impl Message {
             | Self::MirrorRequest
             | Self::MirrorKeyframe
             | Self::ContactsChanged
-            | Self::TextsChanged => Value::serialized(&Empty {}),
+            | Self::TextsChanged
+            | Self::CallsChanged => Value::serialized(&Empty {}),
             Self::Share(body) => Value::serialized(body),
             Self::ShareAck(body) => Value::serialized(body),
             Self::NotificationPosted(body) => Value::serialized(body),
@@ -1709,6 +1799,10 @@ impl Message {
             Self::Texts(body) => Value::serialized(body),
             Self::TextSend(body) => Value::serialized(body),
             Self::TextSent(body) => Value::serialized(body),
+            Self::CallsList(body) => Value::serialized(body),
+            Self::Calls(body) => Value::serialized(body),
+            Self::Dial(body) => Value::serialized(body),
+            Self::Dialed(body) => Value::serialized(body),
             Self::RemoteInput(body) => Value::serialized(body),
             Self::Commands(body) => Value::serialized(body),
             Self::RunCommand(body) => Value::serialized(body),
@@ -1799,6 +1893,14 @@ impl Message {
             }
             "text-send" => Self::TextSend(body.deserialized()?),
             "text-sent" => Self::TextSent(body.deserialized()?),
+            "calls-list" => Self::CallsList(body.deserialized()?),
+            "calls" => Self::Calls(body.deserialized()?),
+            "calls-changed" => {
+                body.deserialized::<Empty>()?;
+                Self::CallsChanged
+            }
+            "dial" => Self::Dial(body.deserialized()?),
+            "dialed" => Self::Dialed(body.deserialized()?),
             "remote-input" => Self::RemoteInput(body.deserialized()?),
             "commands" => Self::Commands(body.deserialized()?),
             "run-command" => Self::RunCommand(body.deserialized()?),
@@ -1814,6 +1916,7 @@ impl Message {
     }
 
     /// The schema's rules, checked by the receiver while decoding and by senders before sending.
+    #[expect(clippy::too_many_lines, reason = "one arm per message type")]
     pub fn validate(&self) -> Result<(), DecodeError> {
         let valid = match self {
             Self::Hello(hello) => (1..=MAX_NAME_LEN).contains(&hello.name.chars().count()),
@@ -1836,7 +1939,19 @@ impl Message {
             | Self::ContactsChanged
             | Self::TextsList(_)
             | Self::TextsChanged
-            | Self::TextSent(_) => true,
+            | Self::TextSent(_)
+            | Self::CallsList(_)
+            | Self::CallsChanged
+            | Self::Dialed(_) => true,
+            Self::Calls(page) => {
+                page.calls.len() <= MAX_CALLS_PAGE
+                    && (page.refused.is_none() || page.calls.is_empty())
+                    && page.calls.iter().all(|call| {
+                        sized(&call.number, 1, MAX_NUMBER_LEN)
+                            && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
+                    })
+            }
+            Self::Dial(dial) => dialable(&dial.number),
             Self::Call(call) => {
                 call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
                     && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))

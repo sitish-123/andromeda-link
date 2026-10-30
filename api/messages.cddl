@@ -11,6 +11,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg / fs-stat-msg / fs-thumb-msg /
   contacts-list-msg / contacts-msg / contacts-changed-msg /
   texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
+  calls-list-msg / calls-msg / calls-changed-msg / dial-msg / dialed-msg /
   remote-input-msg / commands-msg / run-command-msg / ping-msg / capabilities-msg / desktop-status-msg / system-command-msg / system-result-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
@@ -288,6 +289,28 @@ text = {
 texts-changed-msg = { type: "texts-changed", id: uint, body: {} }
 text-send-msg = { type: "text-send", id: uint, body: { req: uint, to: tstr .size (1..64), body: tstr .size (1..2048) } }
 text-sent-msg = { type: "text-sent", id: uint, body: { req: uint, ? refused: "not-allowed" / "denied" / "failed" } }
+
+; The call log and dialing, both sides with "feature:calls" in their hello, while the phone's calls switch for the
+; desktop is on. The desktop pulls the newest (at most 256) on connect and after calls-changed, which the phone sends when
+; its log or the switch changes. date is in Unix milliseconds, duration in seconds. dial places a call on the phone,
+; whose audio stays there; dialed answers once Android took it, or with why not.
+calls-list-msg = { type: "calls-list", id: uint, body: { req: uint, ? cursor: uint } }
+calls-msg = { type: "calls", id: uint, body: {
+  req: uint,
+  calls: [0*64 logged-call],
+  ? next: uint,
+  ? refused: "not-allowed" / "denied" / "failed",
+} }
+logged-call = {
+  "number": tstr .size (1..64),
+  ? name: tstr .size (1..128),
+  date: uint,
+  duration: uint,
+  kind: "incoming" / "outgoing" / "missed",
+}
+calls-changed-msg = { type: "calls-changed", id: uint, body: {} }
+dial-msg = { type: "dial", id: uint, body: { req: uint, "number": tstr .regexp "[0-9+*#]{1,64}" } }
+dialed-msg = { type: "dialed", id: uint, body: { req: uint, ? refused: "not-allowed" / "denied" / "failed" } }
 
 ; The phone as the desktop's remote, only when both hellos listed "feature:control". Phone to desktop, while the
 ; desktop's input switch for the phone is on: the pointer and keyboard, moves and scrolls in logical pixels. Desktop to

@@ -52,6 +52,8 @@ pub struct Limits {
     mirror_requests: Bucket,
     /// Pings and commands the user runs by hand.
     taps: Bucket,
+    /// Each one sends a datagram to up to [`crate::message::MAX_PUNCH_ADDRESSES`] addresses the phone chose.
+    punches: Bucket,
 }
 
 impl Default for Limits {
@@ -66,6 +68,8 @@ impl Default for Limits {
             inputs: Bucket::new(120, Duration::from_millis(10)),
             mirror_requests: Bucket::new(2, Duration::from_secs(10)),
             taps: Bucket::new(5, Duration::from_secs(2)),
+            // A phone asks every 30 s while on Bluetooth and once per joined hotspot.
+            punches: Bucket::new(3, Duration::from_secs(10)),
         }
     }
 }
@@ -82,6 +86,7 @@ impl Limits {
             Message::MirrorInput(_) | Message::RemoteInput(_) => &mut self.inputs,
             Message::MirrorRequest => &mut self.mirror_requests,
             Message::Ping(_) | Message::RunCommand(_) => &mut self.taps,
+            Message::Punch(_) => &mut self.punches,
             _ => return true,
         };
         bucket.take(now)

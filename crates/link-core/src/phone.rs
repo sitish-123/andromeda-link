@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use link_proto::message::{
-    BT_PAIRING, CALLS, CAPABILITIES, CLIP_ITEMS, CONTROL, FEATURE, FS_STAT, FS_WRITE, Hello, MESSAGES, Message,
+    BT_PAIRING, CALLS, CAMERA, CAPABILITIES, CLIP_ITEMS, CONTROL, FEATURE, FS_STAT, FS_WRITE, Hello, MESSAGES, Message,
     PairMethod, SYSTEM, SYSTEM_CONTROL, WIFI_DIRECT_BY_ADDRESS, bluetooth_address,
 };
 use link_proto::pairing::Secret;
@@ -269,6 +269,7 @@ impl Phone {
             WIFI_DIRECT_BY_ADDRESS,
             FS_STAT,
             FS_WRITE,
+            CAMERA,
             MESSAGES,
             CALLS,
             CONTROL,

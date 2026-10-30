@@ -1,6 +1,7 @@
 //! The Link engine shared by `andromeda-linkd`, the headless phone, and the Android app. See `ARCHITECTURE.md`.
 
 pub mod browse;
+pub mod camera;
 pub mod client;
 pub mod control;
 pub mod discovery;

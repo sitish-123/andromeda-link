@@ -91,6 +91,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::FsEntries(_)
         | Message::FsData(_)
         | Message::FsError(_)
+        | Message::PhotoTaken(_)
         | Message::Contacts(_)
         | Message::ContactsChanged
         | Message::Texts(_)
@@ -118,6 +119,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::FsThumb(_)
         | Message::FsWrite(_)
         | Message::FsDelete(_)
+        | Message::PhotoRequest(_)
         | Message::ContactsList(_)
         | Message::TextsList(_)
         | Message::TextSend(_)

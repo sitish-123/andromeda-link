@@ -10,8 +10,8 @@ use link_proto::CloseCode;
 use link_proto::message::{
     CALLS, CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES,
     MAX_SNAPSHOT, MESSAGES, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
-    NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, Punch, STATUS_SIGNAL,
-    SYSTEM_CONTROL, Share, Status, SystemCommand, SystemResult, TransferId, WifiDirect,
+    NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, PhotoRefusal, Punch,
+    STATUS_SIGNAL, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemResult, TransferId, WifiDirect,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -19,6 +19,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::browse;
+use crate::camera::{self, Camera};
 use crate::hotspot::{self, UPGRADE_TIMEOUT};
 use crate::identity::DeviceId;
 use crate::inbox::Inbox;
@@ -130,6 +131,9 @@ enum Command {
     SetMessages {
         messages: Option<Arc<dyn Messages>>,
     },
+    SetCamera {
+        camera: Option<Arc<dyn Camera>>,
+    },
     /// `contacts-changed` or `texts-changed`, to desktops with the messages switch on.
     MessagesChanged(Message),
     /// Moves `id`'s Bluetooth session to this phone's hotspot; answered once it runs over IP, or with why not.
@@ -212,6 +216,7 @@ pub struct ClientActor {
     /// Browse and contacts requests being answered, at most [`browse::MAX_IN_FLIGHT`].
     browsing: JoinSet<()>,
     messages: Option<Arc<dyn Messages>>,
+    camera: Option<Arc<dyn Camera>>,
     /// The phone's notifications on show, oldest first; None until the app first posts, removes, or syncs.
     notifications: Option<Vec<NotificationPosted>>,
 }
@@ -269,6 +274,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         wifi_direct_started: JoinSet::new(),
         browsing: JoinSet::new(),
         messages: None,
+        camera: None,
         notifications: None,
     };
     (Client { commands: commands_tx, transfers }, actor, events_rx)
@@ -374,6 +380,11 @@ impl Client {
     /// The phone's contacts for desktops with the messages switch on; None while the app has no access.
     pub async fn set_messages(&self, messages: Option<Arc<dyn Messages>>) -> Result<(), Error> {
         self.commands.send(Command::SetMessages { messages }).await.map_err(|_| Error::Stopped)
+    }
+
+    /// The camera desktops with the browse switch on may ask for a photo; None while the app may not use it.
+    pub async fn set_camera(&self, camera: Option<Arc<dyn Camera>>) -> Result<(), Error> {
+        self.commands.send(Command::SetCamera { camera }).await.map_err(|_| Error::Stopped)
     }
 
     /// Tells desktops with the messages switch on to pull the contacts again.
@@ -591,6 +602,7 @@ impl ClientActor {
                 self.messages_changed(None, &[Message::ContactsChanged, Message::TextsChanged, Message::CallsChanged])
                     .await;
             }
+            Command::SetCamera { camera } => self.camera = camera,
             Command::MessagesChanged(changed) => self.messages_changed(None, &[changed]).await,
             Command::Upgrade { id, reply } => {
                 self.upgrades.entry(id.clone()).or_default().push(reply);
@@ -1160,6 +1172,24 @@ impl ClientActor {
         }
     }
 
+    /// Takes a photo for `from` off the actor, when its browse switch is on.
+    async fn photo(&mut self, from: &DeviceId, req: u64) {
+        let Some(handle) = self.sessions.get(from).cloned() else { return };
+        let peer = self.phone.desktops().iter().find(|peer| peer.id == *from).cloned();
+        let refusal = match (&self.camera, peer) {
+            (_, Some(peer)) if !peer.grants.browse => PhotoRefusal::NotAllowed,
+            (None, _) | (_, None) => PhotoRefusal::Denied,
+            (Some(_), _) if self.browsing.len() >= browse::MAX_IN_FLIGHT => PhotoRefusal::Failed,
+            (Some(camera), Some(peer)) => {
+                drop(self.browsing.spawn(camera::answer(camera.clone(), handle, peer.name, req)));
+                return;
+            }
+        };
+        if let Err(error) = handle.send(camera::refused(req, refusal)).await {
+            log::info!("{from}: refusing a photo request: {error}");
+        }
+    }
+
     /// Sends each of `changed` to `only`, else to every live desktop that takes them.
     async fn messages_changed(&self, only: Option<&DeviceId>, changed: &[Message]) {
         for peer in self.phone.desktops().iter().filter(|peer| only.is_none_or(|id| *id == peer.id)) {
@@ -1299,6 +1329,9 @@ impl ClientActor {
                 if let Some(request) = messages::Request::of(request) {
                     self.messages_request(&from, request).await;
                 }
+            }
+            SessionEvent::Message { from, message: Message::PhotoRequest(request) } => {
+                self.photo(&from, request.req).await;
             }
             SessionEvent::Message { from, message: Message::HotspotJoined(joined) } => {
                 self.hotspot_joined(from, &joined);

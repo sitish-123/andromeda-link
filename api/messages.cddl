@@ -9,7 +9,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   wifi-direct-ready-msg / wifi-direct-msg / bt-pairing-msg /
   mirror-request-msg / mirror-started-msg / mirror-stop-msg / mirror-input-msg / mirror-keyframe-msg / mirror-data-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg / fs-stat-msg / fs-thumb-msg /
-  fs-write-msg / fs-delete-msg /
+  fs-write-msg / fs-delete-msg / photo-request-msg / photo-taken-msg /
   contacts-list-msg / contacts-msg / contacts-changed-msg /
   texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
   calls-list-msg / calls-msg / calls-changed-msg / dial-msg / dialed-msg /
@@ -261,6 +261,15 @@ fs-error-msg = { type: "fs-error", id: uint, body: {
 ; fs-delete removes a file. fs-entries answers each: the file's entry after the write, none after the delete.
 fs-write-msg = { type: "fs-write", id: uint, body: { req: uint, path: fs-path, offset: uint, data: bstr .size (0..49152) } }
 fs-delete-msg = { type: "fs-delete", id: uint, body: { req: uint, path: fs-path } }
+
+; A photo for the desktop, with "feature:camera" in the phone's hello and its browse switch on: the phone opens its
+; camera, and once the user took the photo answers with its browse path under the Photos root, or with why not.
+photo-request-msg = { type: "photo-request", id: uint, body: { req: uint } }
+photo-taken-msg = { type: "photo-taken", id: uint, body: {
+  req: uint,
+  ? path: fs-path,
+  ? refused: "not-allowed" / "denied" / "cancelled" / "failed",
+} }
 
 ; Contacts, both sides with "feature:messages" in their hello. The desktop pulls them page by page on connect and after
 ; contacts-changed, which the phone sends when they or its messages switch change. A refused page has no contacts.

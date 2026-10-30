@@ -801,6 +801,34 @@ fn outcome(outcome: TextOutcome) -> Result<(), MessagesRefusal> {
     }
 }
 
+/// The phone's camera, for desktops whose browse switch is on. `take_photo` is called off the main thread and blocks
+/// until the photo is saved under the Photos root, as (album, file name), or not.
+#[uniffi::export(with_foreign)]
+pub trait PhoneCamera: Send + Sync {
+    fn take_photo(&self, desktop: String) -> PhotoOutcome;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum PhotoOutcome {
+    Taken { album: String, name: String },
+    Cancelled,
+    Denied,
+    Failed,
+}
+
+struct Camera(Arc<dyn PhoneCamera>);
+
+impl link_core::camera::Camera for Camera {
+    fn take(&self, desktop: &str) -> Result<(String, String), message::PhotoRefusal> {
+        match self.0.take_photo(desktop.to_owned()) {
+            PhotoOutcome::Taken { album, name } => Ok((album, name)),
+            PhotoOutcome::Cancelled => Err(message::PhotoRefusal::Cancelled),
+            PhotoOutcome::Denied => Err(message::PhotoRefusal::Denied),
+            PhotoOutcome::Failed => Err(message::PhotoRefusal::Failed),
+        }
+    }
+}
+
 /// A local-only hotspot's credentials, from [`PhoneHotspot::start`].
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct HotspotCredentials {
@@ -927,6 +955,13 @@ impl LinkClient {
         let messages = messages.map(|messages| Arc::new(Messages(messages)) as Arc<dyn link_core::messages::Messages>);
         let client = self.client.clone();
         self.run(async move { client.set_messages(messages).await }).await
+    }
+
+    /// The camera a desktop whose browse switch is on may take a photo with; None while the app may not use it.
+    pub async fn set_camera(&self, camera: Option<Arc<dyn PhoneCamera>>) -> Result<(), LinkError> {
+        let camera = camera.map(|camera| Arc::new(Camera(camera)) as Arc<dyn link_core::camera::Camera>);
+        let client = self.client.clone();
+        self.run(async move { client.set_camera(camera).await }).await
     }
 
     /// Tells desktops with the messages switch on that the contacts changed.

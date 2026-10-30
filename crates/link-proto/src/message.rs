@@ -43,6 +43,9 @@ pub const FS_STAT: &str = "feature:fs-stat";
 /// A phone's hello carries this when it answers `fs-write` and `fs-delete`; older phones close a session on the types.
 pub const FS_WRITE: &str = "feature:fs-write";
 
+/// A phone's hello carries this when it answers `photo-request`; older phones close a session on the type.
+pub const CAMERA: &str = "feature:camera";
+
 /// A hello carries this when its side takes the contacts and text message types; older peers close a session on them.
 pub const MESSAGES: &str = "feature:messages";
 
@@ -661,6 +664,47 @@ pub struct FsWrite {
 pub struct FsDelete {
     pub req: u64,
     pub path: String,
+}
+
+/// Asks the phone to take a photo with its camera; answered by `photo-taken` once the user took it or did not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhotoRequest {
+    pub req: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PhotoRefusal {
+    /// The phone's browse switch for this desktop is off.
+    NotAllowed,
+    /// Android does not let the app use the camera.
+    Denied,
+    /// The user closed the camera without a photo, or did not answer in time.
+    Cancelled,
+    Failed,
+}
+
+impl PhotoRefusal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotAllowed => "not-allowed",
+            Self::Denied => "denied",
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// The photo's browse path under the Photos root, or why there is none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhotoTaken {
+    pub req: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<PhotoRefusal>,
 }
 
 /// Asks for one entry; answered by `fs-entries` holding that entry alone, or `fs-error`.
@@ -1715,6 +1759,8 @@ pub enum Message {
     FsThumb(FsThumb),
     FsWrite(FsWrite),
     FsDelete(FsDelete),
+    PhotoRequest(PhotoRequest),
+    PhotoTaken(PhotoTaken),
     ContactsList(ContactsList),
     Contacts(Contacts),
     /// The phone's contacts changed; a desktop that keeps them asks again.
@@ -1800,6 +1846,8 @@ impl Message {
             Self::FsThumb(_) => "fs-thumb",
             Self::FsWrite(_) => "fs-write",
             Self::FsDelete(_) => "fs-delete",
+            Self::PhotoRequest(_) => "photo-request",
+            Self::PhotoTaken(_) => "photo-taken",
             Self::ContactsList(_) => "contacts-list",
             Self::Contacts(_) => "contacts",
             Self::ContactsChanged => "contacts-changed",
@@ -1882,6 +1930,8 @@ impl Message {
             Self::FsThumb(body) => Value::serialized(body),
             Self::FsWrite(body) => Value::serialized(body),
             Self::FsDelete(body) => Value::serialized(body),
+            Self::PhotoRequest(body) => Value::serialized(body),
+            Self::PhotoTaken(body) => Value::serialized(body),
             Self::ContactsList(body) => Value::serialized(body),
             Self::Contacts(body) => Value::serialized(body),
             Self::TextsList(body) => Value::serialized(body),
@@ -1974,6 +2024,8 @@ impl Message {
             "fs-thumb" => Self::FsThumb(body.deserialized()?),
             "fs-write" => Self::FsWrite(body.deserialized()?),
             "fs-delete" => Self::FsDelete(body.deserialized()?),
+            "photo-request" => Self::PhotoRequest(body.deserialized()?),
+            "photo-taken" => Self::PhotoTaken(body.deserialized()?),
             "contacts-list" => Self::ContactsList(body.deserialized()?),
             "contacts" => Self::Contacts(body.deserialized()?),
             "contacts-changed" => {
@@ -2037,7 +2089,8 @@ impl Message {
             | Self::TextSent(_)
             | Self::CallsList(_)
             | Self::CallsChanged
-            | Self::Dialed(_) => true,
+            | Self::Dialed(_)
+            | Self::PhotoRequest(_) => true,
             Self::Calls(page) => {
                 page.calls.len() <= MAX_CALLS_PAGE
                     && (page.refused.is_none() || page.calls.is_empty())
@@ -2100,6 +2153,9 @@ impl Message {
             Self::FsThumb(thumb) => fs_path_valid(&thumb.path) && (1..=MAX_FS_THUMB_PX).contains(&thumb.px),
             Self::FsWrite(write) => fs_path_valid(&write.path) && write.data.len() <= MAX_FS_CHUNK,
             Self::FsDelete(delete) => fs_path_valid(&delete.path),
+            Self::PhotoTaken(taken) => {
+                taken.path.as_ref().is_some_and(|path| fs_path_valid(path)) != taken.refused.is_some()
+            }
             Self::Contacts(page) => {
                 page.contacts.len() <= MAX_CONTACTS_PAGE
                     && (page.refused.is_none() || page.contacts.is_empty())

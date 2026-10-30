@@ -1255,7 +1255,6 @@ impl ClientActor {
     }
 
     #[expect(clippy::too_many_lines, reason = "one arm per message the client answers itself")]
-    #[expect(clippy::too_many_lines, reason = "one arm per message the client answers itself")]
     async fn relay(&mut self, event: SessionEvent) {
         if let SessionEvent::Message { from, message: Message::MirrorStop(_) | Message::RemoteStop(_) } = &event {
             self.set_mirroring(from, false);

@@ -24,6 +24,7 @@ import org.andromeda.link.clipboard.ScreenshotWatcher
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.data.MediaLibrary
 import org.andromeda.link.core.data.Messaging
+import org.andromeda.link.core.data.PhoneCallLog
 import org.andromeda.link.core.data.PhoneContacts
 import org.andromeda.link.core.data.PhoneTexts
 import org.andromeda.link.files.MediaAccess
@@ -82,6 +83,7 @@ class AppContainer(
     private val library = MediaLibrary(application)
     private val contacts = PhoneContacts(application) { scope.launch { repository.contactsChanged() } }
     private val texts = PhoneTexts(application) { scope.launch { repository.textsChanged() } }
+    private val callLog = PhoneCallLog(application) { scope.launch { repository.callsChanged() } }
 
     fun start() {
         Channels.create(application)
@@ -95,7 +97,7 @@ class AppContainer(
         media.start()
         desktopMedia.start()
         widget.start()
-        scope.launch { repository.setMessages(Messaging(contacts, texts)) }
+        scope.launch { repository.setMessages(Messaging(contacts, texts, callLog)) }
         ringer.start()
         screen.start()
         calls.start()
@@ -107,6 +109,7 @@ class AppContainer(
                     refreshBrowseRoots()
                     contacts.watch()
                     texts.watch()
+                    callLog.watch()
                 }
             },
         )

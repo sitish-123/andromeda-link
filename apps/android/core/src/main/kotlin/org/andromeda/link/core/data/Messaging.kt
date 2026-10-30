@@ -2,10 +2,11 @@ package org.andromeda.link.core.data
 
 import org.andromeda.link.ffi.PhoneMessages
 
-/** Contacts and texts, for desktops whose messages switch is on. */
+/** Contacts and texts, for desktops whose messages switch is on, and the call log for those whose calls switch is on. */
 class Messaging(
     private val contacts: PhoneContacts,
     private val texts: PhoneTexts,
+    private val calls: PhoneCallLog,
 ) : PhoneMessages {
     override fun contacts(
         offset: UInt,
@@ -21,4 +22,11 @@ class Messaging(
         to: String,
         body: String,
     ) = texts.send(to, body)
+
+    override fun calls(
+        offset: UInt,
+        limit: UInt,
+    ) = calls.calls(offset, limit)
+
+    override fun dial(number: String) = calls.dial(number)
 }

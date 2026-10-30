@@ -123,6 +123,7 @@ class OnboardingViewModel(
                 Manifest.permission.READ_CALL_LOG,
                 Manifest.permission.READ_CONTACTS,
                 Manifest.permission.ANSWER_PHONE_CALLS,
+                Manifest.permission.CALL_PHONE,
             )
     }
 }

@@ -446,6 +446,8 @@ class LinkRepository(
 
     suspend fun textsChanged(): Result<Unit> = call { it.textsChanged() }
 
+    suspend fun callsChanged(): Result<Unit> = call { it.callsChanged() }
+
     suspend fun refresh(): Result<Unit> =
         call { client ->
             _desktops.value = client.desktops().map { it.toDomain() }

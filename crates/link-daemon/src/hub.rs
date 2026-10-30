@@ -10,11 +10,11 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    CALLS, CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus,
-    FEATURE, FS_STAT, FS_WRITE, FsRefusal, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES,
-    MediaPlayer, Message, NotificationPosted, NotificationPull, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL,
-    Share, Status, SystemCommand, SystemCommandKind, SystemResult, Text, TransferId, WIFI_DIRECT_BY_ADDRESS,
-    WifiDirect, WifiDirectReady,
+    CALLS, CAMERA, CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities,
+    DesktopStatus, FEATURE, FS_STAT, FS_WRITE, FsRefusal, Hello, Hotspot, HotspotEnd, HotspotJoined,
+    MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull, PhotoRefusal, Ping,
+    RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemCommandKind, SystemResult, Text,
+    TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -225,6 +225,7 @@ enum Command {
     Browse { id: DeviceId, request: browse::Request, reply: browse::Reply },
     SendText { id: DeviceId, to: String, body: String, reply: crate::messages::SendReply },
     Dial { id: DeviceId, number: String, reply: crate::messages::SendReply },
+    TakePhoto { id: DeviceId, reply: crate::messages::PhotoReply },
     OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
     ServeRemote { id: DeviceId, stream: RemoteStream, reply: oneshot::Sender<Result<(), String>> },
     StopRemote { id: DeviceId, reason: String },
@@ -471,6 +472,7 @@ impl Hub {
             Command::Disconnected { id, stable_id } => self.disconnected(id, stable_id).await,
             Command::SendText { id, to, body, reply } => self.send_text(id, to, body, reply).await,
             Command::Dial { id, number, reply } => self.dial(id, number, reply).await,
+            Command::TakePhoto { id, reply } => self.take_photo(id, reply).await,
             Command::Browse { id, request, reply } => self.browse(id, request, reply).await,
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
             Command::ServeRemote { id, stream, reply } => drop(reply.send(self.serve_remote(id, stream).await)),
@@ -670,6 +672,7 @@ impl Hub {
                 self.messages_changed(from, changed).await;
             }
             SessionEvent::Message { from, message: Message::Dialed(dialed) } => self.messages.on_dialed(&from, &dialed),
+            SessionEvent::Message { from, message: Message::PhotoTaken(taken) } => self.messages.on_photo(&from, taken),
             SessionEvent::Message { from, message: Message::CallsChanged } if self.phone_has(&from, CALLS) => {
                 let pull = self.messages.pull_calls(from.clone());
                 self.send_to(&from, pull).await;
@@ -1001,6 +1004,22 @@ impl Hub {
         let (req, message) = self.messages.dial(id, number, reply);
         if session.send(message).await.is_err() {
             self.messages.answer_send(req, Some(crate::messages::SendFailure::NotConnected));
+        }
+    }
+
+    async fn take_photo(&mut self, id: DeviceId, reply: crate::messages::PhotoReply) {
+        use crate::messages::PhotoFailure;
+        let Some(session) = self.sessions.get(&id).filter(|session| session.is_live()).cloned() else {
+            let _ = reply.send(Err(PhotoFailure::NotConnected));
+            return;
+        };
+        if !self.phone_has(&id, CAMERA) {
+            let _ = reply.send(Err(PhotoFailure::Refused(PhotoRefusal::Denied)));
+            return;
+        }
+        let (req, message) = self.messages.take_photo(id, reply);
+        if session.send(message).await.is_err() {
+            self.messages.answer_photo(req, Err(PhotoFailure::NotConnected));
         }
     }
 
@@ -1737,6 +1756,15 @@ impl HubHandle {
             return Err(crate::messages::SendFailure::NotConnected);
         }
         answer.await.unwrap_or(Err(crate::messages::SendFailure::NotConnected))
+    }
+
+    /// Has the phone take a photo; answered with its browse path once its user took it, or with why not.
+    pub async fn take_photo(&self, id: DeviceId) -> Result<String, crate::messages::PhotoFailure> {
+        let (reply, answer) = oneshot::channel();
+        if self.commands.send(Command::TakePhoto { id, reply }).await.is_err() {
+            return Err(crate::messages::PhotoFailure::NotConnected);
+        }
+        answer.await.unwrap_or(Err(crate::messages::PhotoFailure::NotConnected))
     }
 
     /// The device's live session, if it has one.

@@ -556,6 +556,18 @@ impl Link {
         })
     }
 
+    /// Has a connected phone whose browse switch is on take a photo with its camera; returns the photo's browse path
+    /// under the Photos root once its user took it (up to 5 minutes), for `ReadFile`.
+    async fn take_photo(&self, device_id: String) -> Result<String, LinkError> {
+        use crate::messages::PhotoFailure;
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        self.hub.take_photo(id).await.map_err(|failure| match failure {
+            PhotoFailure::Refused(reason) => LinkError::Refused(reason.as_str().to_owned()),
+            PhotoFailure::NotConnected => LinkError::NotConnected(format!("{device_id} is not connected")),
+            PhotoFailure::TimedOut => LinkError::Failed("no photo came in time".to_owned()),
+        })
+    }
+
     /// The desktop is joining the phone's hotspot `ssid` to move work off Bluetooth, and leaves its own Wi-Fi for it;
     /// an empty `ssid` means it left, or the join failed.
     #[zbus(signal)]

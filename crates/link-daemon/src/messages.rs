@@ -1,14 +1,15 @@
 //! The desktop side of a phone's contacts, texts, and call log: kept per phone, asked for page by page when it connects
 //! and whenever it says they changed, and texts sent and calls placed through it. A phone that refuses (its messages
-//! or calls switch is off, or Android denies it) has none here; for calls, its reason is kept.
+//! or calls switch is off, or Android denies it) has none here; for calls, its reason is kept. Photos the desktop
+//! asks the phone's camera for wait here too.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    self, CallsList, Contact, ContactsList, Dial, Dialed, LoggedCall, Message, MessagesRefusal, Text, TextSend,
-    TextSent, TextsList,
+    self, CallsList, Contact, ContactsList, Dial, Dialed, LoggedCall, Message, MessagesRefusal, PhotoRefusal,
+    PhotoRequest, PhotoTaken, Text, TextSend, TextSent, TextsList,
 };
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -17,6 +18,8 @@ use tokio::time::Instant;
 const PAGE_TIMEOUT: Duration = Duration::from_secs(15);
 /// The phone waits up to 60 s for Android to report a text sent.
 const SEND_TIMEOUT: Duration = Duration::from_secs(75);
+/// The phone waits up to 5 minutes for its user to take the photo.
+const PHOTO_TIMEOUT: Duration = Duration::from_secs(330);
 /// Contacts one pull gathers before it is dropped, so a hostile phone cannot grow it without bound.
 const MAX_CONTACTS: usize = 16 * 1024;
 /// The newest texts kept per phone.
@@ -32,6 +35,21 @@ pub type Texts = Vec<(u64, u64, String, String, u64, bool)>;
 pub type Calls = Vec<(String, String, u64, u32, String)>;
 
 pub type SendReply = oneshot::Sender<Result<(), SendFailure>>;
+/// The photo's browse path on the phone, or why there is none.
+pub type PhotoReply = oneshot::Sender<Result<String, PhotoFailure>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhotoFailure {
+    Refused(PhotoRefusal),
+    NotConnected,
+    TimedOut,
+}
+
+struct PhotoWait {
+    device: DeviceId,
+    reply: PhotoReply,
+    deadline: Instant,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendFailure {
@@ -77,6 +95,7 @@ pub struct Messages {
     contacts: HashMap<DeviceId, Vec<Contact>>,
     texts: HashMap<DeviceId, Vec<Text>>,
     calls: HashMap<DeviceId, Result<Vec<LoggedCall>, MessagesRefusal>>,
+    photos: HashMap<u64, PhotoWait>,
 }
 
 impl Messages {
@@ -206,6 +225,29 @@ impl Messages {
         }
     }
 
+    /// Registers a photo to take with `device`'s camera and returns the message that asks it.
+    pub fn take_photo(&mut self, device: DeviceId, reply: PhotoReply) -> (u64, Message) {
+        self.next += 1;
+        self.photos.insert(self.next, PhotoWait { device, reply, deadline: Instant::now() + PHOTO_TIMEOUT });
+        (self.next, Message::PhotoRequest(PhotoRequest { req: self.next }))
+    }
+
+    pub fn on_photo(&mut self, from: &DeviceId, taken: PhotoTaken) {
+        if self.photos.get(&taken.req).is_some_and(|wait| wait.device == *from) {
+            let answer = match (taken.path, taken.refused) {
+                (Some(path), None) => Ok(path),
+                (_, refused) => Err(PhotoFailure::Refused(refused.unwrap_or(PhotoRefusal::Failed))),
+            };
+            self.answer_photo(taken.req, answer);
+        }
+    }
+
+    pub fn answer_photo(&mut self, req: u64, answer: Result<String, PhotoFailure>) {
+        if let Some(wait) = self.photos.remove(&req) {
+            let _ = wait.reply.send(answer);
+        }
+    }
+
     /// Registers a text to send through `device` and returns the message that asks it.
     pub fn send_text(&mut self, device: DeviceId, to: String, body: String, reply: SendReply) -> (u64, Message) {
         self.next += 1;
@@ -296,6 +338,11 @@ impl Messages {
         for req in waiting {
             self.answer_send(req, Some(SendFailure::NotConnected));
         }
+        let photos: Vec<u64> =
+            self.photos.iter().filter(|(_, wait)| wait.device == *device).map(|(req, _)| *req).collect();
+        for req in photos {
+            self.answer_photo(req, Err(PhotoFailure::NotConnected));
+        }
         self.pulls.retain(|_, pull| pull.device != *device);
     }
 
@@ -308,7 +355,8 @@ impl Messages {
 
     pub fn deadline(&self) -> Option<Instant> {
         let pulls = self.pulls.values().map(|pull| pull.deadline);
-        pulls.chain(self.sends.values().map(|send| send.deadline)).min()
+        let photos = self.photos.values().map(|wait| wait.deadline);
+        pulls.chain(self.sends.values().map(|send| send.deadline)).chain(photos).min()
     }
 
     pub fn expire(&mut self) {
@@ -323,6 +371,10 @@ impl Messages {
         let late: Vec<u64> = self.sends.iter().filter(|(_, send)| send.deadline <= now).map(|(req, _)| *req).collect();
         for req in late {
             self.answer_send(req, Some(SendFailure::TimedOut));
+        }
+        let late: Vec<u64> = self.photos.iter().filter(|(_, wait)| wait.deadline <= now).map(|(req, _)| *req).collect();
+        for req in late {
+            self.answer_photo(req, Err(PhotoFailure::TimedOut));
         }
     }
 }

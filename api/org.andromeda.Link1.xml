@@ -84,6 +84,13 @@
       <arg name="device_id" type="s" direction="in"/>
       <arg name="path" type="s" direction="in"/>
     </method>
+    <!-- Has a connected phone take a photo with its camera, which opens there; returns the photo's path under its Photos
+         root, for ReadFile, once its user took it (up to 5 minutes). Needs the phone's browse switch. Errors: .Refused
+         (not-allowed, denied, cancelled, failed), .NotConnected, .Failed when no photo came in time. -->
+    <method name="TakePhoto">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="out"/>
+    </method>
     <!-- Asks a connected phone to mirror its screen and returns the viewer's end of the video with its size once the
          phone's user allowed capture (up to 60 s). The socket carries H.264 access units, each a big-endian u32 length,
          u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration, 4 audio: an Opus

@@ -19,13 +19,12 @@ impl Link {
         log_failure("NotificationAction", self.proxy.notification_action(device, id, action, reply).await);
     }
 
-    /// Each type's bytes go in a memfd, under every name it is offered as.
+    /// Each type's bytes go in an anonymous file, under every name it is offered as.
     pub async fn offer_clipboard(&self, types: Vec<(Vec<String>, Vec<u8>)>) {
         let offer = async {
             let mut files = Vec::with_capacity(types.len());
             for (names, data) in &types {
-                let fd = rustix::fs::memfd_create("link-clipboard", rustix::fs::MemfdFlags::CLOEXEC)?;
-                let mut file = std::fs::File::from(fd);
+                let mut file = anonymous_file()?;
                 file.write_all(data)?;
                 file.seek(SeekFrom::Start(0))?;
                 files.push((names, file));
@@ -80,6 +79,7 @@ impl Link {
         log_failure("SystemResult", self.proxy.system_result(device, serial, error.unwrap_or_default()).await);
     }
 
+    #[cfg_attr(target_os = "macos", allow(dead_code, reason = "macOS offers no remote control"))]
     pub async fn stop_remote_control(&self, device: &str, reason: &str) {
         log_failure("StopRemoteControl", self.proxy.stop_remote_control(device, reason).await);
     }
@@ -88,6 +88,24 @@ impl Link {
     pub async fn report_capabilities(&self, capabilities: &[&str]) {
         log_failure("SetSessionCapabilities", self.proxy.set_session_capabilities(capabilities).await);
     }
+}
+
+#[cfg(target_os = "linux")]
+fn anonymous_file() -> std::io::Result<std::fs::File> {
+    Ok(rustix::fs::memfd_create("link-clipboard", rustix::fs::MemfdFlags::CLOEXEC)?.into())
+}
+
+/// macOS has no memfd: a private file in the temporary directory, unlinked once open.
+#[cfg(target_os = "macos")]
+fn anonymous_file() -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = format!("link-clipboard-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
+    let path = std::env::temp_dir().join(name);
+    let file = std::fs::OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(&path)?;
+    std::fs::remove_file(&path)?;
+    Ok(file)
 }
 
 fn log_failure(method: &str, result: zbus::Result<()>) {

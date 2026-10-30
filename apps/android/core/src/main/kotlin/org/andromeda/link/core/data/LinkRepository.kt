@@ -72,8 +72,8 @@ import org.andromeda.link.ffi.LinkEvent
 import org.andromeda.link.ffi.LinkException
 import org.andromeda.link.ffi.MirrorSession
 import org.andromeda.link.ffi.OutgoingFile
-import org.andromeda.link.ffi.PhoneLibrary
 import org.andromeda.link.ffi.PhoneCamera
+import org.andromeda.link.ffi.PhoneLibrary
 import org.andromeda.link.ffi.PhoneMessages
 import org.andromeda.link.ffi.RemoteView
 import org.andromeda.link.ffi.generateIdentity

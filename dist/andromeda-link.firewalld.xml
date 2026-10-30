@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>Andromeda Link</short>
+  <description>Phone and desktop continuity: QUIC on the default Link port, Quick Share over TCP, and mDNS so phones find the desktop.</description>
+  <port protocol="udp" port="4717"/>
+  <port protocol="tcp" port="4718"/>
+  <port protocol="udp" port="5353"/>
+</service>

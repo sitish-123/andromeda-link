@@ -37,9 +37,7 @@ pub(super) async fn execute(
         Command::SendFiles { device, paths } => send_files(proxy, events, device, paths).await,
         Command::OfferClipboard(text) => {
             let failure = |error: std::io::Error| zbus::Error::Failure(format!("clipboard: {error}"));
-            let fd = rustix::fs::memfd_create("link-clip", rustix::fs::MemfdFlags::CLOEXEC)
-                .map_err(|error| failure(error.into()))?;
-            let mut file = File::from(fd);
+            let mut file = clip_file().map_err(failure)?;
             file.write_all(text.as_bytes()).and_then(|()| file.rewind()).map_err(failure)?;
             let types = ["text/plain;charset=utf-8", "text/plain"].map(|mime| (mime, file.as_fd().into()));
             proxy.offer_clipboard(&types.iter().collect::<Vec<_>>()).await?;
@@ -331,4 +329,20 @@ fn claim(folder: &Path, name: &str, partial: &Path) -> std::io::Result<PathBuf> 
         }
     }
     unreachable!("an unbounded range")
+}
+
+/// An anonymous file for a clipboard offer.
+#[cfg(target_os = "linux")]
+fn clip_file() -> std::io::Result<File> {
+    Ok(File::from(rustix::fs::memfd_create("link-clip", rustix::fs::MemfdFlags::CLOEXEC)?))
+}
+
+/// An anonymous file for a clipboard offer: macOS has no memfd, so a temporary file unlinked at once.
+#[cfg(not(target_os = "linux"))]
+fn clip_file() -> std::io::Result<File> {
+    let nanos = std::time::SystemTime::UNIX_EPOCH.elapsed().map_or(0, |since| since.as_nanos());
+    let path = std::env::temp_dir().join(format!("link-clip-{}-{nanos}", std::process::id()));
+    let file = File::options().read(true).write(true).create_new(true).open(&path)?;
+    std::fs::remove_file(&path)?;
+    Ok(file)
 }

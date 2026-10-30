@@ -8,11 +8,13 @@ mod history;
 mod hub;
 mod link;
 mod messages;
+#[cfg_attr(not(target_os = "linux"), path = "mirror_none.rs")]
 mod mirror;
 mod pairing;
 mod photos;
 mod screen;
 mod settings;
+#[cfg_attr(not(target_os = "linux"), path = "tray_none.rs")]
 mod tray;
 
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QUrl};

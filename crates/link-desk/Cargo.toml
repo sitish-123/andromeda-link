@@ -16,15 +16,17 @@ cxx-qt = "0.10"
 cxx-qt-lib = { version = "0.10", features = ["qt_gui", "qt_qml"] }
 env_logger.workspace = true
 futures-util.workspace = true
-gstreamer = "0.25"
-gstreamer-app = "0.25"
-ksni = "0.3"
 link-api.workspace = true
 log.workspace = true
 qrcode = { version = "0.14", default-features = false }
 rustix.workspace = true
 tokio.workspace = true
 zbus.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gstreamer = "0.25"
+gstreamer-app = "0.25"
+ksni = "0.3"
 
 [build-dependencies]
 cxx-qt-build = "0.10"

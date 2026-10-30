@@ -45,6 +45,7 @@ QtObject {
     }
 
     signal failed(string message)
+    signal raiseRequested()
 
     function ring() { console.log("ring") }
     function sendClipboard() { console.log("sendClipboard") }

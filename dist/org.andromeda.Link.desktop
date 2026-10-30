@@ -5,6 +5,6 @@ Comment=Your phone on this desk: notifications, calls, files, and clipboard
 Exec=andromeda-link
 Icon=phone-symbolic
 Terminal=false
-Categories=GTK;Utility;
+Categories=Qt;Utility;
 Keywords=phone;android;notifications;sms;files;
 StartupNotify=true

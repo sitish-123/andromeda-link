@@ -33,3 +33,13 @@ inline QString downloadsFolder()
 {
   return QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 }
+
+inline void quitApp()
+{
+  QCoreApplication::quit();
+}
+
+inline void keepRunningWithoutWindows()
+{
+  QGuiApplication::setQuitOnLastWindowClosed(false);
+}

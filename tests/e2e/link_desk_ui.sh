@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Qt desktop app (andromeda-link-qt) against a private andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME) and the
+# The Qt desktop app (andromeda-link) against a private andromeda-linkd (own dbus-daemon, own XDG_STATE_HOME) and the
 # emulator paired with it. Proves the app shows real phone data: connected, a battery level, the fixture app's media
 # session as the player, and 3 phone notifications (one a chat with a reply action); its Ring reaches the phone as
 # PhoneRinging. Then andromeda-linkd stops and the app shows the phone disconnected. The app runs offscreen with
@@ -33,7 +33,7 @@ maestro() { "$MAESTRO" --device "$SERIAL" test -e OUT="$OUT" "$@" >> "$OUT/maest
 [[ $(adb get-state 2>/dev/null) == device ]] || fail "no emulator at $SERIAL"
 [[ -s $APK ]] || fail "no APK at $APK"
 [[ -s $FIXTURE_APK ]] || fail "no fixture APK at $FIXTURE_APK"
-[[ -x $BIN/andromeda-link-qt ]] || fail "no $BIN/andromeda-link-qt; cargo build -p link-desk"
+[[ -x $BIN/andromeda-link ]] || fail "no $BIN/andromeda-link; cargo build -p link-desk"
 
 cat > "$RUNTIME/bus.conf" <<CONF
 <busconfig>
@@ -118,7 +118,7 @@ wait_for 30 "the phone's media session never reached the bus" eval \
 
 # The service has no call that lists notifications already posted, so the app must be listening before they come.
 # The software scenegraph, offscreen's default, cannot draw MultiEffect (the player artwork).
-QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=rhi QT_FORCE_STDERR_LOGGING=1 "$BIN/andromeda-link-qt" --shot "$OUT" --pages "$RUNTIME/e2e-note.txt" > "$OUT/app.log" 2>&1 &
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=rhi QT_FORCE_STDERR_LOGGING=1 "$BIN/andromeda-link" --shot "$OUT" --pages "$RUNTIME/e2e-note.txt" > "$OUT/app.log" 2>&1 &
 APP=$!
 wait_for 30 "the app never saw the service: $(tail -3 "$OUT/app.log")" said listening
 

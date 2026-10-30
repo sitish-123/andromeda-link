@@ -5,6 +5,7 @@ mod player;
 mod signals;
 mod types;
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -17,19 +18,27 @@ pub use types::*;
 use player::{PLAYER_PREFIX, watch_player};
 use signals::{send_controls, send_devices, send_info, send_status, send_texts, signal};
 
+static RUNTIME: OnceLock<tokio::runtime::Handle> = OnceLock::new();
+
+/// The client thread's runtime, for other D-Bus services of the app; None before `start` or when it failed.
+pub fn runtime() -> Option<&'static tokio::runtime::Handle> {
+    RUNTIME.get()
+}
+
 /// Starts the client thread; `sink` gets every event on that thread. It reconnects on its own when the service
 /// restarts, but never starts the service without `Command::StartService`.
 pub fn start(sink: impl Fn(Event) + Send + 'static) -> UnboundedSender<Command> {
     let (commands, command_rx) = unbounded_channel();
     let (event_tx, mut events) = unbounded_channel();
+    let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            log::error!("no tokio runtime: {error}");
+            return commands;
+        }
+    };
+    let _ = RUNTIME.set(runtime.handle().clone());
     std::thread::spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                log::error!("no tokio runtime: {error}");
-                return;
-            }
-        };
         runtime.spawn(async move {
             while let Some(event) = events.recv().await {
                 sink(event);

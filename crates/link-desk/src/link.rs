@@ -11,6 +11,7 @@ use std::pin::Pin;
 use crate::client::{Controls, Device, Event, Notification, Player, Status};
 use crate::history::History;
 use crate::hub;
+use crate::tray;
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QString, QUrl, QVariant};
@@ -139,6 +140,9 @@ pub mod qobject {
         fn start_service(self: Pin<&mut Link>);
         #[qsignal]
         fn failed(self: Pin<&mut Link>, message: QString);
+        /// The tray asks the window to show and come to the front.
+        #[qsignal]
+        fn raise_requested(self: Pin<&mut Link>);
     }
 
     #[namespace = "rust::cxxqtlib1"]
@@ -242,12 +246,17 @@ impl cxx_qt::Initialize for qobject::Link {
         state.notification_model = notifications;
         state.recent_model = recent;
         let thread = self.qt_thread();
+        let events = thread.clone();
         hub::subscribe(move |event| {
             if !matches!(event, Event::Phone(_)) {
                 let event = event.clone();
-                let _ = thread.queue(move |link| link.apply(event));
+                let _ = events.queue(move |link| link.apply(event));
             }
         });
+        // After subscribe, which starts the client runtime the tray runs on.
+        if tray::wanted() {
+            tray::start(thread);
+        }
     }
 }
 

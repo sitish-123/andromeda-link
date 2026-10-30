@@ -18,6 +18,11 @@ pub mod ffi {
         fn open_path(path: &QString) -> bool;
         #[cxx_name = "downloadsFolder"]
         fn downloads_folder() -> QString;
+        #[cxx_name = "quitApp"]
+        fn quit_app();
+        /// Keeps the app running after its last window closes, for the tray icon.
+        #[cxx_name = "keepRunningWithoutWindows"]
+        fn keep_running_without_windows();
     }
 }
 

@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "andromeda-link-qt"
+name = "andromeda-link"
 path = "src/main.rs"
 
 [dependencies]
@@ -16,6 +16,7 @@ cxx-qt = "0.10"
 cxx-qt-lib = { version = "0.10", features = ["qt_gui", "qt_qml"] }
 env_logger.workspace = true
 futures-util.workspace = true
+ksni = "0.3"
 link-api.workspace = true
 log.workspace = true
 qrcode = { version = "0.14", default-features = false }

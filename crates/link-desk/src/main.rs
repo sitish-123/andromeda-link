@@ -11,6 +11,7 @@ mod pairing;
 mod photos;
 mod screen;
 mod settings;
+mod tray;
 
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QUrl};
 

@@ -32,11 +32,11 @@ impl qobject::Link {
         self.refresh();
     }
 
-    pub(super) fn ring(self: Pin<&mut Self>) {
+    pub(crate) fn ring(self: Pin<&mut Self>) {
         self.to_phone(Command::Ring);
     }
 
-    pub(super) fn send_clipboard(self: Pin<&mut Self>) {
+    pub(crate) fn send_clipboard(self: Pin<&mut Self>) {
         let text = qobject::clipboard_text().to_string();
         self.send(Command::OfferClipboard(text));
     }
@@ -47,7 +47,7 @@ impl qobject::Link {
         self.to_phone(|device| Command::SendFiles { device, paths });
     }
 
-    pub(super) fn set_ringer(self: Pin<&mut Self>, mode: &QString) {
+    pub(crate) fn set_ringer(self: Pin<&mut Self>, mode: &QString) {
         let value = match mode.to_string().as_str() {
             "silent" => 0,
             "vibrate" => 1,
@@ -56,7 +56,7 @@ impl qobject::Link {
         self.to_phone(|device| Command::System { device, command: "set-ringer", value });
     }
 
-    pub(super) fn set_dnd(self: Pin<&mut Self>, on: bool) {
+    pub(crate) fn set_dnd(self: Pin<&mut Self>, on: bool) {
         self.to_phone(|device| Command::System { device, command: "set-dnd", value: u32::from(on) });
     }
 

@@ -9,6 +9,7 @@ use crate::client::{Event, Notification};
 use crate::format::{age_text, file_url, now, text, variant};
 use crate::history::{Direction, State};
 use crate::hub;
+use crate::tray;
 
 /// The notification rows for one phone, grouped by app for the view: the app with the newest notification first,
 /// newest first within each.
@@ -82,8 +83,13 @@ impl qobject::Link {
         self.refresh();
     }
 
-    /// Recomputes every property and both models from the state, for the current phone.
+    /// Recomputes every property and both models from the state, for the current phone, and the tray menu.
     pub(super) fn refresh(mut self: Pin<&mut Self>) {
+        self.as_mut().recompute();
+        self.as_ref().show_in_tray();
+    }
+
+    fn recompute(mut self: Pin<&mut Self>) {
         let mut state = self.as_mut().rust_mut();
         let current = state.current_phone.to_string();
         if !state.devices.iter().any(|device| device.id == current) {
@@ -187,5 +193,22 @@ impl qobject::Link {
             self.as_mut().rust_mut().player_volume = volume;
             self.as_mut().player_volume_changed();
         }
+    }
+
+    /// Gives the tray icon the current phone's state, on desktops that show one.
+    fn show_in_tray(self: Pin<&Self>) {
+        if !tray::wanted() {
+            return;
+        }
+        let id = self.current_phone.to_string();
+        let name = self.devices.iter().find(|device| device.id == id).map(|device| device.name.clone());
+        tray::show(tray::State {
+            name: name.unwrap_or_default(),
+            connected: self.connected,
+            battery: self.battery,
+            last_seen: self.last_seen,
+            dnd: self.dnd,
+            ringer: self.ringer.to_string(),
+        });
     }
 }

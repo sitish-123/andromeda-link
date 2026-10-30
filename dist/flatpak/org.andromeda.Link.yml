@@ -32,6 +32,7 @@ modules:
       - cargo build --release --offline --locked -p link-desk
       - install -Dm755 target/release/andromeda-link /app/bin/andromeda-link
       - install -Dm644 dist/org.andromeda.Link.desktop /app/share/applications/org.andromeda.Link.desktop
+      - cp -r dist/icons /app/share/
     sources:
       - cargo-sources.json
       - type: dir

@@ -38,6 +38,7 @@ install -Dm644 "$ROOT/dist/60-andromeda-link-bluetooth.conf" \
 install -Dm644 "$ROOT/LICENSE" "$P/usr/share/doc/andromeda-link/copyright"
 install -Dm755 "$BIN/andromeda-link" "$A/usr/bin/andromeda-link"
 install -Dm644 "$ROOT/dist/org.andromeda.Link.desktop" "$A/usr/share/applications/org.andromeda.Link.desktop"
+cp -r "$ROOT/dist/icons" "$A/usr/share/"
 install -Dm644 "$ROOT/LICENSE" "$A/usr/share/doc/andromeda-link-app/copyright"
 
 install -d "$P/DEBIAN" "$A/DEBIAN"

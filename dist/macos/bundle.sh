@@ -13,6 +13,7 @@ rm -rf "$APP"
 mkdir -p "$C/MacOS" "$C/Frameworks" "$C/PlugIns" "$C/Resources/qml"
 cp "$BIN" "$C/MacOS/andromeda-link"
 cp "$HERE/Info.plist" "$C/Info.plist"
+cp "$HERE/AppIcon.icns" "$C/Resources/AppIcon.icns"
 printf '[Paths]\nPlugins = PlugIns\nQmlImports = Resources/qml\n' > "$C/Resources/qt.conf"
 
 for plugin in platforms/libqcocoa.dylib imageformats/libqsvg.dylib imageformats/libqjpeg.dylib \

@@ -101,7 +101,7 @@ impl ksni::Tray for Tray {
     }
 
     fn icon_name(&self) -> String {
-        "phone-symbolic".to_owned()
+        "org.andromeda.Link-symbolic".to_owned()
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {

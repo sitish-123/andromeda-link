@@ -367,6 +367,8 @@
     <string name="settings_auto_clipboard_hint">Copies go to desktops without opening Link</string>
     <string name="settings_log_access">Log access</string>
     <string name="settings_log_access_hint">Lets Link see when you copy in another app</string>
+    <string name="settings_screenshots">Send screenshots</string>
+    <string name="settings_screenshots_hint">New screenshots go to the desktop clipboard</string>
     <string name="settings_clear_clips">Clear synced clips</string>
     <string name="settings_clear_clips_hint">After 2 minutes, unless you copy again</string>
     <string name="settings_grants_on">%1$d of %2$d on</string>

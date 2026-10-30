@@ -106,6 +106,7 @@ class HomeViewModel(
     private val selectedDesktopId = MutableStateFlow<String?>(null)
     private val _message = MutableStateFlow<HomeMessage?>(null)
     private val _clearsSynced = MutableStateFlow(clipboard.clearsSynced)
+    private val _sendsScreenshots = MutableStateFlow(clipboard.sendsScreenshots)
     private val desk =
         combine(
             repository.desktopStatuses,
@@ -140,6 +141,9 @@ class HomeViewModel(
     /** "Clear synced clips after 2 minutes"; off by default. */
     val clearsSynced: StateFlow<Boolean> = _clearsSynced.asStateFlow()
 
+    /** "Send screenshots" to the desktop clipboard; on by default. */
+    val sendsScreenshots: StateFlow<Boolean> = _sendsScreenshots.asStateFlow()
+
     /** The one-line message the screen shows, until [messageShown]. */
     val message: StateFlow<HomeMessage?> = _message.asStateFlow()
 
@@ -164,6 +168,11 @@ class HomeViewModel(
     fun setClearsSynced(on: Boolean) {
         clipboard.clearsSynced = on
         _clearsSynced.value = on
+    }
+
+    fun setSendsScreenshots(on: Boolean) {
+        clipboard.sendsScreenshots = on
+        _sendsScreenshots.value = on
     }
 
     fun selectDesktop(desktop: Desktop) {

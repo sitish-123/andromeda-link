@@ -79,6 +79,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val clearsSynced by viewModel.clearsSynced.collectAsStateWithLifecycle()
+    val sendsScreenshots by viewModel.sendsScreenshots.collectAsStateWithLifecycle()
     val prefs by viewModel.notificationPrefs.collectAsStateWithLifecycle()
     val theme by rememberAppTheme()
     val context = LocalContext.current
@@ -198,6 +199,13 @@ fun SettingsScreen(
                     if (logs) colors.success else colors.textTertiary,
                 )
             }
+            PaperRow(
+                stringResource(R.string.settings_screenshots),
+                subtitle = stringResource(R.string.settings_screenshots_hint),
+                icon = LinkIcons.Photo,
+                checked = sendsScreenshots,
+                onToggle = viewModel::setSendsScreenshots,
+            )
             PaperRow(
                 stringResource(R.string.settings_clear_clips),
                 subtitle = stringResource(R.string.settings_clear_clips_hint),

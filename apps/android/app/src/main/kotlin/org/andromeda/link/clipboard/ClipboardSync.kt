@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.text.Html
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +34,10 @@ class ClipboardSync(
         get() = prefs.getBoolean(KEY_CLEAR, false)
         set(value) = prefs.edit { putBoolean(KEY_CLEAR, value) }
 
+    var sendsScreenshots: Boolean
+        get() = prefs.getBoolean(KEY_SCREENSHOTS, true)
+        set(value) = prefs.edit { putBoolean(KEY_SCREENSHOTS, value) }
+
     fun start() {
         scope.launch { repository.clips.collect(::apply) }
     }
@@ -48,6 +53,11 @@ class ClipboardSync(
 
     /** Sends selected text, as "Send to desktop" does. */
     suspend fun offerText(text: String): Result<Int> = offer(listOf(ClipPart.Text(TEXT_MIME, text)))
+
+    suspend fun offerImage(
+        uri: Uri,
+        mime: String,
+    ): Result<Int> = offer(listOf(ClipPart.Content(mime, uri)))
 
     private suspend fun offer(parts: List<ClipPart>): Result<Int> {
         if (parts.isEmpty()) return Result.success(0)
@@ -139,6 +149,7 @@ class ClipboardSync(
         private const val HISTORY_LABEL = "Andromeda Link history"
         private const val PREFS = "clipboard"
         private const val KEY_CLEAR = "clear_synced"
+        private const val KEY_SCREENSHOTS = "send_screenshots"
         private const val TEXT_MIME = "text/plain;charset=utf-8"
         private const val HTML_MIME = "text/html"
         private const val CLEAR_AFTER_MS = 120_000L

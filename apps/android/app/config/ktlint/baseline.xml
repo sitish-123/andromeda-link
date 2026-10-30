@@ -47,8 +47,8 @@
     <file name="src/main/kotlin/org/andromeda/link/devices/SettingsScreen.kt">
         <error line="68" column="5" source="standard:function-naming" />
         <error line="68" column="5" source="compose:modifier-missing-check" />
-        <error line="261" column="13" source="standard:function-naming" />
-        <error line="274" column="13" source="standard:function-naming" />
+        <error line="269" column="13" source="standard:function-naming" />
+        <error line="282" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/files/PickerSheet.kt">
         <error line="80" column="14" source="standard:function-naming" />

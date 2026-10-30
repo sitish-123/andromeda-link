@@ -19,6 +19,7 @@ import org.andromeda.link.calls.Calls
 import org.andromeda.link.clipboard.ClipHistory
 import org.andromeda.link.clipboard.ClipboardSync
 import org.andromeda.link.clipboard.ClipboardWatcher
+import org.andromeda.link.clipboard.ScreenshotWatcher
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.data.MediaLibrary
 import org.andromeda.link.core.data.Messaging
@@ -65,6 +66,7 @@ class AppContainer(
     val clipHistory = ClipHistory(File(application.filesDir, "clips.json"))
     val clipboard = ClipboardSync(application, repository, clipHistory, scope)
     val clipboardWatcher = ClipboardWatcher(application, clipboard, scope)
+    private val screenshots = ScreenshotWatcher(application, clipboard, scope)
     val mirror = NotificationMirror(application, repository, scope)
     private val phoneControl = PhoneControl(application, repository, scope)
     private val status = StatusReporter(application, repository, scope, mirror.accessOff, phoneControl.controls)
@@ -84,6 +86,7 @@ class AppContainer(
         Channels.create(application)
         presence.start()
         clipboard.start()
+        screenshots.start()
         phoneControl.start()
         status.start()
         mirror.start()

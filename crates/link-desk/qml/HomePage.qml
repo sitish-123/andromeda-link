@@ -158,10 +158,7 @@ Flickable {
         Repeater {
             id: recentList
             model: home.link.recent
-            RecentRow {
-                Layout.fillWidth: true
-                visible: index < 3
-            }
+            RecentRow { Layout.fillWidth: true }
         }
     }
 

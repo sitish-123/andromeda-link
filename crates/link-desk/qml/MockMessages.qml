@@ -6,6 +6,7 @@ QtObject {
     property string currentThread: "1"
     property string threadName: "Maya"
     property string threadAddress: "+49 170 5550123"
+    property string query: ""
 
     property ListModel threads: ListModel {
         ListElement { thread: "1"; name: "Maya"; address: "+49 170 5550123"; initial: "M"; snippet: "Are you still coming tonight? I can save you a seat near the front"; timeText: "2 min"; unread: true; section: "Unread" }

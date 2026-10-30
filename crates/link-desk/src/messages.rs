@@ -30,6 +30,7 @@ pub mod qobject {
         #[qproperty(QString, current_thread, READ, WRITE = open_thread, NOTIFY)]
         #[qproperty(QString, thread_name)]
         #[qproperty(QString, thread_address)]
+        #[qproperty(QString, query, READ, WRITE = search, NOTIFY)]
         #[qproperty(*mut ListModel, threads, READ, CONSTANT)]
         #[qproperty(*mut ListModel, conversation, READ, CONSTANT)]
         type LinkMessages = super::MessagesRust;
@@ -38,6 +39,7 @@ pub mod qobject {
     #[auto_cxx_name]
     extern "RustQt" {
         fn open_thread(self: Pin<&mut LinkMessages>, thread: QString);
+        fn search(self: Pin<&mut LinkMessages>, query: QString);
         #[qinvokable]
         fn send(self: Pin<&mut LinkMessages>, body: &QString);
         #[qinvokable]
@@ -56,6 +58,7 @@ pub struct MessagesRust {
     current_thread: QString,
     thread_name: QString,
     thread_address: QString,
+    query: QString,
     threads: *mut qobject::ListModel,
     conversation: *mut qobject::ListModel,
     thread_model: UniquePtr<qobject::ListModel>,
@@ -63,8 +66,8 @@ pub struct MessagesRust {
     phone: String,
     /// Device id to its texts, newest first.
     texts: HashMap<String, Vec<Text>>,
-    /// Device id to (name, numbers) per contact.
-    contacts: HashMap<String, Vec<(String, Vec<String>)>>,
+    /// Device id to the contact name of each `number_key`.
+    names: HashMap<String, HashMap<String, String>>,
     /// (device, address) with a text that arrived since the app started and was not opened since.
     unread: HashSet<(String, String)>,
 }
@@ -78,13 +81,14 @@ impl Default for MessagesRust {
             current_thread: QString::default(),
             thread_name: QString::default(),
             thread_address: QString::default(),
+            query: QString::default(),
             threads: thread_model.as_mut_ptr(),
             conversation: text_model.as_mut_ptr(),
             thread_model,
             text_model,
             phone: hub::phone(),
             texts: HashMap::new(),
-            contacts: HashMap::new(),
+            names: HashMap::new(),
             unread: HashSet::new(),
         }
     }
@@ -108,16 +112,28 @@ fn number_key(address: &str) -> String {
     digits[digits.len().saturating_sub(9)..].iter().collect()
 }
 
+/// Each `number_key` to the first contact with that number.
+fn names(contacts: Vec<(String, Vec<String>)>) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    for (name, numbers) in contacts {
+        for key in numbers.iter().map(|number| number_key(number)).filter(|key| !key.is_empty()) {
+            names.entry(key).or_insert_with(|| name.clone());
+        }
+    }
+    names
+}
+
+fn snippet(text: &Text) -> &str {
+    text.body.lines().next().unwrap_or_default()
+}
+
 fn seconds(ms: u64) -> u64 {
     ms / 1000
 }
 
 impl MessagesRust {
     fn name_of(&self, address: &str) -> Option<String> {
-        let key = number_key(address);
-        let contacts = self.contacts.get(&self.phone)?;
-        let found = contacts.iter().find(|(_, numbers)| numbers.iter().any(|number| number_key(number) == key));
-        found.filter(|_| !key.is_empty()).map(|(name, _)| name.clone())
+        self.names.get(&self.phone)?.get(&number_key(address)).cloned()
     }
 
     /// The newest text of each thread, newest first.
@@ -137,7 +153,9 @@ impl qobject::LinkMessages {
         let mut state = self.as_mut().rust_mut();
         match event {
             Event::Texts(texts) => state.texts = texts,
-            Event::Contacts(contacts) => state.contacts = contacts,
+            Event::Contacts(contacts) => {
+                state.names = contacts.into_iter().map(|(device, list)| (device, names(list))).collect();
+            }
             Event::TextReceived { device, address } => drop(state.unread.insert((device, address))),
             Event::Phone(id) => {
                 state.phone = id;
@@ -152,10 +170,14 @@ impl qobject::LinkMessages {
         let mut state = self.as_mut().rust_mut();
         let mut heads = state.heads();
         heads.sort_by_key(|text| (!state.is_unread(&text.address), std::cmp::Reverse(text.date)));
+        let query = state.query.to_string().trim().to_lowercase();
         let rows: Vec<Vec<QVariant>> = heads
             .iter()
-            .map(|head| {
-                let name = state.name_of(&head.address).unwrap_or_else(|| head.address.clone());
+            .map(|head| (head, state.name_of(&head.address).unwrap_or_else(|| head.address.clone())))
+            .filter(|(head, name)| {
+                query.is_empty() || format!("{name} {} {}", head.address, snippet(head)).to_lowercase().contains(&query)
+            })
+            .map(|(head, name)| {
                 let first = name.chars().next().unwrap_or('#');
                 let initial = if first.is_alphabetic() { first.to_uppercase().to_string() } else { "#".to_owned() };
                 let unread = state.is_unread(&head.address);
@@ -164,7 +186,7 @@ impl qobject::LinkMessages {
                     text(&name),
                     text(&head.address),
                     text(&initial),
-                    text(head.body.lines().next().unwrap_or_default()),
+                    text(snippet(head)),
                     text(&short_when(seconds(head.date))),
                     variant(&unread),
                     text(if unread { "Unread" } else { "Earlier" }),
@@ -214,6 +236,14 @@ impl qobject::LinkMessages {
         state.current_thread = thread;
         self.as_mut().current_thread_changed();
         self.refresh();
+    }
+
+    fn search(mut self: Pin<&mut Self>, query: QString) {
+        if self.query != query {
+            self.as_mut().rust_mut().query = query;
+            self.as_mut().query_changed();
+            self.refresh();
+        }
     }
 
     fn send(self: Pin<&mut Self>, body: &QString) {

@@ -50,6 +50,7 @@ pub mod qobject {
         #[base = QAbstractListModel]
         #[qml_element]
         #[qml_uncreatable]
+        #[qproperty(i32, count, READ, NOTIFY)]
         type ListModel = super::ListModelRust;
 
         #[qobject]
@@ -91,9 +92,13 @@ pub mod qobject {
         #[cxx_override]
         fn row_count(self: &ListModel, parent: &QModelIndex) -> i32;
         #[inherit]
-        fn begin_reset_model(self: Pin<&mut ListModel>);
+        fn begin_insert_rows(self: Pin<&mut ListModel>, parent: &QModelIndex, first: i32, last: i32);
         #[inherit]
-        fn end_reset_model(self: Pin<&mut ListModel>);
+        fn end_insert_rows(self: Pin<&mut ListModel>);
+        #[inherit]
+        fn begin_remove_rows(self: Pin<&mut ListModel>, parent: &QModelIndex, first: i32, last: i32);
+        #[inherit]
+        fn end_remove_rows(self: Pin<&mut ListModel>);
         #[inherit]
         fn index(self: &ListModel, row: i32, column: i32, parent: &QModelIndex) -> QModelIndex;
         #[inherit]

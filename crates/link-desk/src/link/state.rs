@@ -7,7 +7,7 @@ use cxx_qt_lib::{QList, QMap, QString, QUrl, QVariant};
 use super::qobject;
 use crate::client::{Event, Notification};
 use crate::format::{age_text, file_url, now, text, variant};
-use crate::history::{Direction, State};
+use crate::history::{Direction, History, State};
 use crate::hub;
 use crate::tray;
 
@@ -36,6 +36,29 @@ fn notification_rows(posted: &[(Notification, u64)], id: &str) -> Vec<Vec<QVaria
                 text(&notification.icon.as_ref().map(|path| file_url(&path.to_string_lossy())).unwrap_or_default()),
                 variant(&notification.actions.iter().any(|(_, _, reply)| *reply)),
             ]
+        })
+        .collect()
+}
+
+/// The three newest finished transfers and clips of one phone, for Home.
+fn recent_rows(history: &History, id: &str) -> Vec<Vec<QVariant>> {
+    history
+        .items
+        .iter()
+        .rev()
+        .filter(|item| item.device == id && item.state == State::Done)
+        .take(3)
+        .map(|item| {
+            let detail = match item.direction {
+                Direction::Received => "Received",
+                Direction::Sent => "Sent",
+                Direction::CopiedFrom => "Copied from phone",
+                Direction::CopiedTo => "Sent clipboard",
+                Direction::Saved => "Saved from phone",
+            };
+            let thumb =
+                if item.kind() == "photo" && !item.path.is_empty() { file_url(&item.path) } else { String::new() };
+            vec![text(&item.name), text(detail), text(&age_text(item.at)), text(&thumb), text(item.kind())]
         })
         .collect()
 }
@@ -124,25 +147,7 @@ impl qobject::Link {
         let player = state.players.get(&id).cloned();
 
         let notifications = notification_rows(&state.posted, &id);
-        let recent = state
-            .history
-            .items
-            .iter()
-            .rev()
-            .filter(|item| item.device == id && item.state == State::Done)
-            .map(|item| {
-                let detail = match item.direction {
-                    Direction::Received => "Received",
-                    Direction::Sent => "Sent",
-                    Direction::CopiedFrom => "Copied from phone",
-                    Direction::CopiedTo => "Sent clipboard",
-                    Direction::Saved => "Saved from phone",
-                };
-                let thumb =
-                    if item.kind() == "photo" && !item.path.is_empty() { file_url(&item.path) } else { String::new() };
-                vec![text(&item.name), text(detail), text(&age_text(item.at)), text(&thumb), text(item.kind())]
-            })
-            .collect();
+        let recent = recent_rows(&state.history, &id);
         if let Some(model) = state.notification_model.as_mut() {
             model.replace(notifications);
         }

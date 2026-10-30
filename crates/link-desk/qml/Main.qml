@@ -23,6 +23,7 @@ ApplicationWindow {
     readonly property bool home: page === 0 && !pairOpen
     readonly property bool narrow: width < 1100
     readonly property bool sheet: narrow && sheetOpen
+    readonly property int unreadCount: link ? link.notifications.count : 0
     readonly property string phoneName: sidebar.phone ? sidebar.phone.name : "Your phone"
 
     width: 1200
@@ -161,13 +162,13 @@ ApplicationWindow {
             x: stack.x + stack.width - 32 - width
             y: 16
             iconName: "bell"
-            text: "Notifications, " + unread.count
+            text: "Notifications, " + window.unreadCount
             onClicked: window.sheetOpen = !window.sheetOpen
             Label {
-                visible: unread.count > 0
+                visible: window.unreadCount > 0
                 x: parent.width - 14
                 y: -2
-                text: unread.count
+                text: window.unreadCount
                 font.pixelSize: Theme.meta
                 font.weight: Font.DemiBold
                 color: Theme.accText
@@ -176,7 +177,6 @@ ApplicationWindow {
                 background: Rectangle { radius: height / 2; color: Theme.acc }
             }
         }
-        Repeater { id: unread; model: window.link ? window.link.notifications : null; delegate: Item {} }
 
         Rectangle {
             anchors.fill: parent

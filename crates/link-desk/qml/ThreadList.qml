@@ -7,7 +7,6 @@ ColumnLayout {
     id: list
     required property var api
     property bool live: true
-    property alias query: search.text
     signal compose()
 
     spacing: 0
@@ -51,6 +50,7 @@ ColumnLayout {
         leftPadding: 40
         placeholderText: "Search texts"
         placeholderTextColor: Theme.t3
+        onTextChanged: list.api.query = text
         color: Theme.t1
         font.pixelSize: Theme.body
         background: Rectangle {
@@ -109,16 +109,11 @@ ColumnLayout {
             required property string snippet
             required property string timeText
             required property bool unread
-            readonly property bool match: {
-                const q = list.query.trim().toLowerCase()
-                return !q || (name + " " + address + " " + snippet).toLowerCase().indexOf(q) >= 0
-            }
             readonly property bool current: list.api.currentThread === thread
 
             x: 8
             width: ListView.view.width - 16
-            height: match ? 72 : 0
-            visible: match
+            height: 72
             leftPadding: 12
             rightPadding: 12
             text: name

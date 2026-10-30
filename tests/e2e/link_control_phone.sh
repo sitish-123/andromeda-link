@@ -32,6 +32,11 @@ install_app
 pair_phone "$HOST:$RELAY_PORT"
 phone_switches
 link SetGrant "'$ID'" "'input'" true > /dev/null
+# A desktop session that takes input, as link-session reports it; the phone offers the touchpad only then.
+python3 -c 'import dbus, time
+link = dbus.Interface(dbus.SessionBus().get_object("org.andromeda.Link1", "/org/andromeda/Link1"), "org.andromeda.Link1")
+link.SetSessionCapabilities(dbus.Array(["notifications", "input"], signature="s"))
+time.sleep(3600)' &
 link SetCommands "[('Touch the file', 'touch $RUNTIME/ran')]" > /dev/null
 record "{\"step\":\"paired\",\"device\":\"$ID\"}"
 

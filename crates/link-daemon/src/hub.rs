@@ -10,8 +10,8 @@ use link_core::identity::{DeviceId, Spki};
 use link_core::net;
 use link_core::proto::CloseCode;
 use link_core::proto::message::{
-    CAN_CONTROL, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE, FS_STAT,
-    Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
+    CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities, DesktopStatus, FEATURE,
+    FS_STAT, Hello, Hotspot, HotspotEnd, HotspotJoined, MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message,
     NotificationPosted, NotificationPull, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status,
     SystemCommand, SystemCommandKind, SystemResult, Text, TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect,
     WifiDirectReady,
@@ -965,8 +965,8 @@ impl Hub {
         self.publish();
         match feature {
             Feature::Commands => self.send_commands(id).await,
-            // Tells the phone whether it obeys this desktop's commands.
-            Feature::System => self.send_capabilities(id).await,
+            // Tells the phone whether it obeys this desktop's commands, or may send it input.
+            Feature::System | Feature::Input => self.send_capabilities(id).await,
             _ => {}
         }
         true
@@ -1016,6 +1016,10 @@ impl Hub {
     async fn send_capabilities(&self, id: &DeviceId) {
         if self.phone_has(id, CAPABILITIES) {
             let mut can = self.capabilities().to_vec();
+            // "input" means this phone may use it: the session takes input and the phone has the Input grant.
+            if !self.store.peer(id).is_some_and(|peer| peer.grants.input) {
+                can.retain(|entry| entry != CAN_INPUT);
+            }
             if self.phone_has(id, SYSTEM_CONTROL) && self.store.peer(id).is_some_and(|peer| peer.grants.system) {
                 can.push(CAN_CONTROL.to_owned());
             }

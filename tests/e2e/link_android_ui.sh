@@ -105,6 +105,7 @@ for mode in light dark; do
     CAN=notifications,clipboard,input,volume,lock,suspend,screen-off,brightness,dnd
     STATUS='{"volume": 62, "muted": false, "battery": 82, "charging": true, "brightness": 40, "locked": false, "dnd": true}'
     link SetGrant "$ID" system true > /dev/null
+    link SetGrant "$ID" input true > /dev/null
   else
     CAN=notifications,volume,lock,suspend,screen-off
     STATUS='{"volume": 30, "muted": false, "battery": 14, "charging": false, "locked": true, "dnd": false}'

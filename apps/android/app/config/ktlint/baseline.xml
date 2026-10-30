@@ -34,15 +34,15 @@
         <error line="510" column="13" source="standard:function-naming" />
         <error line="580" column="13" source="standard:function-naming" />
         <error line="651" column="13" source="standard:function-naming" />
-        <error line="746" column="13" source="standard:function-naming" />
-        <error line="750" column="5" source="compose:lambda-param-event-trailing" />
-        <error line="810" column="13" source="standard:function-naming" />
-        <error line="816" column="5" source="compose:lambda-param-event-trailing" />
-        <error line="851" column="13" source="standard:function-naming" />
-        <error line="851" column="13" source="compose:multiple-emitters-check" />
-        <error line="916" column="13" source="standard:function-naming" />
-        <error line="993" column="13" source="standard:function-naming" />
-        <error line="1012" column="13" source="standard:function-naming" />
+        <error line="770" column="13" source="standard:function-naming" />
+        <error line="774" column="5" source="compose:lambda-param-event-trailing" />
+        <error line="834" column="13" source="standard:function-naming" />
+        <error line="840" column="5" source="compose:lambda-param-event-trailing" />
+        <error line="875" column="13" source="standard:function-naming" />
+        <error line="875" column="13" source="compose:multiple-emitters-check" />
+        <error line="940" column="13" source="standard:function-naming" />
+        <error line="1017" column="13" source="standard:function-naming" />
+        <error line="1036" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/SettingsScreen.kt">
         <error line="69" column="5" source="standard:function-naming" />

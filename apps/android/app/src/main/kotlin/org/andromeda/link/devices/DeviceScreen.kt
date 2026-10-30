@@ -171,20 +171,31 @@ fun DeviceScreen(
                     )
                 }
                 val chevron = @Composable { Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.textTertiary) }
-                if (desktop.control && state.desktopCan(CAN_INPUT)) {
+                if (desktop.control) {
+                    val input = state.desktopCan(CAN_INPUT)
+                    val inputState =
+                        @Composable {
+                            if (input) {
+                                chevron()
+                            } else {
+                                Label(stringResource(R.string.device_not_allowed), LinkTheme.type.titleSmall, LinkTheme.colors.textTertiary)
+                            }
+                        }
                     PaperRow(
                         stringResource(R.string.remote_title),
                         subtitle = stringResource(R.string.device_touchpad_hint),
                         icon = LinkIcons.Touchpad,
+                        enabled = input,
                         onClick = onRemote,
-                        trailing = chevron,
+                        trailing = inputState,
                     )
                     PaperRow(
                         stringResource(R.string.presenter_title),
                         subtitle = stringResource(R.string.device_presenter_hint),
                         icon = LinkIcons.Presenter,
+                        enabled = input,
                         onClick = onPresenter,
-                        trailing = chevron,
+                        trailing = inputState,
                     )
                 }
                 if (desktop.control) {

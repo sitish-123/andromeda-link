@@ -660,6 +660,8 @@ private fun Controls(
     val desk = state.desk
     val can = desk.can(desktop.id).orEmpty()
     val granted = CAN_CONTROL in can
+    // As on the Device page: a desktop that does not list its capabilities hides nothing.
+    val input = desk.can(desktop.id)?.contains(CAN_INPUT) ?: true
     val live = desktop.connected
     val status = desk.statuses[desktop.id]
     val ringing = desktop.id in state.ringing
@@ -692,8 +694,8 @@ private fun Controls(
                     if (ringing) R.string.key_ringing else R.string.key_ring,
                     if (ringing) KeyState.On else shared(desktop.sharing.ring),
                 ) { viewModel.ring(desktop, !ringing) },
-                Key(LinkIcons.Touchpad, R.string.key_touchpad, shared(desktop.control)) { onRemote(desktop) },
-                Key(LinkIcons.Presenter, R.string.key_presenter, shared(desktop.control)) { onPresenter(desktop) },
+                Key(LinkIcons.Touchpad, R.string.key_touchpad, shared(desktop.control && input)) { onRemote(desktop) },
+                Key(LinkIcons.Presenter, R.string.key_presenter, shared(desktop.control && input)) { onPresenter(desktop) },
                 // A clip sent while the desktop is away waits for it, so Clipboard works offline too.
                 Key(LinkIcons.Clipboard, R.string.key_clipboard, shared(desktop.sharing.clipboard), offline = true, onClick = onClipboard),
                 system("dnd")?.let { allowed ->
@@ -721,12 +723,34 @@ private fun Controls(
                 }
             }
         }
-        if (!granted && can.any { it in SYSTEM_CAPABILITIES }) {
+        val controlOff = !granted && can.any { it in SYSTEM_CAPABILITIES }
+        val inputOff = desktop.control && !input
+        if (controlOff) {
             Label(
                 stringResource(R.string.home_control_off, desktop.name),
                 LinkTheme.type.bodyMedium,
                 LinkTheme.colors.textSecondary,
                 Modifier.padding(top = Space.s14),
+            )
+        }
+        if (inputOff) {
+            Label(
+                stringResource(R.string.home_input_off, desktop.name),
+                LinkTheme.type.bodyMedium,
+                LinkTheme.colors.textSecondary,
+                Modifier.padding(top = Space.s14),
+            )
+        }
+        if (controlOff || inputOff) {
+            Label(
+                stringResource(R.string.home_allow_on, desktop.name),
+                LinkTheme.type.titleSmall,
+                LinkTheme.colors.accentText,
+                Modifier
+                    .padding(top = Space.s4)
+                    .clip(Radius.button)
+                    .clickable(role = Role.Button) { onDesktop(desktop) }
+                    .padding(vertical = Space.s8),
             )
         }
     }

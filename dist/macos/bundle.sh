@@ -1,17 +1,19 @@
 #!/bin/bash
 # Builds "Andromeda Link.app" for macOS arm64 on Linux from a cross-built andromeda-link: Qt's frameworks, plugins
 # and QML go inside, then an ad-hoc signature. Needs llvm-objdump, llvm-install-name-tool and rcodesign.
-# Usage: bundle.sh BINARY [OUT.app]
+# Usage: bundle.sh BINARY_DIR [OUT.app]; BINARY_DIR holds andromeda-link, andromeda-linkd and andromeda-link-session.
 set -euo pipefail
-BIN=${1:?the macOS andromeda-link binary}
+BIN=${1:?the directory of the macOS binaries}
 APP=${2:-Andromeda Link.app}
 QT=${QT_MAC:-$HOME/.cache/qt-mac/6.12.0/macos}
 HERE=$(dirname "$(readlink -f "$0")")
 C=$APP/Contents
 
 rm -rf "$APP"
-mkdir -p "$C/MacOS" "$C/Frameworks" "$C/PlugIns" "$C/Resources/qml"
-cp "$BIN" "$C/MacOS/andromeda-link"
+mkdir -p "$C/MacOS" "$C/Frameworks" "$C/PlugIns" "$C/Resources/qml" "$C/Resources/LaunchAgents"
+cp "$BIN/andromeda-link" "$BIN/andromeda-linkd" "$BIN/andromeda-link-session" "$C/MacOS/"
+cp "$HERE"/org.andromeda.*.plist "$C/Resources/LaunchAgents/"
+cp "$HERE/install-agents.sh" "$C/Resources/"
 cp "$HERE/Info.plist" "$C/Info.plist"
 cp "$HERE/AppIcon.icns" "$C/Resources/AppIcon.icns"
 printf '[Paths]\nPlugins = PlugIns\nQmlImports = Resources/qml\n' > "$C/Resources/qt.conf"

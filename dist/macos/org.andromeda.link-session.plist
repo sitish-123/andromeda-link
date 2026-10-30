@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- link-session as a per-user launchd agent, in ~/Library/LaunchAgents: the desktop backends for the Link
+     service. It exits when the service stops, so launchd always restarts it. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.andromeda.link-session</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Applications/Andromeda Link.app/Contents/MacOS/andromeda-link-session</string>
+	</array>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

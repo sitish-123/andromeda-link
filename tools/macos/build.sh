@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cross-builds andromeda-link for macOS arm64 on Linux and bundles "Andromeda Link.app" into target/macos.
+# Cross-builds the Link app, service and link-session for macOS arm64 on Linux and bundles "Andromeda Link.app" into target/macos.
 # Needs: the xtool Darwin SDK (DARWIN_SDK), Qt for macOS of the host Qt's version (QT_MAC; `uvx --from aqtinstall
 # aqt install-qt mac desktop <version> clang_64 -m qtmultimedia`), clang, lld, the aarch64-apple-darwin Rust target.
 set -euo pipefail
@@ -39,5 +39,5 @@ chmod +x "$TOOLS"/cc "$TOOLS"/cxx "$TOOLS"/qmake "$TOOLS"/libexec/rcc
 
 export QMAKE=$TOOLS/qmake CC_aarch64_apple_darwin=$TOOLS/cc CXX_aarch64_apple_darwin=$TOOLS/cxx
 export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=$TOOLS/cc CARGO_TARGET_DIR=$OUT/cargo
-cargo build --release -p link-desk --target aarch64-apple-darwin --manifest-path "$ROOT/Cargo.toml"
-QT_MAC=$QT "$ROOT/dist/macos/bundle.sh" "$OUT/cargo/aarch64-apple-darwin/release/andromeda-link" "$OUT/Andromeda Link.app"
+cargo build --release -p link-desk -p link-daemon -p link-session --target aarch64-apple-darwin --manifest-path "$ROOT/Cargo.toml"
+QT_MAC=$QT "$ROOT/dist/macos/bundle.sh" "$OUT/cargo/aarch64-apple-darwin/release" "$OUT/Andromeda Link.app"

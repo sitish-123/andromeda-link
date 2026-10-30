@@ -102,6 +102,7 @@ import org.andromeda.link.ui.theme.LinkTheme
 import org.andromeda.link.ui.theme.Radius
 import org.andromeda.link.ui.theme.Size
 import org.andromeda.link.ui.theme.Space
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -582,12 +583,25 @@ private fun DragTrack(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     onDone: (Float) -> Unit = {},
+    onChange: ((Float) -> Unit)? = null,
     draw: @Composable (value: Float, dragging: Boolean) -> Unit,
 ) {
-    val done by rememberUpdatedState(onDone)
+    var pending by remember { mutableStateOf<Float?>(null) }
+    val done by rememberUpdatedState<(Float) -> Unit> {
+        pending = it
+        onDone(it)
+    }
+    val change by rememberUpdatedState(onChange)
     var dragging by remember { mutableStateOf<Float?>(null) }
+    var sentAt by remember { mutableLongStateOf(0L) }
     var width by remember { mutableIntStateOf(1) }
-    val shown = (dragging ?: value).coerceIn(0f, 1f)
+    // The set value stays shown until a report comes close to it, so an older report does not pull the track back.
+    LaunchedEffect(pending, value) {
+        val target = pending ?: return@LaunchedEffect
+        if (abs(value - target) > SETTLED) delay(SETTLE_MS)
+        pending = null
+    }
+    val shown = (dragging ?: pending ?: value).coerceIn(0f, 1f)
     val at = { x: Float -> (x / width).coerceIn(0f, 1f) }
     val input =
         if (enabled) {
@@ -601,7 +615,16 @@ private fun DragTrack(
                             dragging = null
                         },
                         onDragCancel = { dragging = null },
-                    ) { change, _ -> dragging = at(change.position.x) }
+                    ) { event, _ ->
+                        val now = at(event.position.x)
+                        dragging = now
+                        val send = change
+                        if (send != null && event.uptimeMillis - sentAt >= LIVE_MS) {
+                            sentAt = event.uptimeMillis
+                            pending = now
+                            send(now)
+                        }
+                    }
                 }
         } else {
             Modifier
@@ -805,6 +828,7 @@ private fun LevelSlider(
             .clip(shape)
             .background(colors.surfaceInput),
         onDone = { onSet((it * 100).roundToInt()) },
+        onChange = { onSet((it * 100).roundToInt()) },
     ) { value, _ ->
         Box(
             Modifier
@@ -1017,6 +1041,15 @@ private const val RECENT_ITEMS = 3
 
 /** Transfer statuses that are not a failure; the rest (failed, declined, no-space, ...) are. */
 private val DESKTOP_TILE = 64.dp
+
+/** A level slider sends at most this often while dragged, ms. */
+private const val LIVE_MS = 100L
+
+/** How close a report must come to the set value to count as caught up, as a fraction of the track. */
+private const val SETTLED = 0.02f
+
+/** How long the set value is shown when no report comes close to it, ms. */
+private const val SETTLE_MS = 1500L
 private val LIVE_STATUSES = setOf("offered", "transferring", "done")
 private const val LOW_BATTERY = 15
 private const val DISABLED = 0.45f

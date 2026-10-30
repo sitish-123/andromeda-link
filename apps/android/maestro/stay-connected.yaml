@@ -6,10 +6,11 @@ appId: org.andromeda.link
     permissions: { notifications: allow }
     stopApp: false
 - tapOn: "Settings tab"
+# The switch row under the "Stay connected" heading.
 - scrollUntilVisible:
-    element: "Stay connected"
+    element: "Keep the link open"
 - tapOn:
-    text: "Stay connected"
+    text: "Keep the link open"
 - takeScreenshot: ${OUT}/stay-connected-${STAY}
 - tapOn:
     text: "Home tab"

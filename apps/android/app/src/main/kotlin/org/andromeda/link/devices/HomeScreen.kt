@@ -234,7 +234,7 @@ fun HomeScreen(
     }
 }
 
-private fun Desktop.wire(reaching: Boolean): Wire =
+internal fun Desktop.wire(reaching: Boolean): Wire =
     when {
         connected && bluetooth -> Wire.Bluetooth
         connected -> Wire.WiFi
@@ -328,45 +328,6 @@ private fun HomeHeader(
     }
     if (!desktop.connected) {
         PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !state.refreshing)
-    }
-}
-
-/** The desktop as the line's top end: its transport as a readout, its name set large, and the one way forward. */
-@Composable
-internal fun DesktopHeader(
-    desktop: Desktop,
-    busy: Boolean = false,
-    onConnect: () -> Unit,
-    onOpen: (() -> Unit)?,
-) {
-    val colors = LinkTheme.colors
-    val readout =
-        when {
-            desktop.connected && desktop.bluetooth -> stringResource(R.string.readout_bluetooth)
-            desktop.connected -> stringResource(R.string.readout_wifi)
-            busy -> stringResource(R.string.readout_searching)
-            else -> stringResource(R.string.readout_offline, lastSeen(desktop.lastSeen))
-        }
-    Row(verticalAlignment = Alignment.Top) {
-        Column(Modifier.weight(1f)) {
-            Readout(readout, if (desktop.connected) colors.accentText else colors.textTertiary)
-            Label(desktop.name, LinkTheme.type.hero, modifier = Modifier.padding(top = Space.s8), maxLines = 2)
-        }
-        if (onOpen != null) {
-            val label = stringResource(R.string.desktop_open)
-            Box(
-                Modifier
-                    .size(Size.touch)
-                    .clip(Radius.pill)
-                    .border(1.dp, colors.borderPrimary, Radius.pill)
-                    .clickable(role = Role.Button, onClick = onOpen)
-                    .semantics { contentDescription = label },
-                contentAlignment = Alignment.Center,
-            ) { Glyph(Icons.Filled.Settings, colors.textSecondary, Size.icon - 4.dp) }
-        }
-    }
-    if (!desktop.connected) {
-        PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !busy)
     }
 }
 
@@ -1008,10 +969,9 @@ private fun MissingLine(
 }
 
 @Composable
-private fun lastSeen(unixSeconds: Long): String =
+internal fun lastSeen(unixSeconds: Long): String =
     if (unixSeconds <= 0) stringResource(R.string.last_seen_never) else DateUtils.getRelativeTimeSpanString(unixSeconds * 1000).toString()
 
-private const val CAN_CONTROL = "control"
 private val SYSTEM_CAPABILITIES = setOf("lock", "suspend", "screen-off", "brightness", "dnd", "volume")
 private const val KEYS_PER_ROW = 4
 private const val RECENT_ITEMS = 3

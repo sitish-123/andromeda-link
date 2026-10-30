@@ -175,9 +175,15 @@ fun LinkApp(
                         SettingsScreen(
                             home,
                             Grant.AutoClipboard in setup.granted,
+                            setup.missing,
                             openDesktop,
                             openPair,
                             openNotifications,
+                            {
+                                desktopId = null
+                                returnScreen = Screen.Settings
+                                screen = Screen.MirrorApps
+                            },
                             openSetup,
                             openClipboardSetup,
                         )

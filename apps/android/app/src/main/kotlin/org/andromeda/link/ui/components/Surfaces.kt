@@ -154,7 +154,7 @@ fun Screen(
     val colors = LinkTheme.colors
     Box(Modifier.fillMaxSize().background(background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            if (title != null) {
+            if (title != null || onBack != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Space.s8, vertical = Space.s8),
                     verticalAlignment = Alignment.CenterVertically,
@@ -172,7 +172,16 @@ fun Screen(
                     } else {
                         Box(Modifier.size(Space.s12))
                     }
-                    Label(title, LinkTheme.type.displaySmall, modifier = Modifier.weight(1f).padding(horizontal = Space.s4), maxLines = 1)
+                    if (title !=
+                        null
+                    ) {
+                        Label(
+                            title,
+                            LinkTheme.type.displaySmall,
+                            modifier = Modifier.weight(1f).padding(horizontal = Space.s4),
+                            maxLines = 1,
+                        )
+                    }
                     actions()
                 }
             }

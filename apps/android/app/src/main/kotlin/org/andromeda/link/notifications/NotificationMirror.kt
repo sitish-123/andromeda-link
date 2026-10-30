@@ -84,7 +84,17 @@ class NotificationMirror(
      * Whether desktops get the full text while the phone is locked; off, they get what the lock screen shows, and the
      * full text once the phone unlocks. On by default.
      */
-    private val fullWhileLocked get() = prefs.getBoolean(KEY_FULL_WHILE_LOCKED, true)
+    private val fullWhileLocked get() = _fullWhileLocked.value
+    private val _fullWhileLocked = MutableStateFlow(prefs.getBoolean(KEY_FULL_WHILE_LOCKED, true))
+
+    /** Settings' "Full content while locked" switch. */
+    val fullContentWhileLocked: StateFlow<Boolean> = _fullWhileLocked.asStateFlow()
+
+    fun setFullContentWhileLocked(on: Boolean) {
+        prefs.edit { putBoolean(KEY_FULL_WHILE_LOCKED, on) }
+        _fullWhileLocked.value = on
+        resync()
+    }
 
     fun start() {
         scope.launch { repository.notificationCommands.collect(::run) }

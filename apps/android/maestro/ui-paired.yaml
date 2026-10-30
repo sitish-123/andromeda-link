@@ -51,11 +51,11 @@ appId: org.andromeda.link
 - waitForAnimationToEnd
 - tapOn: "Features and pairing"
 - extendedWaitUntil:
-    visible: "Shared with this desktop"
+    visible: "What .* can do on this phone"
     timeout: 10000
 - takeScreenshot: ${OUT}/${THEME}-device
 - scrollUntilVisible:
-    element: "Screen & storage access"
+    element: "Unpair .*"
 - takeScreenshot: ${OUT}/${THEME}-device-advanced
 - scrollUntilVisible:
     element: "Choose which apps"

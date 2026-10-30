@@ -39,11 +39,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -52,6 +55,7 @@ import org.andromeda.link.ui.theme.Motion
 import org.andromeda.link.ui.theme.Radius
 import org.andromeda.link.ui.theme.Size
 import org.andromeda.link.ui.theme.Space
+import androidx.compose.ui.geometry.Size as Size2
 import androidx.compose.ui.graphics.drawscope.rotate as turned
 
 enum class PillKind { Filled, Tonal, Quiet, Destructive }
@@ -232,6 +236,89 @@ fun NavRow(
         Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, LinkTheme.colors.textTertiary)
     }
 }
+
+/**
+ * A row on paper (DESIGN.md, Device page and Settings): a plain glyph, a title and an optional line, and [trailing].
+ * [divided] draws the hairline above it, inset to the text. A row with [onToggle] is a switch; with [onClick], a button.
+ */
+@Composable
+fun PaperRow(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    leading: (@Composable () -> Unit)? = null,
+    divided: Boolean = true,
+    enabled: Boolean = true,
+    checked: Boolean? = null,
+    onToggle: ((Boolean) -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable () -> Unit = {},
+) {
+    val colors = LinkTheme.colors
+    val action =
+        when {
+            checked != null && onToggle != null ->
+                Modifier.toggleable(
+                    checked,
+                    enabled = enabled,
+                    role = Role.Switch,
+                    onValueChange = onToggle,
+                )
+            onClick != null -> Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            // A row with only a state word reads as one item.
+            else -> Modifier.semantics(mergeDescendants = true) {}
+        }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = Size.touchLarge)
+            .drawBehind {
+                if (divided) {
+                    drawRect(
+                        colors.borderSecondary,
+                        Offset(PAPER_INSET.toPx(), 0f),
+                        Size2(size.width - PAPER_INSET.toPx(), 1.dp.toPx()),
+                    )
+                }
+            }.then(action)
+            .padding(vertical = Space.s12),
+        horizontalArrangement = Arrangement.spacedBy(Space.s14),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(22.dp), contentAlignment = Alignment.Center) {
+            if (leading != null) {
+                leading()
+            } else if (icon != null) {
+                Glyph(icon, if (enabled) colors.textSecondary else colors.textDisabled, Size.icon - 4.dp)
+            }
+        }
+        Column(Modifier.weight(1f)) {
+            Label(title, LinkTheme.type.titleMedium, if (enabled) colors.textPrimary else colors.textDisabled)
+            if (subtitle != null) Label(subtitle, LinkTheme.type.bodyMedium, colors.textSecondary)
+        }
+        if (checked != null) PillSwitch(checked) else trailing()
+    }
+}
+
+/** A section heading on paper: sentence case, 30 dp above. */
+@Composable
+fun PaperHeading(
+    text: String,
+    modifier: Modifier = Modifier,
+    trailing: String? = null,
+) {
+    Row(
+        modifier.fillMaxWidth().padding(top = Space.s28, bottom = Space.s4).semantics(mergeDescendants = true) { heading() },
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Label(text, LinkTheme.type.titleMedium, modifier = Modifier.weight(1f))
+        if (trailing != null) Label(trailing, LinkTheme.type.bodyMedium, LinkTheme.colors.textSecondary)
+    }
+}
+
+/** The glyph column plus the gap: where a row's text starts, and where its hairline begins. */
+private val PAPER_INSET = 36.dp
 
 /** A 36 dp disc holding a glyph, lifted off its group by the page color. */
 @Composable

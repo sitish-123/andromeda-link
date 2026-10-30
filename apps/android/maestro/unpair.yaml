@@ -11,8 +11,8 @@ appId: org.andromeda.link
     direction: UP
 - tapOn: "Features and pairing"
 - scrollUntilVisible:
-    element: "Unpair"
-- tapOn: "Unpair"
+    element: "Unpair .*"
+- tapOn: "Unpair .*"
 - extendedWaitUntil:
     visible: "Unpair desktop\\?"
     timeout: 5000

@@ -19,6 +19,9 @@ const val CAN_CLIPBOARD = "clipboard"
 const val CAN_INPUT = "input"
 const val CAN_NOTIFICATIONS = "notifications"
 
+/** The desktop granted this phone Control system: volume, brightness, lock, sleep, screen off, DND. */
+const val CAN_CONTROL = "control"
+
 data class DeviceState(
     val desktop: Desktop? = null,
     val busy: Boolean = false,

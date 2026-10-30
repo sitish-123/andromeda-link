@@ -62,6 +62,12 @@ data class DeskState(
     fun can(desktopId: String): Set<String>? = capabilities[desktopId]
 }
 
+data class NotificationPrefs(
+    val excluded: Int = 0,
+    val lowImportance: Int = 0,
+    val fullWhileLocked: Boolean = true,
+)
+
 sealed interface HomeMessage {
     data class Paired(
         val name: String,
@@ -93,7 +99,7 @@ sealed interface HomeMessage {
 class HomeViewModel(
     private val repository: LinkRepository,
     private val presence: Presence,
-    mirror: NotificationMirror,
+    private val mirror: NotificationMirror,
     private val clipboard: ClipboardSync,
 ) : ViewModel() {
     private val refreshing = MutableStateFlow(false)
@@ -122,6 +128,14 @@ class HomeViewModel(
             .combine(repository.activeTransfers) { state, transfers -> state.copy(activeTransfers = transfers.size) }
             .combine(desk) { state, desk -> state.copy(desk = desk) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeState())
+
+    /** Settings' notification rows: apps left out, apps whose quiet notifications go too, and the locked switch. */
+    val notificationPrefs: StateFlow<NotificationPrefs> =
+        combine(mirror.excluded, mirror.lowImportance, mirror.fullContentWhileLocked) { excluded, low, full ->
+            NotificationPrefs(excluded.size, low.size, full)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), NotificationPrefs())
+
+    fun setFullContentWhileLocked(on: Boolean) = mirror.setFullContentWhileLocked(on)
 
     /** "Clear synced clips after 2 minutes"; off by default. */
     val clearsSynced: StateFlow<Boolean> = _clearsSynced.asStateFlow()

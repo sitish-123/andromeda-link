@@ -9,6 +9,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
@@ -40,6 +41,13 @@ class ClipboardWatcher(
         // Shizuku's binder arrives after the app starts, and its grant comes later still; either moves logcat to it.
         Shizuku.addBinderReceivedListenerSticky(::restartOnShizuku)
         Shizuku.addRequestPermissionResultListener { _, _ -> restartOnShizuku() }
+        scope.launch {
+            LogAccess.method.drop(1).collect {
+                if (!wanted) return@collect
+                stop()
+                start()
+            }
+        }
     }
 
     private fun restartOnShizuku() {

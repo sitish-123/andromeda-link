@@ -47,6 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.andromeda.link.R
+import org.andromeda.link.clipboard.LogAccess
 import org.andromeda.link.core.domain.Desktop
 import org.andromeda.link.onboarding.Grant
 import org.andromeda.link.ui.components.Glyph
@@ -76,6 +77,9 @@ fun SettingsScreen(
     onMirrorApps: () -> Unit,
     onSetup: () -> Unit,
     onClipboardSetup: () -> Unit,
+    /** The log access method sheet; open, the app hides its tab bar as for Home's picker. */
+    methodSheet: Boolean,
+    onMethodSheet: (Boolean) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val clearsSynced by viewModel.clearsSynced.collectAsStateWithLifecycle()
@@ -93,16 +97,31 @@ fun SettingsScreen(
                 .orEmpty()
         }
     var logs by remember { mutableStateOf(false) }
+    val logMethod by LogAccess.method.collectAsStateWithLifecycle()
+    var methods by remember { mutableStateOf(logMethods(context)) }
     // Read again on resume: the grant comes from adb, Shizuku or root while Link is in the background.
-    LifecycleResumeEffect(Unit) {
+    LifecycleResumeEffect(logMethod) {
         logs = context.checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
+        methods = logMethods(context)
         onPauseOrDispose {}
     }
     val chevron = @Composable { Glyph(Icons.AutoMirrored.Filled.KeyboardArrowRight, colors.textTertiary) }
     val stateWord = @Composable { on: Boolean, onText: Int, offText: Int ->
         Label(stringResource(if (on) onText else offText), LinkTheme.type.titleSmall, if (on) colors.success else colors.warning)
     }
-    Screen(null) {
+    Screen(
+        null,
+        overlay = {
+            LogAccessSheet(
+                methodSheet,
+                logMethod,
+                methods,
+                { LogAccess.choose(context, it) },
+                onClipboardSetup,
+                { onMethodSheet(false) },
+            )
+        },
+    ) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.page)) {
             Label(stringResource(R.string.settings_title), LinkTheme.type.displayLarge, modifier = Modifier.padding(top = Space.s16))
 
@@ -243,6 +262,25 @@ fun SettingsScreen(
                 { setAppTheme(context, AppTheme.entries[it]) },
                 Modifier.padding(top = Space.s8),
             )
+
+            PaperHeading(stringResource(R.string.settings_advanced))
+            PaperRow(
+                stringResource(R.string.log_method),
+                subtitle = stringResource(R.string.log_method_hint),
+                icon = Icons.Filled.Lock,
+                divided = false,
+                onClick = { onMethodSheet(true) },
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val inUse = methods.inUse
+                    if (inUse == null) {
+                        Label(stringResource(R.string.settings_set_up), LinkTheme.type.titleSmall, colors.warning)
+                    } else {
+                        Label(stringResource(inUse.title()), LinkTheme.type.titleSmall, colors.textSecondary)
+                    }
+                    chevron()
+                }
+            }
 
             PaperHeading(stringResource(R.string.settings_diagnostics))
             PaperRow(

@@ -65,6 +65,7 @@ fun LinkApp(
     onLinkHandled: () -> Unit,
 ) {
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
+    var methodSheet by rememberSaveable { mutableStateOf(false) }
     var returnScreen by rememberSaveable { mutableStateOf(Screen.Home) }
     var desktopId by rememberSaveable { mutableStateOf<String?>(null) }
     var setupStart by rememberSaveable { mutableStateOf<Grant?>(null) }
@@ -182,6 +183,8 @@ fun LinkApp(
                             openNotifications,
                             openSetup,
                             openClipboardSetup,
+                            methodSheet,
+                            { methodSheet = it },
                         )
                     Screen.Device ->
                         desktopId?.let { id ->
@@ -237,7 +240,7 @@ fun LinkApp(
                 }
             }
         }
-        if (screen in rootScreens && !pick.open) {
+        if (screen in rootScreens && !pick.open && !(screen == Screen.Settings && methodSheet)) {
             PillNav(
                 rootScreens.indexOf(screen),
                 listOf(

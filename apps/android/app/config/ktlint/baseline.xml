@@ -45,10 +45,10 @@
         <error line="1012" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/SettingsScreen.kt">
-        <error line="68" column="5" source="standard:function-naming" />
-        <error line="68" column="5" source="compose:modifier-missing-check" />
-        <error line="269" column="13" source="standard:function-naming" />
-        <error line="282" column="13" source="standard:function-naming" />
+        <error line="69" column="5" source="standard:function-naming" />
+        <error line="69" column="5" source="compose:modifier-missing-check" />
+        <error line="307" column="13" source="standard:function-naming" />
+        <error line="320" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/files/PickerSheet.kt">
         <error line="80" column="14" source="standard:function-naming" />
@@ -130,12 +130,12 @@
         <error line="62" column="5" source="compose:modifier-missing-check" />
         <error line="65" column="5" source="compose:lambda-param-in-effect" />
         <error line="65" column="5" source="compose:parameter-naming" />
-        <error line="73" column="9" source="compose:vm-injection-check" />
         <error line="74" column="9" source="compose:vm-injection-check" />
         <error line="75" column="9" source="compose:vm-injection-check" />
         <error line="76" column="9" source="compose:vm-injection-check" />
         <error line="77" column="9" source="compose:vm-injection-check" />
-        <error line="198" column="33" source="compose:vm-injection-check" />
+        <error line="78" column="9" source="compose:vm-injection-check" />
+        <error line="201" column="33" source="compose:vm-injection-check" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/ui/components/Controls.kt">
         <error line="65" column="5" source="standard:function-naming" />

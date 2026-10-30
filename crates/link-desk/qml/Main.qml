@@ -53,6 +53,7 @@ ApplicationWindow {
     Connections {
         target: window.link
         function onFailed(message) { toast.show(message) }
+        function onRaiseRequested() { window.show(); window.raise(); window.requestActivate() }
     }
     Connections {
         target: window.photos
@@ -298,6 +299,69 @@ ApplicationWindow {
                 console.log("SHOT state " + state())
                 step = 4
                 save(["light-disconnected", "dark-disconnected"], () => Qt.quit())
+            }
+        }
+    }
+
+    // E2E hook: `--hold DIR` shows Home then Settings, light then dark, 4 s each, saving DIR/<page>-<theme>.png
+    // after 2 s and logging "HOLD page dark" at each start; it quits after the last.
+    Timer {
+        id: hold
+        property int n: -1
+        readonly property var steps: [[0, false], [0, true], [7, false], [7, true]]
+        running: Qt.application.arguments.indexOf("--hold") > 0 && window.link !== null
+        interval: 200
+        repeat: true
+        onTriggered: {
+            const l = window.link
+            if (n < 0) {
+                if (!listening && l.serviceRunning) { listening = true; console.log("HOLD listening") }
+                if (l.connected && l.hasPlayer && l.notifications.rowCount() >= 3) { n = 0; next() }
+            } else if (++ticks >= 20) {
+                ticks = 0
+                ++n < steps.length ? next() : Qt.quit()
+            }
+        }
+        property int ticks: 0
+        property bool listening: false
+        function next() {
+            window.page = steps[n][0]
+            Theme.dark = steps[n][1]
+            console.log("HOLD " + steps[n][0] + " " + steps[n][1])
+            const name = (steps[n][0] === 0 ? "home-" : "settings-") + (steps[n][1] ? "dark" : "light")
+            holdSave.name = name
+            holdSave.restart()
+        }
+    }
+
+    Timer {
+        id: holdSave
+        property string name
+        interval: 2000
+        onTriggered: body.grabToImage(r => {
+            r.saveToFile(Qt.application.arguments[Qt.application.arguments.indexOf("--hold") + 1] + "/gnome-" + name + ".png")
+            console.log("HOLD saved " + name)
+        })
+    }
+
+    // E2E hook: `--service-test` logs each stage of: service up and phone connected, service stopped, then
+    // startService() and the phone connected again.
+    Timer {
+        id: serviceTest
+        property string stage: "up"
+        property bool asked: false
+        running: Qt.application.arguments.indexOf("--service-test") > 0 && window.link !== null
+        interval: 200
+        repeat: true
+        onTriggered: {
+            const l = window.link
+            const now = "serviceRunning " + l.serviceRunning + " connected " + l.connected
+            if (stage === "up" && l.serviceRunning && l.connected) {
+                console.log("SVC up " + now); stage = "down"
+            } else if (stage === "down" && !l.serviceRunning) {
+                console.log("SVC down " + now); stage = "back"; l.startService()
+            } else if (stage === "back" && l.serviceRunning && l.connected) {
+                console.log("SVC back " + now); Qt.quit()
             }
         }
     }

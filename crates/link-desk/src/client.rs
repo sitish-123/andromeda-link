@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use link_api::{Link1Proxy, SERVICE};
+use link_api::{Link1Proxy, QuickShareProxy, SERVICE};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 pub use signals::cache;
@@ -99,6 +99,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
         return Err(zbus::Error::Failure("the service is not running".into()));
     }
     let proxy = Link1Proxy::new(&bus).await?;
+    let quick_share = QuickShareProxy::new(&bus).await?;
     let mut owner = names.receive_name_owner_changed().await?;
     for name in names.list_names().await? {
         if name.starts_with(PLAYER_PREFIX) {
@@ -107,7 +108,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     }
     proxy.devices().await?;
     let _ = events.send(Event::Service(true));
-    snapshot(&proxy, events).await?;
+    snapshot(&proxy, &quick_share, events).await?;
 
     let mut devices = proxy.receive_devices_changed().await;
     let mut info = proxy.receive_device_info_changed().await;
@@ -116,6 +117,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     let mut grants = proxy.receive_grants_changed().await;
     let mut auto_accept = proxy.receive_auto_accept_changed().await;
     let mut local_send = proxy.receive_local_send_visible_changed().await;
+    let mut quick_share_visible = quick_share.receive_visible_changed().await;
     let mut notify_locked = proxy.receive_notifications_while_locked_changed().await;
     let mut notifications_off = proxy.receive_notifications_off_changed().await;
     let mut stored = proxy.receive_commands_changed().await;
@@ -131,6 +133,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
             Some(change) = grants.next() => drop(events.send(Event::Grants(change.get().await?))),
             Some(change) = auto_accept.next() => drop(events.send(Event::AutoAccept(change.get().await?))),
             Some(change) = local_send.next() => drop(events.send(Event::LocalSend(change.get().await?))),
+            Some(change) = quick_share_visible.next() => drop(events.send(Event::QuickShare(change.get().await?))),
             Some(change) = notify_locked.next() => drop(events.send(Event::NotifyLocked(change.get().await?))),
             Some(change) = notifications_off.next() => {
                 drop(events.send(Event::NotificationsOff(change.get().await?)));
@@ -157,9 +160,13 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
                 }
             }
             command = commands.recv() => match command {
-                Some(Command::Resync) => snapshot(&proxy, events).await?,
+                Some(Command::Resync) => snapshot(&proxy, &quick_share, events).await?,
                 Some(command) => {
-                    if let Err(error) = execute::execute(&proxy, events, command).await {
+                    let result = match command {
+                        Command::SetQuickShare(on) => quick_share.set_visible(on).await,
+                        command => execute::execute(&proxy, events, command).await,
+                    };
+                    if let Err(error) = result {
                         let _ = events.send(Event::Failed(error.to_string()));
                     }
                 }
@@ -170,7 +177,11 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
 }
 
 /// Sends every property the pages show.
-async fn snapshot(proxy: &Link1Proxy<'static>, events: &UnboundedSender<Event>) -> zbus::Result<()> {
+async fn snapshot(
+    proxy: &Link1Proxy<'static>,
+    quick_share: &QuickShareProxy<'static>,
+    events: &UnboundedSender<Event>,
+) -> zbus::Result<()> {
     send_devices(events, proxy.devices().await?);
     send_info(events, proxy.device_info().await.unwrap_or_default());
     send_status(events, proxy.device_status().await.unwrap_or_default());
@@ -178,6 +189,7 @@ async fn snapshot(proxy: &Link1Proxy<'static>, events: &UnboundedSender<Event>) 
     let _ = events.send(Event::Grants(proxy.grants().await?));
     let _ = events.send(Event::AutoAccept(proxy.auto_accept().await?));
     let _ = events.send(Event::LocalSend(proxy.local_send_visible().await?));
+    let _ = events.send(Event::QuickShare(quick_share.visible().await?));
     let _ = events.send(Event::NotifyLocked(proxy.notifications_while_locked().await?));
     let _ = events.send(Event::NotificationsOff(proxy.notifications_off().await?));
     let _ = events.send(Event::Commands(proxy.commands().await?));

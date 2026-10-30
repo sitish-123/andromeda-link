@@ -57,7 +57,7 @@ pub(super) async fn execute(
                 PlayerAction::SetVolume(volume) => player.set_property("Volume", volume).await.map_err(Into::into),
             }
         }
-        Command::StartService | Command::Resync => Ok(()),
+        Command::StartService | Command::Resync | Command::SetQuickShare(_) => Ok(()),
         Command::Accept(transfer) => proxy.accept_transfer(&transfer).await,
         Command::Decline(transfer) => proxy.decline_transfer(&transfer).await,
         Command::Cancel(transfer) => proxy.cancel_transfer(&transfer).await,

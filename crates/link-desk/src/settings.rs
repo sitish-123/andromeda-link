@@ -30,6 +30,7 @@ pub mod qobject {
         #[qproperty(QMap_QString_QVariant, grants)]
         #[qproperty(QStringList, auto_accept, READ, NOTIFY)]
         #[qproperty(bool, local_send_visible, READ, NOTIFY)]
+        #[qproperty(bool, quick_share_visible, READ, NOTIFY)]
         #[qproperty(bool, notifications_while_locked, READ, NOTIFY)]
         #[qproperty(QStringList, notifications_off)]
         #[qproperty(QList_QVariant, commands, READ, NOTIFY)]
@@ -44,6 +45,8 @@ pub mod qobject {
         fn set_auto_accept(self: Pin<&mut LinkSettings>, id: &QString, on: bool);
         #[qinvokable]
         fn set_local_send_visible(self: Pin<&mut LinkSettings>, on: bool);
+        #[qinvokable]
+        fn set_quick_share_visible(self: Pin<&mut LinkSettings>, on: bool);
         #[qinvokable]
         fn set_notifications_while_locked(self: Pin<&mut LinkSettings>, on: bool);
         #[qinvokable]
@@ -61,6 +64,7 @@ pub struct SettingsRust {
     grants: QMap<QMapPair_QString_QVariant>,
     auto_accept: QStringList,
     local_send_visible: bool,
+    quick_share_visible: bool,
     notifications_while_locked: bool,
     notifications_off: QStringList,
     commands: QList<QVariant>,
@@ -79,6 +83,7 @@ impl cxx_qt::Initialize for qobject::LinkSettings {
                 Event::Grants(_)
                     | Event::AutoAccept(_)
                     | Event::LocalSend(_)
+                    | Event::QuickShare(_)
                     | Event::NotifyLocked(_)
                     | Event::NotificationsOff(_)
                     | Event::Commands(_)
@@ -107,6 +112,10 @@ impl qobject::LinkSettings {
             Event::LocalSend(on) => {
                 self.as_mut().rust_mut().local_send_visible = on;
                 self.as_mut().local_send_visible_changed();
+            }
+            Event::QuickShare(on) => {
+                self.as_mut().rust_mut().quick_share_visible = on;
+                self.as_mut().quick_share_visible_changed();
             }
             Event::NotifyLocked(on) => {
                 self.as_mut().rust_mut().notifications_while_locked = on;
@@ -139,6 +148,10 @@ impl qobject::LinkSettings {
 
     fn set_local_send_visible(self: Pin<&mut Self>, on: bool) {
         hub::send(Command::SetLocalSend(on));
+    }
+
+    fn set_quick_share_visible(self: Pin<&mut Self>, on: bool) {
+        hub::send(Command::SetQuickShare(on));
     }
 
     fn set_notifications_while_locked(self: Pin<&mut Self>, on: bool) {

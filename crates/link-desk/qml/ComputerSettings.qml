@@ -90,6 +90,16 @@ ColumnLayout {
             spacing: 0
             Heading { text: "Discovery" }
             SettingRow {
+                title: "Quick Share"
+                text: "Visible to nearby Android devices"
+                LinkSwitch {
+                    checkable: false
+                    checked: tab.api.quickShareVisible
+                    text: "Quick Share"
+                    onClicked: tab.api.setQuickShareVisible(!checked)
+                }
+            }
+            SettingRow {
                 divider: false
                 title: "LocalSend"
                 text: "Receive from LocalSend on this network"

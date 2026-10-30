@@ -8,6 +8,7 @@ QtObject {
     })
     property var autoAccept: ["op12"]
     property bool localSendVisible: true
+    property bool quickShareVisible: false
     property bool notificationsWhileLocked: false
     property var notificationsOff: []
     property var commands: [
@@ -23,6 +24,7 @@ QtObject {
     }
     function setAutoAccept(id, on) { autoAccept = on ? autoAccept.concat([id]) : autoAccept.filter(p => p !== id) }
     function setLocalSendVisible(on) { localSendVisible = on }
+    function setQuickShareVisible(on) { quickShareVisible = on }
     function setNotificationsWhileLocked(on) { notificationsWhileLocked = on }
     function setCommands(list) { commands = list }
     function unpair(id) { console.log("unpair", id) }

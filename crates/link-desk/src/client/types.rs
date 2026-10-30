@@ -135,6 +135,7 @@ pub enum Event {
     Grants(HashMap<String, Vec<String>>),
     AutoAccept(Vec<String>),
     LocalSend(bool),
+    QuickShare(bool),
     NotifyLocked(bool),
     NotificationsOff(Vec<String>),
     /// (name, command line)
@@ -226,6 +227,7 @@ pub enum Command {
         enabled: bool,
     },
     SetLocalSend(bool),
+    SetQuickShare(bool),
     SetNotifyLocked(bool),
     SetCommands(Vec<(String, String)>),
     Unpair(String),

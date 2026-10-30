@@ -1,5 +1,5 @@
-//! The typed client of `org.andromeda.Link1`, generated from `api/org.andromeda.Link1.xml`: [`Link1Proxy`] and its
-//! signal streams. Clients use only this, never names copied from the XML.
+//! The typed client of `org.andromeda.Link1`, generated from `api/org.andromeda.Link1.xml`: [`Link1Proxy`],
+//! [`QuickShareProxy`] and their signal streams. Clients use only this, never names copied from the XML.
 
 use zbus::proxy;
 

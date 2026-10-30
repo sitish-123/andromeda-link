@@ -69,6 +69,19 @@ pub struct Text {
 }
 
 #[derive(Clone, Debug)]
+pub struct LoggedCall {
+    pub number: String,
+    /// Empty when the log has none.
+    pub name: String,
+    /// Unix milliseconds.
+    pub date: u64,
+    /// Seconds.
+    pub duration: u32,
+    /// incoming, outgoing, or missed.
+    pub kind: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct Entry {
     pub name: String,
     pub folder: bool,
@@ -150,6 +163,10 @@ pub enum Event {
         device: String,
         address: String,
     },
+    /// Device id to its calls, newest first.
+    Calls(HashMap<String, Vec<LoggedCall>>),
+    /// Device id to why its phone refused the call log.
+    CallsRefused(HashMap<String, String>),
     /// A folder on the phone, or the phone's reason it could not list it.
     Listed {
         device: String,
@@ -260,6 +277,10 @@ pub enum Command {
         device: String,
         to: String,
         body: String,
+    },
+    Dial {
+        device: String,
+        number: String,
     },
     Pair,
     CancelPairing,

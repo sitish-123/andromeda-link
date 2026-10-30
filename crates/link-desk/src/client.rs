@@ -16,7 +16,7 @@ pub use signals::cache;
 pub use types::*;
 
 use player::{PLAYER_PREFIX, watch_player};
-use signals::{send_controls, send_devices, send_info, send_status, send_texts, signal};
+use signals::{send_calls, send_controls, send_devices, send_info, send_status, send_texts, signal};
 
 static RUNTIME: OnceLock<tokio::runtime::Handle> = OnceLock::new();
 
@@ -123,6 +123,8 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     let mut stored = proxy.receive_commands_changed().await;
     let mut texts = proxy.receive_texts_changed().await;
     let mut contacts = proxy.receive_contacts_changed().await;
+    let mut calls = proxy.receive_calls_changed().await;
+    let mut calls_refused = proxy.receive_calls_refused_changed().await;
     let mut signals = proxy.inner().receive_all_signals().await?;
     loop {
         tokio::select! {
@@ -141,6 +143,8 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
             Some(change) = stored.next() => drop(events.send(Event::Commands(change.get().await?))),
             Some(change) = texts.next() => send_texts(events, change.get().await?),
             Some(change) = contacts.next() => drop(events.send(Event::Contacts(change.get().await?))),
+            Some(change) = calls.next() => send_calls(events, change.get().await?),
+            Some(change) = calls_refused.next() => drop(events.send(Event::CallsRefused(change.get().await?))),
             Some(message) = signals.next() => {
                 if let Some(event) = signal(message) {
                     let _ = events.send(event);
@@ -195,5 +199,7 @@ async fn snapshot(
     let _ = events.send(Event::Commands(proxy.commands().await?));
     send_texts(events, proxy.texts().await?);
     let _ = events.send(Event::Contacts(proxy.contacts().await?));
+    send_calls(events, proxy.calls().await.unwrap_or_default());
+    let _ = events.send(Event::CallsRefused(proxy.calls_refused().await.unwrap_or_default()));
     Ok(())
 }

@@ -4,7 +4,8 @@ use qt_build_utils::QResourceFile;
 /// Preview tools for the QML, kept out of the shipped module.
 const PREVIEW_ONLY: [&str; 2] = ["Preview.qml", "Shot.qml"];
 /// Bridges of the page singletons and the desktop helpers; cxx-qt takes bridges from one folder only.
-const PAGES: [&str; 8] = ["activity", "desktop", "files", "messages", "pairing", "photos", "screen", "settings"];
+const PAGES: [&str; 9] =
+    ["activity", "calls", "desktop", "files", "messages", "pairing", "photos", "screen", "settings"];
 const FONTS: &str = "../../apps/android/app/src/main/res/font";
 
 fn main() {

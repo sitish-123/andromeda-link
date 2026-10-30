@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::{Controls, Device, Event, Notification, Status, Text};
+use super::{Controls, Device, Event, LoggedCall, Notification, Status, Text};
 
 pub(super) fn send_devices(events: &UnboundedSender<Event>, devices: Vec<(String, String, bool)>) {
     let devices = devices.into_iter().map(|(id, name, connected)| Device { id, name, connected }).collect();
@@ -39,6 +39,23 @@ pub(super) fn send_controls(events: &UnboundedSender<Event>, controls: HashMap<S
         .map(|(id, (media_volume, ringer, dnd, _locked))| (id, Controls { media_volume, ringer, dnd }))
         .collect();
     let _ = events.send(Event::Controls(controls));
+}
+
+/// (number, name, date in Unix ms, duration in s, kind), as `Calls` gives each call.
+type RawCall = (String, String, u64, u32, String);
+
+pub(super) fn send_calls(events: &UnboundedSender<Event>, calls: HashMap<String, Vec<RawCall>>) {
+    let calls = calls
+        .into_iter()
+        .map(|(id, calls)| {
+            let calls = calls
+                .into_iter()
+                .map(|(number, name, date, duration, kind)| LoggedCall { number, name, date, duration, kind })
+                .collect();
+            (id, calls)
+        })
+        .collect();
+    let _ = events.send(Event::Calls(calls));
 }
 
 /// (id, thread, address, body, date in Unix ms, sent), as `Texts` gives each text.

@@ -72,6 +72,7 @@ pub(super) async fn execute(
         }
         Command::Unpair(device) => proxy.unpair(&device).await,
         Command::SendText { device, to, body } => proxy.send_text(&device, &to, &body).await,
+        Command::Dial { device, number } => proxy.dial(&device, &number).await,
         Command::Pair => {
             let (code, uri) = proxy.start_pairing().await?;
             let _ = events.send(Event::Pairing { code, uri });

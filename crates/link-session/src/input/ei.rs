@@ -107,6 +107,12 @@ impl Ei {
                 #[expect(clippy::cast_possible_truncation, reason = "libei takes f32 pixels")]
                 self.on::<ei::Pointer>(|pointer| pointer.motion_relative(dx as f32, dy as f32));
             }
+            Action::Point(point) => {
+                let (x, y, width, height) = point.rect;
+                let (x, y) = (f64::from(x) + point.x * f64::from(width), f64::from(y) + point.y * f64::from(height));
+                #[expect(clippy::cast_possible_truncation, reason = "libei takes f32 pixels")]
+                self.on::<ei::PointerAbsolute>(|pointer| pointer.motion_absolute(x as f32, y as f32));
+            }
             Action::Scroll(dx, dy) => {
                 #[expect(clippy::cast_possible_truncation, reason = "libei takes f32 pixels")]
                 self.on::<ei::Scroll>(|scroll| scroll.scroll(dx as f32, dy as f32));

@@ -10,8 +10,8 @@ use futures_util::StreamExt;
 use zbus::{ObjectPath, OwnedObjectPath, OwnedVariant};
 use zbus::{OwnedFd, Variant};
 
-const SERVICE: &str = "org.freedesktop.portal.Desktop";
-const PATH: &str = "/org/freedesktop/portal/desktop";
+pub const SERVICE: &str = "org.freedesktop.portal.Desktop";
+pub const PATH: &str = "/org/freedesktop/portal/desktop";
 const REMOTE_DESKTOP: &str = "org.freedesktop.portal.RemoteDesktop";
 pub const CLIPBOARD: &str = "org.freedesktop.portal.Clipboard";
 /// The portal's device types: keyboard and pointer.
@@ -111,12 +111,16 @@ async fn select_devices(
     Ok(())
 }
 
-fn token() -> String {
+pub fn token() -> String {
     format!("andromeda_link_{}_{}", std::process::id(), TOKENS.fetch_add(1, Ordering::Relaxed))
 }
 
 /// Runs `call` with a fresh `handle_token`, and returns the results of the Response its Request object sends.
-async fn request<C, F>(bus: &zbus::Connection, method: &str, call: C) -> anyhow::Result<HashMap<String, OwnedVariant>>
+pub async fn request<C, F>(
+    bus: &zbus::Connection,
+    method: &str,
+    call: C,
+) -> anyhow::Result<HashMap<String, OwnedVariant>>
 where
     C: FnOnce(String) -> F,
     F: Future<Output = zbus::Result<OwnedObjectPath>>,
@@ -137,17 +141,22 @@ where
     }
 }
 
-fn string(results: &HashMap<String, OwnedVariant>, key: &str) -> anyhow::Result<String> {
+pub fn string(results: &HashMap<String, OwnedVariant>, key: &str) -> anyhow::Result<String> {
     let value = results.get(key).with_context(|| format!("no {key} in the portal's answer"))?;
     Ok(String::try_from(value.clone())?)
 }
 
 fn token_path() -> PathBuf {
+    state_path("portal-restore-token")
+}
+
+/// A file of this service's own under `$XDG_STATE_HOME`.
+pub fn state_path(name: &str) -> PathBuf {
     let state = std::env::var_os("XDG_STATE_HOME").map_or_else(
         || PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state"),
         PathBuf::from,
     );
-    state.join("andromeda-link-session/portal-restore-token")
+    state.join("andromeda-link-session").join(name)
 }
 
 fn save_token(token: &str) {

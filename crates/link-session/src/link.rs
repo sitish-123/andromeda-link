@@ -80,6 +80,10 @@ impl Link {
         log_failure("SystemResult", self.proxy.system_result(device, serial, error.unwrap_or_default()).await);
     }
 
+    pub async fn stop_remote_control(&self, device: &str, reason: &str) {
+        log_failure("StopRemoteControl", self.proxy.stop_remote_control(device, reason).await);
+    }
+
     /// Tells the daemon what this session can do; it forgets them when this process leaves the bus.
     pub async fn report_capabilities(&self, capabilities: &[&str]) {
         log_failure("SetSessionCapabilities", self.proxy.set_session_capabilities(capabilities).await);

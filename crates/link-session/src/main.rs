@@ -7,6 +7,7 @@ mod input;
 mod link;
 mod notify;
 mod portal;
+mod screen;
 mod system;
 mod volume;
 
@@ -73,8 +74,7 @@ async fn system_command(
 }
 
 /// What this session can do, as `org.andromeda.Link1.SetSessionCapabilities` takes it.
-fn capabilities(clipboard: bool, input: bool, volume: bool, system: &system::System) -> Vec<&'static str> {
-    let optional = [(clipboard, "clipboard"), (input, "input"), (volume, "volume")];
+fn capabilities(optional: [(bool, &'static str); 4], system: &system::System) -> Vec<&'static str> {
     std::iter::once("notifications")
         .chain(optional.into_iter().filter(|(on, _)| *on).map(|(_, name)| name))
         .chain(system.capabilities())
@@ -146,6 +146,7 @@ async fn backends(bus: &zbus::Connection) -> (Option<clipboard::Backend>, Option
 }
 
 #[tokio::main(flavor = "current_thread")]
+#[expect(clippy::too_many_lines, reason = "one select arm per event source")]
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,zbus=warn,tracing=warn"))
         .format_timestamp(None)
@@ -161,6 +162,8 @@ async fn main() -> anyhow::Result<()> {
     let mut closed = notifications.proxy.receive_signal("NotificationClosed").await?;
     let mut clip_offered = link.proxy.receive_clipboard_offered().await?;
     let mut remote_input = link.proxy.receive_remote_input().await?;
+    let mut remote_requested = link.proxy.receive_remote_control_requested().await?;
+    let mut remote_stopped = link.proxy.receive_remote_control_stopped().await?;
     let mut system_commands = link.proxy.receive_system_command().await?;
     let mut terminate = signal(SignalKind::terminate())?;
     let mut daemon_owner = link.proxy.inner().receive_owner_changed().await?;
@@ -168,7 +171,16 @@ async fn main() -> anyhow::Result<()> {
     let (mut clipboard, mut input) = backends(&bus).await;
     let mut volume = attempt("WirePlumber volume", volume::Volume::connect().await);
     let mut system = system::System::connect(&bus).await;
-    let capabilities = capabilities(clipboard.is_some(), input.is_some(), volume.is_some(), &system);
+    // Remote control needs input too: the phone without it would only watch.
+    let screen = input.is_some() && screen::available(&bus).await;
+    let (screen_requests, screen_target) = screen::spawn(bus.clone(), link.clone());
+    let optional = [
+        (clipboard.is_some(), "clipboard"),
+        (input.is_some(), "input"),
+        (volume.is_some(), "volume"),
+        (screen, "screen"),
+    ];
+    let capabilities = capabilities(optional, &system);
     log::info!("can: {}", capabilities.join(", "));
     report(&link, &capabilities, volume.as_ref(), &system).await;
     // The phone clip the selection serves, as (device id, clip id).
@@ -223,12 +235,28 @@ async fn main() -> anyhow::Result<()> {
                 let Ok(args) = signal.args() else { continue };
                 let Some(backend) = input.as_mut() else { continue };
                 let action = args.action;
+                if action == "point" {
+                    match screen_target.point(args.dx, args.dy) {
+                        Some(point) => backend.run(input::Action::Point(point)).context("the input backend stopped")?,
+                        None => log::debug!("a point outside a shared monitor ignored"),
+                    }
+                    continue;
+                }
                 match input::Action::parse(action, args.dx, args.dy, args.detail.to_owned()) {
                     Some(action) => backend.run(action).context("the input backend stopped")?,
                     None => log::debug!("remote input {action} ignored"),
                 }
             }
             result = pump_input(&mut input) => result.context("the input backend stopped")?,
+            Some(signal) = remote_requested.next(), if screen => {
+                let Ok(args) = signal.args() else { continue };
+                let source = u32::try_from(args.source).ok();
+                drop(screen_requests.send(screen::Request::Show { device: args.device_id.to_owned(), source }));
+            }
+            Some(signal) = remote_stopped.next() => {
+                let Ok(args) = signal.args() else { continue };
+                drop(screen_requests.send(screen::Request::Stop { device: args.device_id.to_owned() }));
+            }
             Some(signal) = system_commands.next() => {
                 let Ok(args) = signal.args() else { continue };
                 let result = system_command(volume.as_ref(), &mut system, args.command, args.value).await;

@@ -55,6 +55,16 @@ impl X11 {
                 #[expect(clippy::cast_possible_truncation, reason = "a move from the phone is a few pixels")]
                 self.conn.xtest_fake_input(MOTION_NOTIFY_EVENT, 1, 0, NONE, dx as i16, dy as i16, 0)?;
             }
+            Action::Point(point) => {
+                let (x, y, width, height) = point.rect;
+                #[expect(clippy::cast_possible_truncation, reason = "a point on the screen")]
+                let (x, y) = (
+                    (f64::from(x) + point.x * f64::from(width)) as i16,
+                    (f64::from(y) + point.y * f64::from(height)) as i16,
+                );
+                let root = self.conn.setup().roots.first().map_or(NONE, |screen| screen.root);
+                self.conn.xtest_fake_input(MOTION_NOTIFY_EVENT, 0, 0, root, x, y, 0)?;
+            }
             Action::Scroll(dx, dy) => self.scroll(dx, dy)?,
             Action::Button { code, pressed } => self.button(code, pressed)?,
             Action::Click(code) => {

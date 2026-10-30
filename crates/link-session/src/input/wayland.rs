@@ -1,6 +1,7 @@
 //! Input through `wlr-virtual-pointer-unstable-v1` and `virtual-keyboard-unstable-v1` (Sway, Hyprland, niri, labwc,
 //! river, Wayfire, Andromeda).
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::os::fd::AsFd;
@@ -9,6 +10,7 @@ use std::time::Instant;
 use anyhow::Context;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_keyboard::{KeyState, KeymapFormat};
+use wayland_client::protocol::wl_output::{self, WlOutput};
 use wayland_client::protocol::wl_pointer::{Axis, AxisSource, ButtonState};
 use wayland_client::protocol::{wl_registry::WlRegistry, wl_seat::WlSeat};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
@@ -23,13 +25,24 @@ use super::{Action, keysym};
 const FIRST_KEYCODE: u32 = 9;
 /// Codes are recycled past this, since the keymap goes to every focused client.
 const MAX_KEYSYMS: usize = 200;
+/// An absolute motion's extent: a point is this many steps across its output.
+const EXTENT: u32 = 10_000;
 
-pub struct State;
+/// The outputs' names, as `wl_output` version 4 tells them, by the index each was bound with.
+#[derive(Default)]
+pub struct State {
+    names: HashMap<usize, String>,
+}
 
 pub struct Wayland {
     conn: Connection,
     _queue: EventQueue<State>,
+    qh: QueueHandle<State>,
+    seat: WlSeat,
+    pointers: ZwlrVirtualPointerManagerV1,
     pointer: ZwlrVirtualPointerV1,
+    /// Each named output, and the pointer bound to it once remote control pointed there.
+    outputs: HashMap<String, (WlOutput, Option<ZwlrVirtualPointerV1>)>,
     keyboard: ZwpVirtualKeyboardV1,
     /// The keysym behind each keycode from `FIRST_KEYCODE` on.
     keysyms: Vec<u32>,
@@ -43,14 +56,41 @@ impl Wayland {
             return Ok(None);
         }
         let conn = Connection::connect_to_env().context("connecting to the Wayland display")?;
-        let (globals, queue) = registry_queue_init::<State>(&conn)?;
+        let (globals, mut queue) = registry_queue_init::<State>(&conn)?;
         let qh = queue.handle();
         let Ok(seat) = globals.bind::<WlSeat, _, _>(&qh, 1..=1, ()) else { return Ok(None) };
-        let Ok(pointers) = globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=1, ()) else { return Ok(None) };
+        let Ok(pointers) = globals.bind::<ZwlrVirtualPointerManagerV1, _, _>(&qh, 1..=2, ()) else { return Ok(None) };
         let Ok(keyboards) = globals.bind::<ZwpVirtualKeyboardManagerV1, _, _>(&qh, 1..=1, ()) else { return Ok(None) };
         let pointer = pointers.create_virtual_pointer(Some(&seat), &qh, ());
         let keyboard = keyboards.create_virtual_keyboard(&seat, &qh, ());
-        let mut input = Self { conn, _queue: queue, pointer, keyboard, keysyms: Vec::new(), start: Instant::now() };
+        // Outputs bound now are enough: remote control points only at monitors the portal shared.
+        let bound: Vec<WlOutput> = globals
+            .contents()
+            .clone_list()
+            .into_iter()
+            .filter(|global| global.interface == WlOutput::interface().name && global.version >= 4)
+            .enumerate()
+            .map(|(index, global)| globals.registry().bind::<WlOutput, _, _>(global.name, 4, &qh, index))
+            .collect();
+        let mut state = State::default();
+        queue.roundtrip(&mut state)?;
+        let outputs = bound
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, output)| Some((state.names.remove(&index)?, (output, None))))
+            .collect();
+        let mut input = Self {
+            conn,
+            _queue: queue,
+            qh,
+            seat,
+            pointers,
+            pointer,
+            outputs,
+            keyboard,
+            keysyms: Vec::new(),
+            start: Instant::now(),
+        };
         input.upload_keymap()?;
         input.conn.flush()?;
         Ok(Some(input))
@@ -63,6 +103,7 @@ impl Wayland {
                 self.pointer.motion(time, dx, dy);
                 self.pointer.frame();
             }
+            Action::Point(point) => self.point(time, &point),
             Action::Scroll(dx, dy) => {
                 // Continuous, so no axis_stop is owed when the fingers lift.
                 self.pointer.axis_source(AxisSource::Continuous);
@@ -88,6 +129,26 @@ impl Wayland {
         }
         self.conn.flush()?;
         Ok(())
+    }
+
+    /// Absolute motion through a pointer bound to the point's output, which maps the extent onto that output alone.
+    fn point(&mut self, time: u32, point: &super::Point) {
+        let bindable = self.pointers.version() >= 2;
+        let Some((output, pointer)) =
+            point.output.as_ref().and_then(|name| self.outputs.get_mut(name)).filter(|_| bindable)
+        else {
+            return log::debug!("no output {:?} to point at", point.output);
+        };
+        let pointer = pointer.get_or_insert_with(|| {
+            self.pointers.create_virtual_pointer_with_output(Some(&self.seat), Some(output), &self.qh, ())
+        });
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "a fraction of the extent")]
+        let (x, y) = (
+            (point.x.clamp(0.0, 1.0) * f64::from(EXTENT)) as u32,
+            (point.y.clamp(0.0, 1.0) * f64::from(EXTENT)) as u32,
+        );
+        pointer.motion_absolute(time, x, y, EXTENT, EXTENT);
+        pointer.frame();
     }
 
     fn button(&self, time: u32, code: u32, pressed: bool) {
@@ -146,6 +207,9 @@ impl Wayland {
 impl Drop for Wayland {
     fn drop(&mut self) {
         self.pointer.destroy();
+        for pointer in self.outputs.values().filter_map(|(_, pointer)| pointer.as_ref()) {
+            pointer.destroy();
+        }
         self.keyboard.destroy();
         let _ = self.conn.flush();
     }
@@ -168,6 +232,21 @@ ignore_events!(
     ZwpVirtualKeyboardManagerV1,
     ZwpVirtualKeyboardV1
 );
+
+impl Dispatch<WlOutput, usize> for State {
+    fn event(
+        state: &mut Self,
+        _: &WlOutput,
+        event: wl_output::Event,
+        index: &usize,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_output::Event::Name { name } = event {
+            state.names.insert(*index, name);
+        }
+    }
+}
 
 impl Dispatch<WlRegistry, GlobalListContents> for State {
     fn event(

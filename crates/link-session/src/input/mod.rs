@@ -71,9 +71,21 @@ const KEYS: [(&str, u32); 15] = [
     ("f5", 0xffc2),
 ];
 
+/// A place on a shared monitor, for remote control's direct touch.
+pub struct Point {
+    /// The monitor's output name, as the `ScreenCast` portal's `mapping_id`.
+    pub output: Option<String>,
+    /// The monitor's position and size in the layout, in logical pixels.
+    pub rect: (i32, i32, i32, i32),
+    /// Fractions of the monitor's width and height.
+    pub x: f64,
+    pub y: f64,
+}
+
 pub enum Action {
     /// Relative motion in logical pixels.
     Move(f64, f64),
+    Point(Point),
     Scroll(f64, f64),
     Button {
         code: u32,

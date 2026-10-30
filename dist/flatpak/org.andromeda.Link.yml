@@ -1,6 +1,7 @@
 # The Link app as a Flatpak, for releases whose Qt is older than 6.7 (Ubuntu 24.04). The daemon and the session stay
 # on the host (andromeda-link .deb); the app only talks to them over the session bus.
-# Local build (fetches crates over the network): flatpak run org.flatpak.Builder --user --install --force-clean \
+# Crates come from cargo-sources.json; after a Cargo.lock change run tools/flatpak-cargo-sources.py Cargo.lock
+# dist/flatpak/cargo-sources.json. Local build: flatpak run org.flatpak.Builder --user --install --force-clean \
 #   --disable-rofiles-fuse --state-dir ~/.cache/link-flatpak/state ~/.cache/link-flatpak/build dist/flatpak/org.andromeda.Link.yml
 id: org.andromeda.Link
 runtime: org.kde.Platform
@@ -25,15 +26,14 @@ modules:
     buildsystem: simple
     build-options:
       append-path: /usr/lib/sdk/rust-stable/bin
-      build-args:
-        - --share=network
       env:
         CARGO_HOME: /run/build/andromeda-link/cargo
     build-commands:
-      - cargo build --release --locked -p link-desk
+      - cargo build --release --offline --locked -p link-desk
       - install -Dm755 target/release/andromeda-link /app/bin/andromeda-link
       - install -Dm644 dist/org.andromeda.Link.desktop /app/share/applications/org.andromeda.Link.desktop
     sources:
+      - cargo-sources.json
       - type: dir
         path: ../..
         skip:

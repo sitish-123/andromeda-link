@@ -167,6 +167,13 @@ pub enum Event {
     Calls(HashMap<String, Vec<LoggedCall>>),
     /// Device id to why its phone refused the call log.
     CallsRefused(HashMap<String, String>),
+    /// Files copied into a folder on the phone, or one deleted from it: the folder changed.
+    PhoneChanged {
+        device: String,
+        folder: String,
+        /// The names copied in; empty for a delete.
+        copied: Vec<String>,
+    },
     /// A folder on the phone, or the phone's reason it could not list it.
     Listed {
         device: String,
@@ -224,6 +231,16 @@ pub enum Command {
     SendFiles {
         device: String,
         paths: Vec<PathBuf>,
+    },
+    /// Copies files into a folder on the phone, each under a free name.
+    CopyToPhone {
+        device: String,
+        folder: String,
+        paths: Vec<PathBuf>,
+    },
+    DeleteFile {
+        device: String,
+        path: String,
     },
     /// Offers this text as the desktop's clipboard to the phones holding the clipboard grant.
     OfferClipboard(String),

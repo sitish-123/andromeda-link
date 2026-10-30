@@ -13,6 +13,8 @@ use super::{Command, Entry, Event, PlayerAction};
 
 /// The `ReadFile` chunk, its largest allowed length.
 const CHUNK: u32 = 1 << 20;
+/// What one `WriteFile` takes.
+const WRITE_CHUNK: usize = 48 * 1024;
 
 /// The phone's reason from an `.Refused` error, else the error's text.
 fn reason(error: &zbus::Error) -> String {
@@ -22,6 +24,7 @@ fn reason(error: &zbus::Error) -> String {
     }
 }
 
+#[expect(clippy::too_many_lines, reason = "one arm per command")]
 pub(super) async fn execute(
     proxy: &Link1Proxy<'static>,
     events: &UnboundedSender<Event>,
@@ -105,6 +108,16 @@ pub(super) async fn execute(
                 let file = thumbnail(&proxy, &device, &path, size).await;
                 let _ = events.send(Event::Thumbnail { device, path, file });
             });
+            Ok(())
+        }
+        Command::CopyToPhone { device, folder, paths } => {
+            copy_files(proxy, events, device, folder, paths);
+            Ok(())
+        }
+        Command::DeleteFile { device, path } => {
+            proxy.delete_file(&device, &path).await?;
+            let folder = path.rsplit_once('/').map_or("/", |(folder, _)| if folder.is_empty() { "/" } else { folder });
+            let _ = events.send(Event::PhoneChanged { device, folder: folder.to_owned(), copied: Vec::new() });
             Ok(())
         }
         Command::Fetch { device, paths, folder, page, purpose } => {
@@ -226,6 +239,67 @@ async fn save(proxy: &Link1Proxy<'_>, device: &str, path: &str, folder: &Path) -
     .and_then(|()| claim(folder, name, &partial).map_err(failure));
     let _ = std::fs::remove_file(&partial);
     copied
+}
+
+/// Copies files into a phone folder beside the loop, then says the folder changed.
+fn copy_files(
+    proxy: &Link1Proxy<'static>,
+    events: &UnboundedSender<Event>,
+    device: String,
+    folder: String,
+    paths: Vec<PathBuf>,
+) {
+    let (proxy, events) = (proxy.clone(), events.clone());
+    tokio::spawn(async move {
+        let mut copied = Vec::new();
+        for path in &paths {
+            match copy_to_phone(&proxy, &device, &folder, path).await {
+                Ok(name) => copied.push(name),
+                Err(error) => drop(events.send(Event::Failed(format!("{}: {}", path.display(), reason(&error))))),
+            }
+        }
+        let _ = events.send(Event::PhoneChanged { device, folder, copied });
+    });
+}
+
+/// Copies a local file into a phone folder under the first free name of "name", "name (2)", ...; returns that name.
+/// A copy that fails part way is deleted.
+async fn copy_to_phone(proxy: &Link1Proxy<'_>, device: &str, folder: &str, path: &Path) -> zbus::Result<String> {
+    use std::io::Read;
+    let failure = |error: std::io::Error| zbus::Error::Failure(error.to_string());
+    let mut file = File::open(path).map_err(failure)?;
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let (stem, extension) =
+        name.rsplit_once('.').map_or((name.as_str(), String::new()), |(stem, ext)| (stem, format!(".{ext}")));
+    let mut target = String::new();
+    for copy in 1..100 {
+        let candidate = if copy == 1 { name.clone() } else { format!("{stem} ({copy}){extension}") };
+        target = if folder == "/" { format!("/{candidate}") } else { format!("{folder}/{candidate}") };
+        match proxy.stat_file(device, &target).await {
+            Ok(_) => {}
+            Err(error) if reason(&error) == "not-found" => break,
+            Err(error) => return Err(error),
+        }
+    }
+    let mut buf = vec![0; WRITE_CHUNK];
+    let mut offset = 0;
+    let copied = async {
+        loop {
+            let read = file.read(&mut buf).map_err(failure)?;
+            if read == 0 && offset > 0 {
+                return Ok(());
+            }
+            offset = proxy.write_file(device, &target, offset, &buf[..read]).await?;
+            if read == 0 {
+                return Ok(());
+            }
+        }
+    }
+    .await;
+    if copied.is_err() && offset > 0 {
+        let _ = proxy.delete_file(device, &target).await;
+    }
+    copied.map(|()| target.rsplit('/').next().unwrap_or_default().to_owned())
 }
 
 /// Links `partial` to the first free name of "name", "name (2)", ...; a link fails rather than replace a file.

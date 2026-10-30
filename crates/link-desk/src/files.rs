@@ -5,7 +5,9 @@ use std::pin::Pin;
 
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
+use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QUrl, QVariant};
+
+use std::path::PathBuf;
 
 use crate::client::{Command, Entry, Event, Fetch};
 use crate::desktop;
@@ -22,6 +24,7 @@ pub mod qobject {
         type QStringList = cxx_qt_lib::QStringList;
         include!("cxx-qt-lib/qlist.h");
         type QList_QVariant = cxx_qt_lib::QList<cxx_qt_lib::QVariant>;
+        type QList_QUrl = cxx_qt_lib::QList<cxx_qt_lib::QUrl>;
         include!("link-desk/src/link.cxxqt.h");
         type ListModel = crate::link::qobject::ListModel;
     }
@@ -35,6 +38,7 @@ pub mod qobject {
         #[qproperty(QList_QVariant, crumbs)]
         #[qproperty(bool, loading)]
         #[qproperty(QString, error)]
+        #[qproperty(bool, writable)]
         #[qproperty(*mut ListModel, entries, READ, CONSTANT)]
         type LinkFiles = super::FilesRust;
     }
@@ -51,8 +55,15 @@ pub mod qobject {
         fn save(self: Pin<&mut LinkFiles>, paths: &QStringList);
         #[qinvokable]
         fn open_file(self: Pin<&mut LinkFiles>, path: &QString);
+        /// Copies local files into the open folder, when it is `writable`.
+        #[qinvokable]
+        fn upload(self: Pin<&mut LinkFiles>, urls: &QList_QUrl);
+        #[qinvokable]
+        fn remove(self: Pin<&mut LinkFiles>, path: &QString);
         #[qsignal]
         fn saved(self: Pin<&mut LinkFiles>, count: i32, folder: QString);
+        #[qsignal]
+        fn copied(self: Pin<&mut LinkFiles>, count: i32, folder: QString);
     }
 
     impl cxx_qt::Threading for LinkFiles {}
@@ -67,6 +78,7 @@ pub struct FilesRust {
     crumbs: QList<QVariant>,
     loading: bool,
     error: QString,
+    writable: bool,
     entries: *mut qobject::ListModel,
     model: UniquePtr<qobject::ListModel>,
     phone: String,
@@ -84,6 +96,7 @@ impl Default for FilesRust {
             crumbs: QList::default(),
             loading: false,
             error: QString::default(),
+            writable: false,
             entries: model.as_mut_ptr(),
             model,
             phone: hub::phone(),
@@ -100,7 +113,7 @@ impl cxx_qt::Initialize for qobject::LinkFiles {
         hub::subscribe(move |event| {
             let wanted = match event {
                 Event::Fetched { page, .. } => *page == PAGE,
-                Event::Listed { .. } | Event::Devices(_) | Event::Phone(_) => true,
+                Event::Listed { .. } | Event::PhoneChanged { .. } | Event::Devices(_) | Event::Phone(_) => true,
                 _ => false,
             };
             if wanted {
@@ -126,6 +139,12 @@ fn crumbs(path: &str) -> QList<QVariant> {
         list.append(variant(&crumb));
     }
     list
+}
+
+/// Whether files may be copied into or deleted from `path`: inside a folder root, not the roots or Photos.
+fn writable(path: &str) -> bool {
+    let root = path.trim_start_matches('/').split('/').next().unwrap_or_default();
+    !root.is_empty() && root != "Photos"
 }
 
 fn child(folder: &str, name: &str) -> String {
@@ -185,6 +204,14 @@ impl qobject::LinkFiles {
                 }
                 self.set_loading(false);
             }
+            Event::PhoneChanged { device, folder, copied } if device == state.phone => {
+                if folder == state.path.to_string() {
+                    self.as_mut().reload();
+                }
+                if !copied.is_empty() {
+                    self.copied(i32::try_from(copied.len()).unwrap_or(i32::MAX), QString::from(&folder));
+                }
+            }
             Event::Fetched { purpose, paths, .. } => {
                 let folder = desktop::fetched(purpose, &paths);
                 if purpose == Fetch::Save {
@@ -200,6 +227,7 @@ impl qobject::LinkFiles {
         let clean = if text.is_empty() { "/".to_owned() } else { text.trim_end_matches('/').to_owned() };
         let clean = if clean.is_empty() { "/".to_owned() } else { clean };
         self.as_mut().set_crumbs(crumbs(&clean));
+        self.as_mut().set_writable(writable(&clean));
         self.as_mut().set_path(QString::from(&clean));
         self.reload();
     }
@@ -227,5 +255,21 @@ impl qobject::LinkFiles {
 
     fn open_file(self: Pin<&mut Self>, path: &QString) {
         desktop::fetch(PAGE, &QStringList::from(path), Fetch::Open);
+    }
+
+    fn upload(self: Pin<&mut Self>, urls: &QList<QUrl>) {
+        let folder = self.path.to_string();
+        let paths: Vec<PathBuf> =
+            urls.iter().filter_map(QUrl::to_local_file).map(|path| PathBuf::from(path.to_string())).collect();
+        if writable(&folder) && !paths.is_empty() {
+            hub::to_phone(|device| Command::CopyToPhone { device, folder, paths });
+        }
+    }
+
+    fn remove(self: Pin<&mut Self>, path: &QString) {
+        let path = path.to_string();
+        if writable(&path) {
+            hub::to_phone(|device| Command::DeleteFile { device, path });
+        }
     }
 }

@@ -25,6 +25,11 @@ fn is_bridge(name: &str) -> bool {
     ["docker", "br-", "veth", "virbr", "podman", "cni", "vnet", "lxc"].iter().any(|prefix| name.starts_with(prefix))
 }
 
+/// Whether `ip` is on an overlay network (Tailscale), so possibly far away.
+pub fn is_overlay(ip: IpAddr) -> bool {
+    rank(ip.to_canonical()) % 2 == 1
+}
+
 /// LAN IPv4, overlay IPv4, LAN IPv6, overlay IPv6.
 fn rank(ip: IpAddr) -> u8 {
     match ip {

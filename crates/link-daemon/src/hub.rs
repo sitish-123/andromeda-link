@@ -152,6 +152,15 @@ pub enum Event {
         id: DeviceId,
         input: RemoteInput,
     },
+    /// The phone asks for the desktop's screen, or to switch to `source`.
+    RemoteRequested {
+        id: DeviceId,
+        source: Option<u32>,
+    },
+    /// Remote control ended on the phone, or the phone left.
+    RemoteStopped {
+        id: DeviceId,
+    },
     /// A command for the desktop from a phone with the system grant; `serial` is its message id, which
     /// `system_result` answers, or 0 for one nobody waits on, as from Do Not Disturb sync.
     SystemCommand {
@@ -217,6 +226,8 @@ enum Command {
     SendText { id: DeviceId, to: String, body: String, reply: crate::messages::SendReply },
     Dial { id: DeviceId, number: String, reply: crate::messages::SendReply },
     OpenMirror { id: DeviceId, reply: crate::mirror::Reply },
+    ServeRemote { id: DeviceId, stream: RemoteStream, reply: oneshot::Sender<Result<(), String>> },
+    StopRemote { id: DeviceId, reason: String },
     SetCommands { commands: Vec<StoredCommand>, reply: oneshot::Sender<bool> },
     SetCapabilities { owner: String, can: Vec<String> },
     CapabilitiesGone { owner: String },
@@ -296,7 +307,16 @@ pub struct Hub {
     system_waiting: HashMap<(DeviceId, u64), oneshot::Sender<Result<(), String>>>,
     messages: crate::messages::Messages,
     mirrors: crate::mirror::Mirrors,
+    remotes: crate::remote::Remotes,
     puncher: Puncher,
+}
+
+/// `link-session`'s socket of access units for a phone's remote control, and what it shows.
+pub struct RemoteStream {
+    pub socket: std::os::fd::OwnedFd,
+    pub width: u32,
+    pub height: u32,
+    pub started: link_core::proto::message::RemoteStarted,
 }
 
 struct Waiting {
@@ -375,6 +395,7 @@ impl Hub {
             system_waiting: HashMap::new(),
             messages: crate::messages::Messages::default(),
             mirrors: crate::mirror::Mirrors::default(),
+            remotes: crate::remote::Remotes::default(),
             puncher,
         };
         hub.refresh();
@@ -401,6 +422,7 @@ impl Hub {
                     }
                 }
                 Some(id) = self.mirrors.ended() => self.tell_mirror_stop(&id, "the viewer closed").await,
+                Some(id) = self.remotes.ended() => log::debug!("{id}: a remote control stream ended"),
                 () = sleep_until(browse_deadline) => self.browsing.expire(),
                 () = sleep_until(contacts_deadline) => self.messages.expire(),
                 Some(joined) = self.joining.join_next() => match joined {
@@ -451,6 +473,11 @@ impl Hub {
             Command::Dial { id, number, reply } => self.dial(id, number, reply).await,
             Command::Browse { id, request, reply } => self.browse(id, request, reply).await,
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
+            Command::ServeRemote { id, stream, reply } => drop(reply.send(self.serve_remote(id, stream).await)),
+            Command::StopRemote { id, reason } => {
+                self.remotes.stop(&id);
+                self.tell_remote_stop(&id, &reason).await;
+            }
             Command::SetCommands { commands, reply } => drop(reply.send(self.set_commands(commands).await)),
             Command::SetCapabilities { owner, can } => self.set_capabilities(Some((owner, can))).await,
             Command::SetDesktopStatus { status } => self.set_desktop_status(status).await,
@@ -459,6 +486,10 @@ impl Hub {
             Command::CapabilitiesGone { owner } => {
                 if self.capabilities.as_ref().is_some_and(|(current, _)| *current == owner) {
                     self.set_capabilities(None).await;
+                    // The session that captured the screen is gone.
+                    for id in self.remotes.stop_all() {
+                        self.tell_remote_stop(&id, "the desktop stopped sharing its screen").await;
+                    }
                 }
             }
             Command::Ping { id, message, reply } => drop(reply.send(self.ping(&id, message).await)),
@@ -740,6 +771,12 @@ impl Hub {
                 self.leave_hotspot(&from).await;
             }
             Message::RemoteInput(input) => self.emit(Event::RemoteInput { id: from, input }).await,
+            Message::RemoteRequest(request) => self.remote_request(from, request.source).await,
+            Message::RemoteStop(stop) => {
+                log::info!("{from}: the phone ended remote control: {:?}", stop.reason);
+                self.remotes.stop(&from);
+                self.emit(Event::RemoteStopped { id: from }).await;
+            }
             Message::SystemResult(result) => {
                 if let Some(waiting) = self.system_waiting.remove(&(from, result.command)) {
                     drop(waiting.send(result.error.map_or(Ok(()), Err)));
@@ -1282,6 +1319,10 @@ impl Hub {
             self.browsing.disconnected(&id);
             self.messages.disconnected(&id);
             self.mirrors.fail(&id, crate::mirror::Failure::NotConnected);
+            if self.remotes.running(&id) {
+                self.remotes.stop(&id);
+                self.emit(Event::RemoteStopped { id: id.clone() }).await;
+            }
             self.leave_hotspot(&id).await;
             self.status.remove(&id);
             self.publish();
@@ -1317,6 +1358,50 @@ impl Hub {
             && let Err(error) = session.send(stop).await
         {
             log::info!("{id}: telling the phone to stop mirroring: {error}");
+        }
+    }
+
+    /// Passes a phone's request for the desktop's screen to `link-session`, only over the same network: a Bluetooth
+    /// session is too slow, and an overlay network may be far away, where nobody sees the desktop being controlled.
+    async fn remote_request(&mut self, id: DeviceId, source: Option<u32>) {
+        use link_core::proto::message::CAN_SCREEN;
+        let quic = self.sessions.get(&id).and_then(|session| session.connection().quic().cloned());
+        let refusal = match quic {
+            None => Some("remote control needs the same Wi-Fi as the desktop"),
+            Some(quic) if net::is_overlay(quic.remote_address().ip()) => {
+                Some("remote control works only on the same Wi-Fi as the desktop")
+            }
+            Some(_) if !self.capabilities().iter().any(|can| can == CAN_SCREEN) => {
+                Some("this desktop cannot share its screen")
+            }
+            Some(_) => None,
+        };
+        if let Some(reason) = refusal {
+            log::info!("{id}: refusing remote control: {reason}");
+            return self.tell_remote_stop(&id, reason).await;
+        }
+        log::info!("{id}: the phone asks for the screen (source {source:?})");
+        self.emit(Event::RemoteRequested { id, source }).await;
+    }
+
+    /// Tells the phone what it shows, then opens the video stream and pumps `link-session`'s socket into it.
+    async fn serve_remote(&mut self, id: DeviceId, stream: RemoteStream) -> Result<(), String> {
+        let session = self.sessions.get(&id).filter(|session| session.is_live()).cloned();
+        let session = session.ok_or_else(|| format!("{id} is not connected"))?;
+        session.send(Message::RemoteStarted(stream.started)).await.map_err(|error| error.to_string())?;
+        let sender = link_core::mirror::MirrorSender::open(&session, stream.width, stream.height)
+            .await
+            .map_err(|error| error.to_string())?;
+        log::info!("{id}: showing the screen at {}x{}", stream.width, stream.height);
+        self.remotes.serve(id, stream.socket, sender).map_err(|error| error.to_string())
+    }
+
+    async fn tell_remote_stop(&self, id: &DeviceId, reason: &str) {
+        let stop = Message::RemoteStop(link_core::proto::message::MirrorStop { reason: Some(reason.to_owned()) });
+        if let Some(session) = self.sessions.get(id)
+            && let Err(error) = session.send(stop).await
+        {
+            log::info!("{id}: telling the phone to stop remote control: {error}");
         }
     }
 
@@ -1621,6 +1706,17 @@ impl HubHandle {
             return Err(crate::mirror::Failure::NotConnected);
         }
         answer.await.unwrap_or(Err(crate::mirror::Failure::NotConnected))
+    }
+
+    /// Starts or switches a phone's remote control to `stream`.
+    pub async fn serve_remote(&self, id: DeviceId, stream: RemoteStream) -> Result<(), String> {
+        let (reply, answer) = oneshot::channel();
+        self.tell(Command::ServeRemote { id, stream, reply }).await;
+        answer.await.unwrap_or_else(|_| Err("the daemon is stopping".to_owned()))
+    }
+
+    pub async fn stop_remote(&self, id: DeviceId, reason: String) {
+        self.tell(Command::StopRemote { id, reason }).await;
     }
 
     /// Sends a text through the phone; answered once the phone reports it sent or failed.

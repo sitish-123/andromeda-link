@@ -13,7 +13,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   contacts-list-msg / contacts-msg / contacts-changed-msg /
   texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
   calls-list-msg / calls-msg / calls-changed-msg / dial-msg / dialed-msg /
-  remote-input-msg / commands-msg / run-command-msg / ping-msg / capabilities-msg / desktop-status-msg / system-command-msg / system-result-msg /
+  remote-input-msg / remote-request-msg / remote-started-msg / remote-stop-msg / commands-msg / run-command-msg / ping-msg / capabilities-msg / desktop-status-msg / system-command-msg / system-result-msg /
   offer-msg / offer-reply-msg / resume-msg / resume-at-msg / cancel-msg / file-done-msg / file-data-msg /
   clip-offer-msg / clip-pull-msg / clip-data-msg / status-msg
 
@@ -323,7 +323,7 @@ dialed-msg = { type: "dialed", id: uint, body: { req: uint, ? refused: "not-allo
 ; phone, on connect and after each change: every command the phone may run, none without the desktop's commands
 ; switch; the phone runs one by id. Either way, without a switch: a ping the user sent, shown as a notification.
 remote-input-msg = { type: "remote-input", id: uint, body: {
-  action: "move" / "scroll" / "press" / "release" / "click" / "key" / "text",
+  action: "move" / "point" / "scroll" / "press" / "release" / "click" / "key" / "text",  ; point: dx, dy in 0..10000
   ? dx: -10000..10000, ? dy: -10000..10000,
   ? button: "left" / "right" / "middle",
   ? key: "enter" / "backspace" / "delete" / "escape" / "tab" / "space" / "left" / "right" / "up" / "down" / "home" /
@@ -334,6 +334,17 @@ commands-msg = { type: "commands", id: uint, body: {
   commands: [* { id: tstr .size (1..64), name: tstr .size (1..512) }],  ; at most 64
 } }
 run-command-msg = { type: "run-command", id: uint, body: { id: tstr .size (1..64) } }
+; Remote control, under the same input switch, only over the same network: the phone asks for the desktop's screen, or
+; to switch to one of the sources (remote-request). The desktop lists the monitors and windows its user shared, and
+; which one shows (remote-started), then opens a mirror-data stream to the phone, in mirroring's framing, with the
+; desktop's sound as audio units; a switch opens a new stream. remote-input "point" puts the pointer at a fraction of
+; the picture. Either side ends it (remote-stop).
+remote-request-msg = { type: "remote-request", id: uint, body: { ? source: uint .le 15 } }
+remote-started-msg = { type: "remote-started", id: uint, body: {
+  sources: [1*16 { kind: "monitor" / "window", name: tstr .size (1..128) }],
+  current: uint .le 15,
+} }
+remote-stop-msg = { type: "remote-stop", id: uint, body: { ? reason: tstr .size (1..128) } }
 ping-msg = { type: "ping", id: uint, body: { ? message: tstr .size (1..256) } }
 
 ; Desktop to phone, only when both hellos listed "feature:capabilities"; on connect and after each change: what the

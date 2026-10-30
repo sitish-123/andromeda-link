@@ -16,6 +16,7 @@ mod mpris;
 mod notifications;
 mod paths;
 mod quickshare;
+mod remote;
 mod wifi_direct;
 
 use std::net::{Ipv6Addr, SocketAddr};

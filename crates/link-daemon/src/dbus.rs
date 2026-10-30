@@ -640,6 +640,52 @@ impl Link {
     #[zbus(signal)]
     async fn pinged(emitter: &SignalEmitter<'_>, device_id: &str, message: &str) -> zbus::Result<()>;
 
+    /// A phone holding the input grant, on the same network, asks for this desktop's screen; `source` indexes the
+    /// sources last served to it, -1 for the first. `link-session` answers with `ServeRemoteControl`.
+    #[zbus(signal)]
+    async fn remote_control_requested(emitter: &SignalEmitter<'_>, device_id: &str, source: i32) -> zbus::Result<()>;
+
+    /// The phone ended remote control, or left.
+    #[zbus(signal)]
+    async fn remote_control_stopped(emitter: &SignalEmitter<'_>, device_id: &str) -> zbus::Result<()>;
+
+    /// Called by `link-session`: shows the phone `stream`, access units in `OpenMirror`'s framing at width x height,
+    /// of `sources[current]`, each a (kind, name) with kind "monitor" or "window". A later call replaces the stream;
+    /// closing it ends only the stream.
+    async fn serve_remote_control(
+        &self,
+        device_id: String,
+        stream: zbus::OwnedFd,
+        width: u32,
+        height: u32,
+        sources: Vec<(String, String)>,
+        current: u32,
+    ) -> fdo::Result<()> {
+        use link_core::proto::message::{RemoteSource, RemoteSourceKind, RemoteStarted};
+        let id = DeviceId::parse(&device_id).map_err(|_| fdo::Error::InvalidArgs("not a device id".to_owned()))?;
+        let sources = sources
+            .into_iter()
+            .map(|(kind, name)| {
+                let kind: RemoteSourceKind = serde_json::from_value(serde_json::Value::String(kind))
+                    .map_err(|_| fdo::Error::InvalidArgs("a source kind is monitor or window".to_owned()))?;
+                Ok(RemoteSource { kind, name })
+            })
+            .collect::<fdo::Result<Vec<_>>>()?;
+        let started = RemoteStarted { sources, current };
+        Message::RemoteStarted(started.clone())
+            .validate()
+            .map_err(|error| fdo::Error::InvalidArgs(error.to_string()))?;
+        let stream = crate::hub::RemoteStream { socket: stream.into(), width, height, started };
+        self.hub.serve_remote(id, stream).await.map_err(fdo::Error::Failed)
+    }
+
+    /// Called by `link-session`: ends a phone's remote control, telling it why.
+    async fn stop_remote_control(&self, device_id: String, reason: String) -> fdo::Result<()> {
+        let id = DeviceId::parse(&device_id).map_err(|_| fdo::Error::InvalidArgs("not a device id".to_owned()))?;
+        self.hub.stop_remote(id, reason).await;
+        Ok(())
+    }
+
     /// The phone's touchpad and keyboard: `move` and `scroll` by (dx, dy) logical pixels; `press`, `release`, and
     /// `click` of the `left`, `right`, or `middle` button in `detail`; `key` with a key name in `detail`; `text` with
     /// the text in `detail`.
@@ -753,7 +799,7 @@ async fn emit_input(emitter: &SignalEmitter<'_>, id: &DeviceId, input: RemoteInp
         InputAction::Press | InputAction::Release | InputAction::Click => input.button.map(|button| wire_name(&button)),
         InputAction::Key => input.key.map(|key| wire_name(&key)),
         InputAction::Text => input.text,
-        InputAction::Move | InputAction::Scroll => None,
+        InputAction::Move | InputAction::Point | InputAction::Scroll => None,
     };
     let (dx, dy) = (input.dx.unwrap_or_default(), input.dy.unwrap_or_default());
     Link::remote_input(emitter, id.as_str(), &wire_name(&input.action), dx, dy, &detail.unwrap_or_default()).await
@@ -916,6 +962,11 @@ pub async fn forward(
                 Event::TextReceived { id, text } => {
                     Link::text_received(emitter, id.as_str(), text.id, &text.address, &text.body).await?;
                 }
+                Event::RemoteRequested { id, source } => {
+                    let source = source.and_then(|source| i32::try_from(source).ok()).unwrap_or(-1);
+                    Link::remote_control_requested(emitter, id.as_str(), source).await?;
+                }
+                Event::RemoteStopped { id } => Link::remote_control_stopped(emitter, id.as_str()).await?,
                 Event::Pinged { id, message } => {
                     Link::pinged(emitter, id.as_str(), &message.unwrap_or_default()).await?;
                 }

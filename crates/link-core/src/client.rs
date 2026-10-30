@@ -335,6 +335,19 @@ impl Client {
         self.send(id, Message::MirrorStop(MirrorStop { reason })).await
     }
 
+    /// Asks the desktop for its screen (remote control), or to switch to `source`; the video arrives as a
+    /// [`TransferEvent::Mirror`] from it.
+    pub async fn start_remote(&self, id: DeviceId, source: Option<u32>) -> Result<(), Error> {
+        let request = Message::RemoteRequest(link_proto::message::RemoteRequest { source });
+        self.send(id.clone(), request).await?;
+        self.commands.send(Command::Mirroring { id, on: true }).await.map_err(|_| Error::Stopped)
+    }
+
+    pub async fn stop_remote(&self, id: DeviceId) -> Result<(), Error> {
+        self.commands.send(Command::Mirroring { id: id.clone(), on: false }).await.map_err(|_| Error::Stopped)?;
+        self.send(id, Message::RemoteStop(MirrorStop { reason: None })).await
+    }
+
     /// Offers the phone's clipboard to every connected desktop whose clipboard switch is on, and keeps it for the
     /// next one that connects. Returns how many got it now.
     pub async fn offer_clip(&self, clip: LocalClip) -> Result<usize, Error> {
@@ -650,8 +663,10 @@ impl ClientActor {
     }
 
     async fn on_transfer(&mut self, event: TransferEvent) {
-        if let TransferEvent::Mirror { from, stream } = &event {
-            log::info!("{from}: refusing a mirror stream from a desktop");
+        if let TransferEvent::Mirror { from, stream } = &event
+            && !self.mirroring.contains(from)
+        {
+            log::info!("{from}: refusing a mirror stream nobody asked for");
             if let Some(mut receiver) = stream.take() {
                 receiver.stop();
             }
@@ -1240,8 +1255,9 @@ impl ClientActor {
     }
 
     #[expect(clippy::too_many_lines, reason = "one arm per message the client answers itself")]
+    #[expect(clippy::too_many_lines, reason = "one arm per message the client answers itself")]
     async fn relay(&mut self, event: SessionEvent) {
-        if let SessionEvent::Message { from, message: Message::MirrorStop(_) } = &event {
+        if let SessionEvent::Message { from, message: Message::MirrorStop(_) | Message::RemoteStop(_) } = &event {
             self.set_mirroring(from, false);
         }
         match event {
@@ -1324,7 +1340,9 @@ impl ClientActor {
                     message @ (Message::Ping(_)
                     | Message::Capabilities(_)
                     | Message::DesktopStatus(_)
-                    | Message::SystemResult(_)),
+                    | Message::SystemResult(_)
+                    | Message::RemoteStarted(_)
+                    | Message::RemoteStop(_)),
             } => {
                 if let Message::Capabilities(capabilities) = &message {
                     if capabilities.can.iter().any(|can| can == CAN_CONTROL) {

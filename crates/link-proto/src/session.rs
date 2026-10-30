@@ -100,6 +100,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::CallsChanged
         | Message::Dialed(_)
         | Message::RemoteInput(_)
+        | Message::RemoteRequest(_)
         | Message::RunCommand(_) => role == Role::Desktop,
         Message::NotificationAction(_)
         | Message::NotificationDismiss(_)
@@ -123,10 +124,12 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::CallsList(_)
         | Message::Dial(_)
         | Message::Commands(_)
+        | Message::RemoteStarted(_)
         | Message::Capabilities(_)
         | Message::DesktopStatus(_) => role == Role::Phone,
         Message::HotspotEnd(_)
         | Message::MirrorStop(_)
+        | Message::RemoteStop(_)
         | Message::MediaPlayer(_)
         | Message::MediaGone(_)
         | Message::MediaCommand(_)

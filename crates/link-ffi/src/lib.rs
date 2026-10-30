@@ -178,6 +178,24 @@ pub enum LinkEvent {
         desktop_id: String,
         reason: Option<String>,
     },
+    /// Remote control: the monitors and windows the desktop shares, and which one its next stream shows.
+    RemoteStarted {
+        desktop_id: String,
+        sources: Vec<RemoteSource>,
+        current: u32,
+    },
+    /// Remote control's video and sound, width x height; a switch to another source sends a new one.
+    RemoteStream {
+        desktop_id: String,
+        width: u32,
+        height: u32,
+        stream: Arc<RemoteView>,
+    },
+    /// The desktop ended remote control, or refused it, with why.
+    RemoteStopped {
+        desktop_id: String,
+        reason: Option<String>,
+    },
     Disconnected {
         desktop_id: String,
     },
@@ -320,6 +338,8 @@ pub struct DesktopCommand {
 pub enum InputAction {
     /// The pointer by (dx, dy) logical pixels.
     Move,
+    /// The pointer to (dx, dy) in 1/10000 of remote control's picture.
+    Point,
     /// By (dx, dy) logical pixels; positive is down and right.
     Scroll,
     Press,
@@ -372,6 +392,7 @@ impl From<InputEvent> for message::RemoteInput {
         use message::{InputAction as A, InputButton as B, InputKey as K};
         let action = match event.action {
             InputAction::Move => A::Move,
+            InputAction::Point => A::Point,
             InputAction::Scroll => A::Scroll,
             InputAction::Press => A::Press,
             InputAction::Release => A::Release,
@@ -509,6 +530,55 @@ impl From<message::MirrorAction> for MirrorAction {
             message::MirrorAction::Recents => Self::Recents,
             message::MirrorAction::Text => Self::Text,
         }
+    }
+}
+
+/// A monitor or window a desktop shares for remote control.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RemoteSource {
+    pub window: bool,
+    pub name: String,
+}
+
+/// One unit of a stream in mirroring's framing: `flags` 1 keyframe, 2 codec configuration, 4 an Opus packet.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MirrorUnit {
+    pub pts_us: u64,
+    pub flags: u8,
+    pub data: Vec<u8>,
+}
+
+/// A desktop's screen for remote control, from [`LinkEvent::RemoteStream`].
+#[derive(uniffi::Object)]
+pub struct RemoteView {
+    runtime: tokio::runtime::Handle,
+    receiver: Arc<tokio::sync::Mutex<link_core::mirror::MirrorReceiver>>,
+}
+
+impl std::fmt::Debug for RemoteView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RemoteView")
+    }
+}
+
+#[uniffi::export]
+impl RemoteView {
+    /// The next unit; None once the desktop ended the stream or [`RemoteView::stop`] ran.
+    pub async fn next_unit(&self) -> Option<MirrorUnit> {
+        let receiver = self.receiver.clone();
+        let unit = self.runtime.spawn(async move { receiver.lock().await.next().await }).await.ok()?;
+        match unit {
+            Ok(unit) => unit.map(|unit| MirrorUnit { pts_us: unit.pts_us, flags: unit.flags, data: unit.data }),
+            Err(error) => {
+                log::info!("remote control stream: {error}");
+                None
+            }
+        }
+    }
+
+    pub async fn stop(&self) {
+        let receiver = self.receiver.clone();
+        drop(self.runtime.spawn(async move { receiver.lock().await.stop() }).await);
     }
 }
 
@@ -1079,6 +1149,18 @@ impl LinkClient {
         self.run(async move { client.stop_mirror(id, reason).await }).await
     }
 
+    /// Asks the desktop for its screen (remote control), or to switch to `source`, an index into its last
+    /// [`LinkEvent::RemoteStarted`] list.
+    pub async fn start_remote(&self, desktop_id: String, source: Option<u32>) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.start_remote(id, source).await }).await
+    }
+
+    pub async fn stop_remote(&self, desktop_id: String) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        self.run(async move { client.stop_remote(id).await }).await
+    }
+
     /// Commands one of a desktop's players, connecting first if needed.
     pub async fn media_command(
         &self,
@@ -1096,7 +1178,7 @@ impl LinkClient {
     pub async fn next_event(&self) -> Option<LinkEvent> {
         let mut events = self.events.lock().await;
         loop {
-            if let Some(event) = translate(events.recv().await?) {
+            if let Some(event) = translate(events.recv().await?, self.runtime.handle()) {
                 return Some(event);
             }
         }
@@ -1256,7 +1338,8 @@ impl LinkClient {
     }
 }
 
-fn translate(event: ClientEvent) -> Option<LinkEvent> {
+#[expect(clippy::too_many_lines, reason = "one arm per event")]
+fn translate(event: ClientEvent, runtime: &tokio::runtime::Handle) -> Option<LinkEvent> {
     Some(match event {
         ClientEvent::Connected { desktop, .. } => LinkEvent::Connected { desktop_id: desktop.id.to_string() },
         ClientEvent::Disconnected { id, .. } => LinkEvent::Disconnected { desktop_id: id.to_string() },
@@ -1269,6 +1352,18 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
             text: share.text,
         },
         ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
+        ClientEvent::Transfer(TransferEvent::Mirror { from, stream }) => {
+            let receiver = stream.take()?;
+            LinkEvent::RemoteStream {
+                desktop_id: from.to_string(),
+                width: receiver.width,
+                height: receiver.height,
+                stream: Arc::new(RemoteView {
+                    runtime: runtime.clone(),
+                    receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
+                }),
+            }
+        }
         ClientEvent::Transfer(event) => return transfer_event(event),
         ClientEvent::SystemCommand { from, id, command } => LinkEvent::SystemCommand {
             desktop_id: from.to_string(),
@@ -1332,6 +1427,19 @@ fn translate(event: ClientEvent) -> Option<LinkEvent> {
                     profile: status.profile.map(|profile| profile.as_str().to_owned()),
                 },
                 Message::MirrorStop(stop) => LinkEvent::MirrorStopped { desktop_id, reason: stop.reason },
+                Message::RemoteStarted(started) => LinkEvent::RemoteStarted {
+                    desktop_id,
+                    sources: started
+                        .sources
+                        .into_iter()
+                        .map(|source| RemoteSource {
+                            window: source.kind == message::RemoteSourceKind::Window,
+                            name: source.name,
+                        })
+                        .collect(),
+                    current: started.current,
+                },
+                Message::RemoteStop(stop) => LinkEvent::RemoteStopped { desktop_id, reason: stop.reason },
                 Message::MediaCommand(command) => LinkEvent::PlayerCommand {
                     desktop_id,
                     player: command.player,

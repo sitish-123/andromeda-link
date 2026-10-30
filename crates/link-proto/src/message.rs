@@ -530,6 +530,50 @@ impl MirrorInput {
     }
 }
 
+/// Phone to desktop: show the desktop's screen here (remote control), or switch to `source`, an index into the last
+/// [`RemoteStarted`]'s list. The video comes on a `mirror-data` stream from the desktop, input as [`RemoteInput`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RemoteSourceKind {
+    Monitor,
+    /// One window, whose place on the desktop the capture does not tell; the pointer moves only relatively.
+    Window,
+}
+
+/// A monitor or window the desktop's user shared for remote control.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteSource {
+    pub kind: RemoteSourceKind,
+    pub name: String,
+}
+
+/// Desktop to phone: the shared sources, and which one the next `mirror-data` stream shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteStarted {
+    pub sources: Vec<RemoteSource>,
+    pub current: u32,
+}
+
+pub const MAX_REMOTE_SOURCES: usize = 16;
+pub const MAX_REMOTE_SOURCE_NAME_LEN: usize = 128;
+
+impl RemoteStarted {
+    fn valid(&self) -> bool {
+        (1..=MAX_REMOTE_SOURCES).contains(&self.sources.len())
+            && usize::try_from(self.current).is_ok_and(|current| current < self.sources.len())
+            && self.sources.iter().all(|source| sized(&source.name, 1, MAX_REMOTE_SOURCE_NAME_LEN))
+    }
+}
+
 fn mirror_size_valid(width: u32, height: u32) -> bool {
     (1..=MAX_MIRROR_SIDE).contains(&width) && (1..=MAX_MIRROR_SIDE).contains(&height)
 }
@@ -1324,6 +1368,8 @@ pub const CAN_CLIPBOARD: &str = "clipboard";
 pub const CAN_INPUT: &str = "input";
 pub const CAN_NOTIFICATIONS: &str = "notifications";
 pub const CAN_VOLUME: &str = "volume";
+/// The session can capture the screen, for remote control.
+pub const CAN_SCREEN: &str = "screen";
 /// Per phone: the desktop granted it "Control system", so the phone obeys the desktop's commands.
 pub const CAN_CONTROL: &str = "control";
 pub const MAX_CAPABILITIES: usize = 16;
@@ -1489,6 +1535,8 @@ pub const MAX_SYSTEM_ERROR_LEN: usize = 200;
 pub enum InputAction {
     /// The pointer by (dx, dy) logical pixels.
     Move,
+    /// The pointer to (dx, dy) in 1/[`MIRROR_UNIT`] of the remote-control picture's width and height.
+    Point,
     /// A scroll by (dx, dy) logical pixels; positive is down and right.
     Scroll,
     Press,
@@ -1552,6 +1600,10 @@ impl RemoteInput {
             |value: Option<i32>| value.is_some_and(|value| (-MAX_INPUT_DELTA..=MAX_INPUT_DELTA).contains(&value));
         match self.action {
             InputAction::Move | InputAction::Scroll => delta(self.dx) && delta(self.dy),
+            InputAction::Point => {
+                let fraction = |value: Option<i32>| value.is_some_and(|value| (0..=MIRROR_UNIT).contains(&value));
+                fraction(self.dx) && fraction(self.dy)
+            }
             InputAction::Press | InputAction::Release | InputAction::Click => self.button.is_some(),
             InputAction::Key => self.key.is_some(),
             InputAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
@@ -1651,6 +1703,9 @@ pub enum Message {
     MirrorInput(MirrorInput),
     MirrorKeyframe,
     MirrorData(MirrorData),
+    RemoteRequest(RemoteRequest),
+    RemoteStarted(RemoteStarted),
+    RemoteStop(MirrorStop),
     FsList(FsList),
     FsEntries(FsEntries),
     FsRead(FsRead),
@@ -1733,6 +1788,9 @@ impl Message {
             Self::MirrorInput(_) => "mirror-input",
             Self::MirrorKeyframe => "mirror-keyframe",
             Self::MirrorData(_) => "mirror-data",
+            Self::RemoteRequest(_) => "remote-request",
+            Self::RemoteStarted(_) => "remote-started",
+            Self::RemoteStop(_) => "remote-stop",
             Self::FsList(_) => "fs-list",
             Self::FsEntries(_) => "fs-entries",
             Self::FsRead(_) => "fs-read",
@@ -1810,9 +1868,11 @@ impl Message {
             Self::WifiDirect(body) => Value::serialized(body),
             Self::BtPairing(body) => Value::serialized(body),
             Self::MirrorStarted(body) => Value::serialized(body),
-            Self::MirrorStop(body) => Value::serialized(body),
+            Self::MirrorStop(body) | Self::RemoteStop(body) => Value::serialized(body),
             Self::MirrorInput(body) => Value::serialized(body),
             Self::MirrorData(body) => Value::serialized(body),
+            Self::RemoteRequest(body) => Value::serialized(body),
+            Self::RemoteStarted(body) => Value::serialized(body),
             Self::FsList(body) => Value::serialized(body),
             Self::FsEntries(body) => Value::serialized(body),
             Self::FsRead(body) => Value::serialized(body),
@@ -1843,6 +1903,7 @@ impl Message {
         }
     }
 
+    #[expect(clippy::too_many_lines, reason = "one arm per message type")]
     fn from_parts(kind: &str, body: &Value) -> Result<Self, DecodeError> {
         let message = match kind {
             "hello" => Self::Hello(body.deserialized()?),
@@ -1901,6 +1962,9 @@ impl Message {
             "mirror-stop" => Self::MirrorStop(body.deserialized()?),
             "mirror-input" => Self::MirrorInput(body.deserialized()?),
             "mirror-data" => Self::MirrorData(body.deserialized()?),
+            "remote-request" => Self::RemoteRequest(body.deserialized()?),
+            "remote-started" => Self::RemoteStarted(body.deserialized()?),
+            "remote-stop" => Self::RemoteStop(body.deserialized()?),
             "fs-list" => Self::FsList(body.deserialized()?),
             "fs-entries" => Self::FsEntries(body.deserialized()?),
             "fs-read" => Self::FsRead(body.deserialized()?),
@@ -2013,7 +2077,13 @@ impl Message {
             Self::MirrorStarted(MirrorStarted { width, height }) | Self::MirrorData(MirrorData { width, height }) => {
                 mirror_size_valid(*width, *height)
             }
-            Self::MirrorStop(stop) => stop.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN)),
+            Self::MirrorStop(stop) | Self::RemoteStop(stop) => {
+                stop.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN))
+            }
+            Self::RemoteStarted(started) => started.valid(),
+            Self::RemoteRequest(request) => request
+                .source
+                .is_none_or(|source| usize::try_from(source).is_ok_and(|source| source < MAX_REMOTE_SOURCES)),
             Self::MirrorInput(input) => input.valid(),
             Self::WifiDirectReady(WifiDirectReady { name, address }) => {
                 sized(name, 1, MAX_P2P_NAME_LEN) && address.as_ref().is_none_or(|address| hardware_address(address))

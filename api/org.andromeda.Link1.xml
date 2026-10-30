@@ -299,7 +299,7 @@
     </signal>
     <!-- The phone as this desktop's touchpad and keyboard, while its input grant is on. action is "move" or "scroll"
          by (dx, dy) logical pixels, positive down and right; "press", "release", or "click" with "left", "right", or
-         "middle" in detail; "key" with enter, backspace, delete, escape, tab, space, left, right, up, down, home,
+         "middle" in detail; "point" to (dx, dy) in 1/10000 of the remote-control picture; "key" with enter, backspace, delete, escape, tab, space, left, right, up, down, home,
          end, page-up, page-down, or f5 in detail; "text" with the text in detail. The shell injects it. -->
     <signal name="RemoteInput">
       <arg name="device_id" type="s"/>
@@ -308,6 +308,33 @@
       <arg name="dy" type="i"/>
       <arg name="detail" type="s"/>
     </signal>
+    <!-- A phone holding the input grant, on the same network, asks for this desktop's screen (remote control):
+         source indexes the sources last served to it, -1 for the first. The session answers with
+         ServeRemoteControl. -->
+    <signal name="RemoteControlRequested">
+      <arg name="device_id" type="s"/>
+      <arg name="source" type="i"/>
+    </signal>
+    <!-- The phone ended remote control, or left. -->
+    <signal name="RemoteControlStopped">
+      <arg name="device_id" type="s"/>
+    </signal>
+    <!-- Called by the session: shows the phone stream, access units in OpenMirror's framing at width x height, of
+         sources[current], each a (kind, name) with kind "monitor" or "window". A later call replaces the stream;
+         closing it ends only the stream. Errors: InvalidArgs for a bad source list, Failed when the phone left. -->
+    <method name="ServeRemoteControl">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="stream" type="h" direction="in"/>
+      <arg name="width" type="u" direction="in"/>
+      <arg name="height" type="u" direction="in"/>
+      <arg name="sources" type="a(ss)" direction="in"/>
+      <arg name="current" type="u" direction="in"/>
+    </method>
+    <!-- Called by the session: ends a phone's remote control and tells it why. -->
+    <method name="StopRemoteControl">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="reason" type="s" direction="in"/>
+    </method>
     <!-- (name, command line) pairs that phones holding the commands grant may run here under sh -c. -->
     <property name="Commands" type="a(ss)" access="read"/>
     <!-- Replaces Commands and sends phones the new list. Errors: InvalidArgs past 64 commands, or for an empty name

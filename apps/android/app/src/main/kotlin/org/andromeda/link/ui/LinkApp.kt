@@ -179,11 +179,7 @@ fun LinkApp(
                             openDesktop,
                             openPair,
                             openNotifications,
-                            {
-                                desktopId = null
-                                returnScreen = Screen.Settings
-                                screen = Screen.MirrorApps
-                            },
+                            openNotifications,
                             openSetup,
                             openClipboardSetup,
                         )

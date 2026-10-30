@@ -1025,7 +1025,7 @@ pub async fn forward(
     }
 }
 
-/// The name other devices see: hostnamed's pretty name, else the kernel hostname.
+/// The name other devices see: hostnamed's pretty name, else the host's own name.
 pub async fn device_name() -> String {
     let pretty = async {
         let system = zbus::Connection::system().await?;
@@ -1040,8 +1040,28 @@ pub async fn device_name() -> String {
     };
     let name = match pretty.await {
         Ok(name) if !name.trim().is_empty() => name,
-        _ => std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default(),
+        _ => host_name(),
     };
     let name: String = name.trim().chars().take(MAX_NAME_LEN).collect();
-    if name.is_empty() { "Linux desktop".to_owned() } else { name }
+    if name.is_empty() { UNNAMED.to_owned() } else { name }
+}
+
+#[cfg(not(target_os = "macos"))]
+const UNNAMED: &str = "Linux desktop";
+#[cfg(target_os = "macos")]
+const UNNAMED: &str = "Mac";
+
+#[cfg(not(target_os = "macos"))]
+fn host_name() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default()
+}
+
+/// The Computer Name from Sharing settings.
+#[cfg(target_os = "macos")]
+fn host_name() -> String {
+    std::process::Command::new("scutil")
+        .args(["--get", "ComputerName"])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default()
 }

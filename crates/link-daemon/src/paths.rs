@@ -4,6 +4,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
+#[cfg(target_os = "macos")]
+const HOME_STATE: &str = "Library/Application Support/Andromeda Link";
+#[cfg(not(target_os = "macos"))]
+const HOME_STATE: &str = ".local/state/andromeda-link";
+
 pub struct Paths {
     pub state: PathBuf,
     pub identity: PathBuf,
@@ -16,13 +21,14 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// `$STATE_DIRECTORY` under systemd, else `$XDG_STATE_HOME/andromeda-link`, else `~/.local/state/andromeda-link`.
+    /// `$STATE_DIRECTORY` under systemd, else `$XDG_STATE_HOME/andromeda-link`, else `~/.local/state/andromeda-link`
+    /// (on macOS `~/Library/Application Support/Andromeda Link`).
     pub fn create() -> anyhow::Result<Self> {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let dir = std::env::var_os("STATE_DIRECTORY")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("XDG_STATE_HOME").map(|state| PathBuf::from(state).join("andromeda-link")))
-            .or_else(|| home.as_ref().map(|home| home.join(".local/state/andromeda-link")))
+            .or_else(|| home.as_ref().map(|home| home.join(HOME_STATE)))
             .context("no state directory: set XDG_STATE_HOME or HOME")?;
         if !dir.exists() {
             DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;

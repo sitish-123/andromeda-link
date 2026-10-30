@@ -54,8 +54,13 @@ fn services(kind: &str) -> Vec<String> {
 }
 
 /// The phone named `name`, connecting to phones that advertise wireless debugging first; with one phone, whatever it
-/// is called.
+/// is called. `ANDROID_SERIAL`, as adb reads it, picks a ready device by serial.
 pub fn find(name: &str) -> anyhow::Result<Found> {
+    if let Ok(serial) = std::env::var("ANDROID_SERIAL")
+        && ready()?.contains(&serial)
+    {
+        return Ok(Found::Serial(serial));
+    }
     let pick = |serials: Vec<String>| -> Option<String> {
         if serials.len() == 1 {
             return serials.into_iter().next();

@@ -39,7 +39,6 @@ install -Dm644 %{linkroot}/dist/andromeda-link-localsend.firewalld.xml \
 install -Dm644 %{linkroot}/dist/60-andromeda-link-bluetooth.conf \
   %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf
 install -Dm644 %{linkroot}/dist/org.andromeda.Link.desktop %{buildroot}%{_datadir}/applications/org.andromeda.Link.desktop
-%{_datadir}/icons/hicolor/*/apps/org.andromeda.Link*
 cp -r %{linkroot}/dist/icons %{buildroot}%{_datadir}/
 install -Dm644 %{linkroot}/LICENSE %{buildroot}%{_licensedir}/%{name}/LICENSE
 
@@ -73,3 +72,4 @@ fi
 %files app
 %{_bindir}/andromeda-link
 %{_datadir}/applications/org.andromeda.Link.desktop
+%{_datadir}/icons/hicolor/*/apps/org.andromeda.Link*

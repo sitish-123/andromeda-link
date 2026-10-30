@@ -56,8 +56,15 @@ jobs:
       - run: >
           sudo apt-get update && sudo apt-get install -y protobuf-compiler pkg-config libdbus-1-dev libfuse3-dev
           libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev
+          libgl-dev libegl-dev libxkbcommon-dev
+      # Ubuntu 24.04's Qt is too old for the app, so the app .deb carries this Qt (see dist/deb/build-deb.sh).
+      - uses: jurplel/install-qt-action@v4
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
       - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror
-      - run: dist/deb/build-deb.sh target/release out
+      - run: >
+          QMAKE="$QT_ROOT_DIR/bin/qmake" cargo rustc --release --locked -p link-desk --bin andromeda-link --
+          -C link-arg=-Wl,-rpath,/usr/lib/andromeda-link/qt/lib
+      - run: QT_BUNDLE="$QT_ROOT_DIR" dist/deb/build-deb.sh target/release out
       - uses: actions/upload-artifact@v4
         with: { name: deb, path: out/*.deb }
 
@@ -68,7 +75,7 @@ jobs:
       - run: >
           dnf install -y git rust cargo rpm-build protobuf-compiler pkgconf dbus-devel fuse3-devel gtk4-devel
           gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-bad-free-devel qt6-qtbase-devel
-          qt6-qtdeclarative-devel qt6-qtmultimedia-devel clang
+          qt6-qtdeclarative-devel qt6-qtmultimedia-devel clang lld
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "$PWD"
       - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror -p link-desk

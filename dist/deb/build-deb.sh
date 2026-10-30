@@ -36,9 +36,32 @@ install -Dm644 "$ROOT/dist/andromeda-link-localsend.firewalld.xml" \
 install -Dm644 "$ROOT/dist/60-andromeda-link-bluetooth.conf" \
   "$P/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
 install -Dm644 "$ROOT/LICENSE" "$P/usr/share/doc/andromeda-link/copyright"
-# The app needs Qt 6.7; where the release has older Qt it is not built, and the Flatpak carries it instead.
+# The app needs Qt 6.7. With QT_BUNDLE (a Qt prefix, as aqtinstall writes it) the .deb carries that Qt under
+# /usr/lib/andromeda-link/qt, so releases with older Qt (Ubuntu 24.04) install it the same way; the binary must then
+# have been linked with the rpath /usr/lib/andromeda-link/qt/lib.
 APP=$([[ -x $BIN/andromeda-link ]] && echo yes || true)
-[[ -z $APP ]] || install -Dm755 "$BIN/andromeda-link" "$A/usr/bin/andromeda-link"
+QT_DIR=/usr/lib/andromeda-link/qt
+if [[ -n $APP && -n ${QT_BUNDLE:-} ]]; then
+  install -Dm755 "$BIN/andromeda-link" "$A/usr/lib/andromeda-link/andromeda-link"
+  install -d "$A/usr/bin" "$A$QT_DIR/lib" "$A$QT_DIR/plugins" "$A$QT_DIR/qml"
+  ln -s ../lib/andromeda-link/andromeda-link "$A/usr/bin/andromeda-link"
+  printf '[Paths]\nPrefix = %s\n' "$QT_DIR" > "$A/usr/lib/andromeda-link/qt.conf"
+  for dir in platforms platforminputcontexts platformthemes xcbglintegrations egldeviceintegrations iconengines \
+    imageformats multimedia tls wayland-decoration-client wayland-graphics-integration-client wayland-shell-integration; do
+    cp -a "$QT_BUNDLE/plugins/$dir" "$A$QT_DIR/plugins/"
+  done
+  for module in QtQml QtQuick QtMultimedia; do cp -a "$QT_BUNDLE/qml/$module" "$A$QT_DIR/qml/"; done
+  # Every library of the Qt prefix that the app, a plugin or a QML module needs, until none is missing.
+  while :; do
+    missing=$(find "$A/usr/lib/andromeda-link" -type f \( -name '*.so*' -o -name andromeda-link \) -print0 \
+      | xargs -0 objdump -p 2> /dev/null | sed -n 's/^ *NEEDED *//p' | sort -u \
+      | while read -r lib; do [[ -e $QT_BUNDLE/lib/$lib && ! -e $A$QT_DIR/lib/$lib ]] && echo "$lib"; done || true)
+    [[ -n $missing ]] || break
+    for lib in $missing; do cp -L "$QT_BUNDLE/lib/$lib" "$A$QT_DIR/lib/$lib"; done
+  done
+elif [[ -n $APP ]]; then
+  install -Dm755 "$BIN/andromeda-link" "$A/usr/bin/andromeda-link"
+fi
 install -Dm644 "$ROOT/dist/org.andromeda.Link.desktop" "$A/usr/share/applications/org.andromeda.Link.desktop"
 cp -r "$ROOT/dist/icons" "$A/usr/share/"
 install -Dm644 "$ROOT/LICENSE" "$A/usr/share/doc/andromeda-link-app/copyright"
@@ -70,15 +93,22 @@ if command -v firewall-cmd > /dev/null && firewall-cmd --state > /dev/null 2>&1;
 fi
 EOF
 chmod 755 "$P/DEBIAN/postinst"
+if [[ -n ${QT_BUNDLE:-} ]]; then
+  APP_DEPENDS="libc6, libstdc++6, libgl1, libegl1, libfontconfig1, libfreetype6, libdbus-1-3, libxkbcommon0,
+ libxkbcommon-x11-0, libxcb-cursor0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libwayland-client0,
+ libwayland-cursor0, libwayland-egl1, libglib2.0-0t64 | libglib2.0-0, libpulse0"
+else
+  APP_DEPENDS="libqt6core6t64 (>= 6.7) | libqt6core6 (>= 6.7), libqt6qml6, libqt6quick6,
+ libqt6multimedia6, qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-templates,
+ qml6-module-qtquick-layouts, qml6-module-qtquick-dialogs, qml6-module-qtquick-shapes, qml6-module-qtquick-effects,
+ qml6-module-qtmultimedia, qml6-module-qtqml-workerscript"
+fi
 cat > "$A/DEBIAN/control" << EOF
 Package: andromeda-link-app
 Version: $VERSION
 Architecture: amd64
 Maintainer: Andromeda <sitish@akintechnologies.com>
-Depends: andromeda-link (= $VERSION), libqt6core6t64 (>= 6.7) | libqt6core6 (>= 6.7), libqt6qml6, libqt6quick6,
- libqt6multimedia6, qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-templates,
- qml6-module-qtquick-layouts, qml6-module-qtquick-dialogs, qml6-module-qtquick-shapes, qml6-module-qtquick-effects,
- qml6-module-qtmultimedia, qml6-module-qtqml-workerscript
+Depends: andromeda-link (= $VERSION), $APP_DEPENDS
 Description: Andromeda Link app
  The desktop app for Andromeda Link: pairing, the phone's media, texts, photos, files, and screen.
 EOF

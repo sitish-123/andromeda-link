@@ -35,12 +35,17 @@ macos() {
 
 deb() {
   local target=$HOME/.cache/ubuntu-link/target
-  # Ubuntu 24.04's Qt is too old for the app, so a binary here is stale; the Flatpak carries the app instead.
-  rm -f "$target/release/andromeda-link"
+  # Ubuntu 24.04's Qt is too old for the app, so it builds against Qt for Linux from aqtinstall and the .deb carries it.
+  local qt=${QT_LINUX:-$HOME/.cache/qt-linux/6.12.0/gcc_64}
   distrobox enter ubuntu-link -- bash -c "
+    set -e
     export RUSTUP_HOME=$HOME/.local/share/ubuntu-link/rustup CARGO_HOME=$HOME/.local/share/ubuntu-link/cargo
     export PATH=$HOME/.local/share/ubuntu-link/cargo/bin:\$PATH CARGO_TARGET_DIR=$target
-    cd '$ROOT' && cargo build --release --locked ${SERVICES[*]} && dist/deb/build-deb.sh $target/release '$OUT'"
+    cd '$ROOT'
+    cargo build --release --locked ${SERVICES[*]}
+    QMAKE=$qt/bin/qmake cargo rustc --release --locked -p link-desk --bin andromeda-link -- \
+      -C link-arg=-Wl,-rpath,/usr/lib/andromeda-link/qt/lib
+    QT_BUNDLE=$qt dist/deb/build-deb.sh $target/release '$OUT'"
 }
 
 rpm() {

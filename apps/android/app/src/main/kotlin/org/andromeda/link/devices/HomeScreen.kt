@@ -19,6 +19,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -51,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -86,6 +88,7 @@ import org.andromeda.link.files.PickerTab
 import org.andromeda.link.files.PickerViewModel
 import org.andromeda.link.files.sendLabel
 import org.andromeda.link.onboarding.Grant
+import org.andromeda.link.ui.components.ConnectionOrb
 import org.andromeda.link.ui.components.Glyph
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.LinkIcons
@@ -230,6 +233,7 @@ fun HomeScreen(
 @Composable
 private fun EmptyLine(onPair: () -> Unit) {
     Section {
+        DesktopTile(false, Modifier.padding(bottom = Space.s16))
         Readout(stringResource(R.string.empty_desktop), LinkTheme.colors.textTertiary)
         Label(stringResource(R.string.empty_scan_title), LinkTheme.type.hero, modifier = Modifier.padding(top = Space.s8))
         Label(
@@ -260,15 +264,20 @@ private fun HomeHeader(
     onOpen: () -> Unit,
 ) {
     val colors = LinkTheme.colors
+    val status = state.desk.statuses[desktop.id]
     val via =
         when {
-            desktop.connected && desktop.bluetooth -> stringResource(R.string.home_via_bluetooth)
-            desktop.connected -> stringResource(R.string.home_via_wifi)
+            desktop.connected && desktop.bluetooth ->
+                stringResource(
+                    R.string.home_connected_via,
+                    stringResource(R.string.home_via_bluetooth),
+                )
+            desktop.connected -> stringResource(R.string.home_connected_via, stringResource(R.string.home_via_wifi))
             state.refreshing -> stringResource(R.string.home_via_searching)
             else -> stringResource(R.string.home_last_seen, lastSeen(desktop.lastSeen))
         }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Label(via, LinkTheme.type.titleSmall, if (desktop.connected) colors.accentText else colors.textTertiary, Modifier.weight(1f))
+        Spacer(Modifier.weight(1f))
         val label = stringResource(R.string.desktop_open)
         Box(
             Modifier
@@ -283,33 +292,88 @@ private fun HomeHeader(
             }
         }
     }
-    Label(desktop.name, LinkTheme.type.hero, modifier = Modifier.padding(top = Space.s4), maxLines = 2)
-    val status = state.desk.statuses[desktop.id]
-    Row(
-        Modifier.padding(top = Space.s10),
-        horizontalArrangement = Arrangement.spacedBy(Space.s16),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        status?.battery?.let { percent ->
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.s6), verticalAlignment = Alignment.CenterVertically) {
-                BatteryGlyph(percent)
-                Label(stringResource(R.string.home_battery, percent), LinkTheme.type.titleMedium)
-                if (status.charging == true) Label(stringResource(R.string.home_charging), LinkTheme.type.bodyLarge, colors.textSecondary)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s16)) {
+        DesktopTile(desktop.connected)
+        Column(Modifier.weight(1f)) {
+            Label(desktop.name, LinkTheme.type.hero, maxLines = 2)
+            Row(
+                Modifier.padding(top = Space.s4),
+                horizontalArrangement = Arrangement.spacedBy(Space.s6),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ConnectionOrb(desktop.connected, size = Space.s16, working = state.refreshing)
+                Label(via, LinkTheme.type.titleSmall, if (desktop.connected) colors.accentText else colors.textTertiary)
             }
         }
-        status?.locked?.let { locked ->
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.s6), verticalAlignment = Alignment.CenterVertically) {
-                Glyph(if (locked) LinkIcons.Lock else LinkIcons.LockOpen, colors.textSecondary, Size.iconSmall)
-                Label(
+    }
+    val battery = status?.battery
+    val locked = status?.locked
+    if (battery != null || locked != null) {
+        val ink = if (desktop.connected) colors.textPrimary else colors.textTertiary
+        Row(Modifier.padding(top = Space.s16).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Space.s12)) {
+            if (battery != null) {
+                StatTile(
+                    stringResource(R.string.home_battery, battery),
+                    stringResource(if (status.charging == true) R.string.home_battery_charging else R.string.home_battery_discharging),
+                    ink,
+                    Modifier.weight(1f),
+                ) { BatteryGlyph(battery) }
+            }
+            if (locked != null) {
+                StatTile(
                     stringResource(if (locked) R.string.home_locked else R.string.home_unlocked),
-                    LinkTheme.type.bodyLarge,
-                    colors.textSecondary,
-                )
+                    null,
+                    ink,
+                    Modifier.weight(1f),
+                ) { Glyph(if (locked) LinkIcons.Lock else LinkIcons.LockOpen, ink, Size.iconSmall) }
             }
         }
     }
     if (!desktop.connected) {
         PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !state.refreshing)
+    }
+}
+
+/** The desktop's tile: its glyph on an accent wash while connected, on the plain wash otherwise. */
+@Composable
+private fun DesktopTile(
+    connected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LinkTheme.colors
+    Box(
+        modifier
+            .size(
+                DESKTOP_TILE,
+            ).clip(RoundedCornerShape(18.dp))
+            .background(if (connected) colors.accent.copy(alpha = 0.14f) else wash()),
+        contentAlignment = Alignment.Center,
+    ) {
+        Glyph(LinkIcons.Computer, if (connected) colors.accent else colors.textTertiary, Size.icon + 8.dp)
+    }
+}
+
+/** One of the header's stats: a glyph, a value, and an optional caption under them. */
+@Composable
+private fun StatTile(
+    value: String,
+    caption: String?,
+    ink: Color,
+    modifier: Modifier = Modifier,
+    glyph: @Composable () -> Unit,
+) {
+    Column(
+        modifier
+            .fillMaxHeight()
+            .clip(Radius.button)
+            .background(wash())
+            .padding(Space.s12),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.s8), verticalAlignment = Alignment.CenterVertically) {
+            glyph()
+            Label(value, LinkTheme.type.titleLarge, ink)
+        }
+        if (caption != null) Label(caption, LinkTheme.type.bodySmall, LinkTheme.colors.textSecondary, Modifier.padding(top = Space.s4))
     }
 }
 
@@ -952,6 +1016,7 @@ private const val KEYS_PER_ROW = 4
 private const val RECENT_ITEMS = 3
 
 /** Transfer statuses that are not a failure; the rest (failed, declined, no-space, ...) are. */
+private val DESKTOP_TILE = 64.dp
 private val LIVE_STATUSES = setOf("offered", "transferring", "done")
 private const val LOW_BATTERY = 15
 private const val DISABLED = 0.45f

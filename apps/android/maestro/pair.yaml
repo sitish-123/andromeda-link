@@ -11,6 +11,6 @@ appId: org.andromeda.link
     timeout: 20000
 - tapOn: "Allow"
 - extendedWaitUntil:
-    visible: "Wi-Fi"
+    visible: "Connected, Wi-Fi"
     timeout: 20000
 - takeScreenshot: ${OUT}/2-connected

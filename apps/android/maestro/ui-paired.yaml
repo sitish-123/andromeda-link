@@ -7,7 +7,7 @@ appId: org.andromeda.link
     permissions: { notifications: allow }
     stopApp: false
 - extendedWaitUntil:
-    visible: "Wi-Fi"
+    visible: "Connected, Wi-Fi"
     timeout: 20000
 - takeScreenshot: ${OUT}/${THEME}-home
 - tapOn: "Activity tab"

@@ -278,7 +278,9 @@
     <string name="home_via_searching">Connecting</string>
     <string name="home_last_seen">Last seen %1$s</string>
     <string name="home_battery">%1$d%%</string>
-    <string name="home_charging">charging</string>
+    <string name="home_connected_via">Connected, %1$s</string>
+    <string name="home_battery_charging">Charging</string>
+    <string name="home_battery_discharging">On battery</string>
     <string name="home_locked">Locked</string>
     <string name="home_unlocked">Unlocked</string>
     <string name="home_volume">Volume</string>

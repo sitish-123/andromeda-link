@@ -1,11 +1,19 @@
-# Phones reach the daemon only through the firewall; open it where ufw is running, as the profile describes.
+# Phones reach the daemon only through the firewall; open whichever of ufw and firewalld runs.
 post_install() {
-  command -v ufw > /dev/null || return 0
-  ufw status 2> /dev/null | grep -q '^Status: active' || return 0
-  if ufw allow 'Andromeda Link' > /dev/null 2>&1; then
-    echo ':: ufw: allowed Andromeda Link (4717/udp, 4718/tcp, 5353/udp)'
-  else
-    echo ":: ufw: could not allow Andromeda Link; phones cannot pair until you run: sudo ufw allow 'Andromeda Link'"
+  if command -v ufw > /dev/null && ufw status 2> /dev/null | grep -q '^Status: active'; then
+    if ufw allow 'Andromeda Link' > /dev/null 2>&1; then
+      echo ':: ufw: allowed Andromeda Link (4717/udp, 4718/tcp, 5353/udp)'
+    else
+      echo ":: ufw: could not allow Andromeda Link; phones cannot pair until you run: sudo ufw allow 'Andromeda Link'"
+    fi
+  fi
+  if command -v firewall-cmd > /dev/null && firewall-cmd --state > /dev/null 2>&1; then
+    firewall-cmd --reload > /dev/null 2>&1
+    if firewall-cmd --permanent --add-service=andromeda-link > /dev/null 2>&1 && firewall-cmd --reload > /dev/null 2>&1; then
+      echo ':: firewalld: allowed Andromeda Link (4717/udp, 4718/tcp, 5353/udp)'
+    else
+      echo ':: firewalld: phones cannot pair until you run: sudo firewall-cmd --permanent --add-service=andromeda-link'
+    fi
   fi
 }
 

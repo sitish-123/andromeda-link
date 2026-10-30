@@ -20,9 +20,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository
+import org.andromeda.link.devices.CAN_CONTROL
 
 /**
  * Decides when the phone is present: while any of its screens is in the foreground, and while "Stay connected" is on,
@@ -61,13 +61,16 @@ class Presence(
                 .collect { repository.setPresent(it) }
         }
         scope.launch {
-            repository.desktops.map { desktops -> desktops.map { it.name to it.connected } }.distinctUntilChanged().collect {
+            combine(repository.desktops, repository.capabilities) { desktops, can ->
+                desktops.map { Triple(it.name, it.connected, can[it.id]?.contains(CAN_CONTROL)) }
+            }.distinctUntilChanged().collect {
+                DesktopTileService.refresh(application)
                 val allowed =
                     Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
                         ContextCompat.checkSelfPermission(application, Manifest.permission.POST_NOTIFICATIONS) ==
                         PackageManager.PERMISSION_GRANTED
                 if (!_stayConnected.value || !allowed) return@collect
-                val notification = PresenceService.notification(application, repository.desktops.value)
+                val notification = PresenceService.notification(application, repository)
                 runCatching { NotificationManagerCompat.from(application).notify(PresenceService.NOTIFICATION_ID, notification) }
             }
         }

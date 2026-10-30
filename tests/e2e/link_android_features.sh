@@ -306,6 +306,39 @@ maestro "$FLOWS/stop-desktop.yaml"
 wait_for 10 "the phone did not stop the desktop" heard RingRequested "'$ID', false"
 record '{"step":"find-my-desktop","ring":"RingRequested true","stop":"RingRequested false"}'
 
+# Quick Settings tiles and the presence notification's actions lock and ring the desktop.
+count() { grep -F "org.andromeda.Link1.$1 " "$OUT/signals.txt" | grep -cF -- "$2" || true; }
+for tile in LockTileService RingTileService; do adb shell cmd statusbar add-tile "$PACKAGE/.presence.$tile" > /dev/null; done
+# As a user does: open the panel, so the tiles listen and leave a stale unavailable state; SystemUI drops clicks then.
+tile_state() { adb shell dumpsys activity service com.android.systemui/.SystemUIService | grep -m1 -oE "spec=custom\($PACKAGE/.presence.$1\).*state=[0-9]" | grep -oE "state=[0-9]$"; }
+adb shell cmd statusbar expand-settings
+for tile in LockTileService RingTileService; do wait_for 10 "the $tile tile stays unavailable: $(tile_state $tile)" eval "[[ \$(tile_state $tile) == state=1 ]]"; done
+LOCKS=$(count SystemCommand lock)
+RINGS=$(count RingRequested "'$ID', true")
+adb shell cmd statusbar click-tile "$PACKAGE/.presence.LockTileService" > /dev/null
+wait_for 10 "the Lock tile sent no lock" eval '(( $(count SystemCommand lock) > LOCKS ))'
+adb shell cmd statusbar click-tile "$PACKAGE/.presence.RingTileService" > /dev/null
+wait_for 10 "the Ring tile did not ring the desktop" eval "(( \$(count RingRequested \"'\$ID', true\") > RINGS ))"
+adb shell cmd statusbar collapse
+# The presence channel is minimised, so the shade hides its buttons from Maestro; the receivers share DesktopActions
+# with the tiles, and dumpsys shows the buttons the notification carries.
+presence_actions() {
+  adb shell dumpsys notification --noredact > "$OUT/presence.txt"
+  sed -n "/pkg=$PACKAGE user=.* id=1 /,/extras={/p" "$OUT/presence.txt" |
+    grep -oE '^ +\[[0-9]\] "[^"]+"' | cut -d'"' -f2 | tr '\n' ' '
+}
+# The flow toggles the switch, and a failed run can leave Stay connected on.
+stay() {
+  local now=off
+  adb shell dumpsys activity services "$PACKAGE/.presence.PresenceService" | grep -q ServiceRecord && now=on
+  [[ $now == "$1" ]] || maestro -e STAY="$1" "$FLOWS/stay-connected.yaml"
+}
+stay on
+wait_for 10 "the presence notification lacks Send clipboard, Lock, Ring; see $OUT/presence.txt" \
+  eval '[[ $(presence_actions) == "Send clipboard Lock Ring " ]]'
+stay off
+record '{"step":"desktop-shortcuts","tiles":["Lock","Ring"],"presence_actions":["Send clipboard","Lock","Ring"]}'
+
 for permission in READ_PHONE_STATE READ_CALL_LOG READ_CONTACTS ANSWER_PHONE_CALLS; do
   adb shell pm grant "$PACKAGE" "android.permission.$permission"
 done

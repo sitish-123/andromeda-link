@@ -18,7 +18,7 @@ import org.andromeda.link.LinkApplication
 import org.andromeda.link.MainActivity
 import org.andromeda.link.R
 import org.andromeda.link.clipboard.ClipboardReadActivity
-import org.andromeda.link.core.domain.Desktop
+import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.notifications.Channels
 
 /**
@@ -37,7 +37,7 @@ class PresenceService : Service() {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            notification(this, container.repository.desktops.value),
+            notification(this, container.repository),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
         container.clipboardWatcher.start()
@@ -53,11 +53,12 @@ class PresenceService : Service() {
         const val NOTIFICATION_ID = 1
         private const val GROUP = "presence"
 
-        /** "Connected to Arch" with Send clipboard, Ring, and Disconnect, or "Looking for Arch". */
+        /** "Connected to Arch" with Send clipboard, Lock (where granted), and Ring, or "Looking for Arch". */
         fun notification(
             context: Context,
-            desktops: List<Desktop>,
+            repository: LinkRepository,
         ): Notification {
+            val desktops = repository.desktops.value
             val connected = desktops.filter { it.connected }
             val title =
                 if (connected.isNotEmpty()) {
@@ -84,47 +85,45 @@ class PresenceService : Service() {
                         Intent(context, ClipboardReadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                         PendingIntent.FLAG_IMMUTABLE,
                     )
-                builder
-                    .addAction(0, context.getString(R.string.clipboard_tile), sendClipboard)
-                    .addAction(
+                builder.addAction(0, context.getString(R.string.clipboard_tile), sendClipboard)
+                if (DesktopActions.controllable(repository).isNotEmpty()) {
+                    builder.addAction(
                         0,
-                        context.getString(R.string.presence_ring),
-                        PresenceActionReceiver.intent(context, PresenceActionReceiver.RING),
-                    ).addAction(
-                        0,
-                        context.getString(R.string.presence_disconnect),
-                        PresenceActionReceiver.intent(context, PresenceActionReceiver.DISCONNECT),
+                        context.getString(R.string.presence_lock),
+                        PresenceActionReceiver.intent(context, PresenceActionReceiver.LOCK),
                     )
+                }
+                builder.addAction(
+                    0,
+                    context.getString(R.string.presence_ring),
+                    PresenceActionReceiver.intent(context, PresenceActionReceiver.RING),
+                )
             }
             return builder.build()
         }
     }
 }
 
-/** Ring rings every connected desktop; Disconnect turns "Stay connected" off. */
+/** Lock and Ring act on every connected desktop. */
 class PresenceActionReceiver : BroadcastReceiver() {
     override fun onReceive(
         context: Context,
         intent: Intent,
     ) {
         val container = (context.applicationContext as LinkApplication).container
-        when (intent.action) {
-            RING -> {
-                val done = goAsync()
-                CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
-                    container.repository.desktops.value
-                        .filter { it.connected }
-                        .forEach { container.repository.ringDesktop(it.id, true) }
-                    done.finish()
-                }
+        val done = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            when (intent.action) {
+                LOCK -> DesktopActions.lock(container.repository)
+                RING -> DesktopActions.ring(container.repository)
             }
-            DISCONNECT -> container.presence.setStayConnected(false)
+            done.finish()
         }
     }
 
     companion object {
         const val RING = "org.andromeda.link.presence.RING"
-        const val DISCONNECT = "org.andromeda.link.presence.DISCONNECT"
+        const val LOCK = "org.andromeda.link.presence.LOCK"
 
         fun intent(
             context: Context,

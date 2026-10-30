@@ -29,8 +29,13 @@ RELAY_PORT=${RELAY_PORT:-57051}
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-clipboard-phone.XXXX)
-trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
-fail() { echo "FAIL: $*" >&2; exit 1; }
+# The log access method goes back to Automatic: the stored pick is removed, and a fresh process reads it.
+restore_method() {
+  command adb -s "$SERIAL" shell run-as "$PACKAGE" rm -f shared_prefs/log_access.xml
+  command adb -s "$SERIAL" shell am force-stop "$PACKAGE"
+}
+trap 'restore_method; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+fail() { command adb -s "$SERIAL" exec-out screencap -p > "$OUT/fail.png" || true; echo "FAIL: $*" >&2; exit 1; }
 step() { printf '%s\n' "$*" | tee -a "$OUT/steps.txt"; }
 wait_for() {
   local tries=$(( $1 * 10 )) what=$2; shift 2
@@ -95,11 +100,18 @@ while True:
 PY
 
 adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb shell cmd statusbar collapse
 # Never uninstall: other phone runs share the app and its signing key. Clearing its data forgets other desktops.
 adb shell pm clear "$PACKAGE" > /dev/null 2>&1 || true
 adb install -r -g "$APK" > /dev/null || fail "installing $APK"
 adb install -r "$FIXTURE_APK" > /dev/null || fail "installing $FIXTURE_APK"
+# Forces the READ_LOGS path this run proves: with Shizuku or root, Automatic runs logcat outside the app and Android
+# asks nothing. The install's MY_PACKAGE_REPLACED may have started the app, which reads the pick once at start; so
+# it stops, and the pairing below starts it again.
+printf '<?xml version="1.0" encoding="utf-8" standalone="yes" ?>\n<map><string name="method">Android</string></map>\n' \
+  | adb shell run-as "$PACKAGE" sh -c "'mkdir -p shared_prefs && cat > shared_prefs/log_access.xml'"
+adb shell am force-stop "$PACKAGE"
 for permission in READ_LOGS SYSTEM_ALERT_WINDOW; do
   adb shell dumpsys package "$PACKAGE" | grep -q "$permission: granted=true" || fail "$permission was not granted at install"
 done
@@ -137,7 +149,12 @@ tap_text() {
 
 URI=$(link StartPairing | sed -E "s/^\('[0-9]+', '([^']+)'\)$/\1/" | sed -E "s/&a=[^&]*//g; s/&b=[^&]*//")
 adb shell am start -W -a android.intent.action.VIEW -d "'$URI&a=$HOST:$RELAY_PORT'" "$PACKAGE" > /dev/null
-tap_text "" Pair
+# With the Android method, the watcher's log access prompt can cover the pairing prompt.
+for _ in 1 2; do
+  tap_text "" "Allow one-time access" Pair
+  [[ -n $(bounds "Allow one-time access") ]] || break
+  ALLOWED_AT=$(date +%s)
+done
 wait_for 20 "D-Bus does not show the phone connected: $(devices)" connected
 ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
 step "paired with a private desktop through the relay on $HOST:$RELAY_PORT"
@@ -147,6 +164,7 @@ step "paired with a private desktop through the relay on $HOST:$RELAY_PORT"
 for _ in $(seq 10); do
   if adb shell dumpsys activity activities | grep -q LogAccessDialogActivity; then
     tap_text "" "Allow one-time access"
+    ALLOWED_AT=$(date +%s)
     break
   fi
   sleep 0.5
@@ -181,6 +199,10 @@ sleep 4 # real time: an offer would arrive within this
 [[ $(offers) == "$BEFORE" ]] || fail "a copy crossed before log access was asked"
 step "before the first open: a copy does not cross"
 
+# Android keeps an app's log access answer for 60 s (LogcatManagerService), and a logcat started within it asks
+# nothing; so the first open waits until the answer at pairing expired.
+LEFT=$(( ${ALLOWED_AT:-0} + 61 - $(date +%s) ))
+(( LEFT <= 0 )) || sleep "$LEFT"
 adb shell am start -W -n "$PACKAGE/.MainActivity" > /dev/null
 tap_text 1-log-access-prompt "Allow one-time access"
 wait_for 10 "the dialog did not close" eval '! adb shell dumpsys window | grep -q "mCurrentFocus.*LogAccessDialog"'

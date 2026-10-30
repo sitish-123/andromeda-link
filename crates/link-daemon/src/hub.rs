@@ -58,6 +58,7 @@ pub struct Attempt {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[expect(clippy::struct_excessive_bools, reason = "one field per D-Bus property")]
 pub struct Snapshot {
     /// `(device_id, name, connected)`, the D-Bus `Devices` property.
     pub devices: Vec<(String, String, bool)>,
@@ -88,6 +89,8 @@ pub struct Snapshot {
     pub calls: Vec<(String, crate::messages::Calls)>,
     /// Device id to why its phone refused the call log, the D-Bus `CallsRefused` property.
     pub calls_refused: Vec<(String, String)>,
+    /// A phone mirrors here or presents: the D-Bus `KeepAwake` property.
+    pub keep_awake: bool,
     /// `(name, command)`, the D-Bus `Commands` property.
     pub commands: Vec<(String, String)>,
     /// What `link-session` can do now, the D-Bus `SessionCapabilities` property.
@@ -308,6 +311,8 @@ pub struct Hub {
     system_waiting: HashMap<(DeviceId, u64), oneshot::Sender<Result<(), String>>>,
     messages: crate::messages::Messages,
     mirrors: crate::mirror::Mirrors,
+    /// Phones whose presenter for this desktop is open.
+    presenting: HashSet<DeviceId>,
     remotes: crate::remote::Remotes,
     puncher: Puncher,
 }
@@ -396,6 +401,7 @@ impl Hub {
             system_waiting: HashMap::new(),
             messages: crate::messages::Messages::default(),
             mirrors: crate::mirror::Mirrors::default(),
+            presenting: HashSet::new(),
             remotes: crate::remote::Remotes::default(),
             puncher,
         };
@@ -422,7 +428,10 @@ impl Hub {
                         self.tell_mirror_stop(&id, "nobody allowed it on the phone in time").await;
                     }
                 }
-                Some(id) = self.mirrors.ended() => self.tell_mirror_stop(&id, "the viewer closed").await,
+                Some(id) = self.mirrors.ended() => {
+                    self.tell_mirror_stop(&id, "the viewer closed").await;
+                    self.publish();
+                }
                 Some(id) = self.remotes.ended() => log::debug!("{id}: a remote control stream ended"),
                 () = sleep_until(browse_deadline) => self.browsing.expire(),
                 () = sleep_until(contacts_deadline) => self.messages.expire(),
@@ -587,7 +596,10 @@ impl Hub {
                 return self.emit(Event::ClipboardOffered { from, id, mimes, size }).await;
             }
             TransferEvent::Busy { .. } => return,
-            TransferEvent::Mirror { from, stream } => return self.mirrors.stream(from, &stream),
+            TransferEvent::Mirror { from, stream } => {
+                self.mirrors.stream(from, &stream);
+                return self.publish();
+            }
         };
         self.on_signal(Backend::Link, signal).await;
     }
@@ -692,6 +704,7 @@ impl Hub {
             SessionEvent::Message { from, message: Message::MirrorStop(stop) } => {
                 log::info!("{from}: the phone stopped mirroring: {:?}", stop.reason);
                 self.mirrors.stopped(&from, stop.reason);
+                self.publish();
             }
             SessionEvent::Message { from, message: Message::Punch(punch) } if self.sessions.contains_key(&from) => {
                 let addresses: Vec<std::net::SocketAddr> =
@@ -771,6 +784,14 @@ impl Hub {
                 self.leave_hotspot(&from).await;
             }
             Message::RemoteInput(input) => self.emit(Event::RemoteInput { id: from, input }).await,
+            Message::Presenting(presenting) => {
+                if presenting.on {
+                    self.presenting.insert(from);
+                } else {
+                    self.presenting.remove(&from);
+                }
+                self.publish();
+            }
             Message::RemoteRequest(request) => self.remote_request(from, request.source).await,
             Message::RemoteStop(stop) => {
                 log::info!("{from}: the phone ended remote control: {:?}", stop.reason);
@@ -1341,6 +1362,7 @@ impl Hub {
             }
             self.leave_hotspot(&id).await;
             self.status.remove(&id);
+            self.presenting.remove(&id);
             self.publish();
             self.media.disconnected(&id).await;
             self.set_in_call(&id, false).await;
@@ -1621,6 +1643,7 @@ impl Hub {
                 texts,
                 calls,
                 calls_refused,
+                keep_awake: self.mirrors.active() || !self.presenting.is_empty(),
                 commands,
                 capabilities,
             };

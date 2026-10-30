@@ -231,6 +231,11 @@ impl Link {
         self.snapshots.borrow().localsend
     }
 
+    #[zbus(property)]
+    fn keep_awake(&self) -> bool {
+        self.snapshots.borrow().keep_awake
+    }
+
     /// LocalSend devices on the LAN, `(localsend:<fingerprint>, alias)`, while the backend is on.
     #[zbus(property)]
     fn nearby(&self) -> Vec<(String, String)> {
@@ -932,6 +937,9 @@ pub async fn forward(
                 }
                 if next.localsend != last.localsend {
                     link.get().await.local_send_visible_changed(emitter).await?;
+                }
+                if next.keep_awake != last.keep_awake {
+                    link.get().await.keep_awake_changed(emitter).await?;
                 }
                 if next.contacts != last.contacts {
                     link.get().await.contacts_changed(emitter).await?;

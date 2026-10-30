@@ -161,6 +161,8 @@
       <arg name="visible" type="b" direction="in"/>
     </method>
     <property name="LocalSendVisible" type="b" access="read"/>
+    <!-- A phone's screen shows here or its presenter is open; link-session holds an idle inhibit meanwhile. -->
+    <property name="KeepAwake" type="b" access="read"/>
     <!-- LocalSend devices on the LAN, (localsend:<fingerprint>, alias), while LocalSendVisible is on. -->
     <property name="Nearby" type="a(ss)" access="read"/>
     <!-- (device_id, name, connected) -->

@@ -43,6 +43,11 @@ pub struct Mirrors {
 }
 
 impl Mirrors {
+    /// A phone's screen shows on this desktop.
+    pub fn active(&self) -> bool {
+        !self.running.is_empty()
+    }
+
     pub fn busy(&self, id: &DeviceId) -> bool {
         self.waiting.contains_key(id) || self.running.contains_key(id)
     }

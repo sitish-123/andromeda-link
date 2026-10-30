@@ -8,8 +8,8 @@ use link_core::identity::Spki;
 use link_core::pairing::pair_as_server;
 use link_core::proto::message::Hello;
 use link_core::proto::message::{
-    BLUETOOTH_SCHEME, BT_PAIRING, CALLS, CAPABILITIES, CLIP_ITEMS, CONTROL, MESSAGES, NOTIFICATION_SYNC, STATUS_SIGNAL,
-    SYSTEM, SYSTEM_CONTROL,
+    BLUETOOTH_SCHEME, BT_PAIRING, CALLS, CAPABILITIES, CLIP_ITEMS, CONTROL, MESSAGES, NOTIFICATION_SYNC, PRESENTING,
+    STATUS_SIGNAL, SYSTEM, SYSTEM_CONTROL,
 };
 use link_core::proto::session::Role;
 use link_core::proto::{CloseCode, VERSION};
@@ -185,6 +185,7 @@ impl Context {
                 MESSAGES,
                 CALLS,
                 CONTROL,
+                PRESENTING,
                 CAPABILITIES,
                 SYSTEM,
                 SYSTEM_CONTROL,

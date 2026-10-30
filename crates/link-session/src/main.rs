@@ -2,6 +2,7 @@
 //! through the session's notification server, the clipboard both ways, the phone as touchpad and keyboard, and the
 //! output volume, each through a backend the session offers. See "Stage 0" in `docs/link-v2.md`.
 
+mod awake;
 mod clipboard;
 mod input;
 mod link;
@@ -168,6 +169,9 @@ async fn main() -> anyhow::Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     let mut daemon_owner = link.proxy.inner().receive_owner_changed().await?;
     let (mut lock_changed, mut show_locked_changed, mut access_off) = notifications.watch(&bus).await?;
+    let mut keep_awake = link.proxy.receive_keep_awake_changed().await;
+    let mut awake = awake::Awake::connect(&bus).await?;
+    awake.set(link.proxy.keep_awake().await.unwrap_or(false)).await;
     let (mut clipboard, mut input) = backends(&bus).await;
     let mut volume = attempt("WirePlumber volume", volume::Volume::connect().await);
     let mut system = system::System::connect(&bus).await;
@@ -275,8 +279,12 @@ async fn main() -> anyhow::Result<()> {
             Some(message) = lock_changed.next() => notifications.set_locked(message.body().deserialize().ok(), None).await,
             Some(change) = show_locked_changed.next() => notifications.set_locked(None, change.get().await.ok()).await,
             Some(change) = access_off.next() => notifications.set_access_off(change.get().await.unwrap_or_default()).await,
-            // A restarted daemon starts with no capabilities and no status.
-            Some(Some(_)) = daemon_owner.next() => report(&link, &capabilities, volume.as_ref(), &system).await,
+            Some(change) = keep_awake.next() => awake.set(change.get().await.unwrap_or(false)).await,
+            // A restarted daemon starts with no capabilities and no status; a stopped one keeps nothing awake.
+            Some(owner) = daemon_owner.next() => match owner {
+                Some(_) => report(&link, &capabilities, volume.as_ref(), &system).await,
+                None => awake.set(false).await,
+            },
             _ = terminate.recv() => return Ok(()),
             _ = tokio::signal::ctrl_c() => return Ok(()),
         }

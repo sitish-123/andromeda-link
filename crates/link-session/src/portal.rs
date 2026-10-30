@@ -51,18 +51,15 @@ impl Session {
 
         let restore = std::fs::read_to_string(token_path()).unwrap_or_default();
         let restore = restore.trim();
-        request(bus, "SelectDevices", |token| async move {
-            let mut options = HashMap::from([
-                ("handle_token", Variant::from(token.as_str())),
-                ("types", Variant::from(DEVICES)),
-                ("persist_mode", Variant::from(PERSIST)),
-            ]);
-            if !restore.is_empty() {
-                options.insert("restore_token", Variant::from(restore));
+        if let Err(error) = select_devices(bus, remote, handle, restore).await {
+            if restore.is_empty() {
+                return Err(error);
             }
-            remote.call("SelectDevices", &(handle, options)).await
-        })
-        .await?;
+            // The portal refuses a malformed token, and the session stays open for a call without it.
+            log::warn!("the portal refused the restore token: {error:#}");
+            drop_token();
+            select_devices(bus, remote, handle, "").await?;
+        }
         // Asked for before Start, as the Clipboard portal requires.
         if has_clipboard {
             let options: HashMap<&str, Variant<'_>> = HashMap::new();
@@ -72,10 +69,13 @@ impl Session {
             let options = HashMap::from([("handle_token", Variant::from(token.as_str()))]);
             remote.call("Start", &(handle, "", options)).await
         })
-        .await?;
-        if let Ok(token) = string(&results, "restore_token") {
-            save_token(&token);
+        .await;
+        // The portal deletes the token it was given when it reads it, so a start that returns none leaves a dead one.
+        match results.as_ref().ok().and_then(|results| string(results, "restore_token").ok()) {
+            Some(token) => save_token(&token),
+            None => drop_token(),
         }
+        let results = results?;
         let enabled = results.get("clipboard_enabled").and_then(|value| bool::try_from(value).ok());
         Ok(Some(Self { bus: bus.clone(), handle: handle.clone(), clipboard: has_clipboard && enabled == Some(true) }))
     }
@@ -87,6 +87,28 @@ impl Session {
         let fd: OwnedFd = remote.call("ConnectToEIS", &(&self.handle, options)).await?;
         Ok(fd.into())
     }
+}
+
+/// Asks for keyboard and pointer, kept until revoked; an empty `restore` asks the user.
+async fn select_devices(
+    bus: &zbus::Connection,
+    remote: &zbus::Proxy<'_>,
+    handle: &OwnedObjectPath,
+    restore: &str,
+) -> anyhow::Result<()> {
+    request(bus, "SelectDevices", |token| async move {
+        let mut options = HashMap::from([
+            ("handle_token", Variant::from(token.as_str())),
+            ("types", Variant::from(DEVICES)),
+            ("persist_mode", Variant::from(PERSIST)),
+        ]);
+        if !restore.is_empty() {
+            options.insert("restore_token", Variant::from(restore));
+        }
+        remote.call("SelectDevices", &(handle, options)).await
+    })
+    .await?;
+    Ok(())
 }
 
 fn token() -> String {
@@ -133,5 +155,14 @@ fn save_token(token: &str) {
     let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(&path, token));
     if let Err(error) = saved {
         log::warn!("saving the portal's restore token: {error}");
+    }
+}
+
+fn drop_token() {
+    match std::fs::remove_file(token_path()) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            log::warn!("removing the portal's restore token: {error}");
+        }
+        _ => {}
     }
 }

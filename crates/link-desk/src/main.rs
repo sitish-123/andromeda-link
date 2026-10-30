@@ -1,6 +1,16 @@
+mod activity;
 mod client;
-#[allow(clippy::unnecessary_box_returns, reason = "cxx-qt generates the boxed constructor")]
+mod desktop;
+mod files;
+mod format;
+mod history;
+mod hub;
 mod link;
+mod messages;
+mod pairing;
+mod photos;
+mod screen;
+mod settings;
 
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QUrl};
 

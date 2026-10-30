@@ -2,7 +2,9 @@ use cxx_qt_build::{CxxQtBuilder, QResource, QResources, QmlFile, QmlModule};
 use qt_build_utils::QResourceFile;
 
 /// Preview tools for the QML, kept out of the shipped module.
-const PREVIEW_ONLY: [&str; 3] = ["MockLink.qml", "Preview.qml", "Shot.qml"];
+const PREVIEW_ONLY: [&str; 2] = ["Preview.qml", "Shot.qml"];
+/// Bridges of the page singletons and the desktop helpers; cxx-qt takes bridges from one folder only.
+const PAGES: [&str; 8] = ["activity", "desktop", "files", "messages", "pairing", "photos", "screen", "settings"];
 const FONTS: &str = "../../apps/android/app/src/main/res/font";
 
 fn main() {
@@ -16,7 +18,7 @@ fn main() {
         for path in paths {
             let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
             match path.extension().and_then(|extension| extension.to_str()) {
-                Some("qml") if !PREVIEW_ONLY.contains(&name) => {
+                Some("qml") if !PREVIEW_ONLY.contains(&name) && !name.starts_with("Mock") => {
                     let singleton = std::fs::read_to_string(&path).is_ok_and(|text| text.contains("pragma Singleton"));
                     qml.push(QmlFile::from(path).singleton(singleton));
                 }
@@ -34,5 +36,6 @@ fn main() {
         .qt_module("Quick")
         .qrc_resources(QResources::new().resource(resources))
         .file("src/link.rs")
+        .files(PAGES.map(|page| format!("src/{page}.rs")))
         .build();
 }

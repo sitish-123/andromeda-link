@@ -18,6 +18,7 @@ env_logger.workspace = true
 futures-util.workspace = true
 link-api.workspace = true
 log.workspace = true
+qrcode = { version = "0.14", default-features = false }
 rustix.workspace = true
 tokio.workspace = true
 zbus.workspace = true
@@ -38,3 +39,6 @@ missing_panics_doc = "allow"
 must_use_candidate = "allow"
 unwrap_used = "warn"
 expect_used = "warn"
+# cxx-qt generates boxed constructors, and QML invokables take self even when they only send a command.
+unnecessary_box_returns = "allow"
+unused_self = "allow"

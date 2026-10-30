@@ -1835,6 +1835,7 @@ dependencies = [
  "futures-util",
  "link-api",
  "log",
+ "qrcode",
  "qt-build-utils",
  "rustix",
  "tokio",

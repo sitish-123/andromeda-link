@@ -107,6 +107,20 @@ ColumnLayout {
         }
     }
 
+    Heading { text: "Clipboard" }
+    SettingRow {
+        Layout.maximumWidth: 520
+        divider: false
+        title: "Clipboard helper"
+        text: tab.api.helperStatus || "Sends what you copy on " + tab.phone.name + " here without root or Shizuku. Needs wireless debugging on the phone; runs until the phone restarts."
+        TonalButton {
+            radius: 20
+            enabled: tab.api.helperStatus !== "Starting…"
+            text: "Start helper"
+            onClicked: tab.api.startHelper(tab.phone.name)
+        }
+    }
+
     component Heading: Label {
         Layout.topMargin: 24
         Layout.bottomMargin: 8

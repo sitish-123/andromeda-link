@@ -1,6 +1,7 @@
 //! `LinkSettings`: grants, auto accept, and the service's switches, for every paired phone; follows no phone.
 
 use std::pin::Pin;
+use std::process::{Command as Process, Stdio};
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
@@ -34,6 +35,7 @@ pub mod qobject {
         #[qproperty(bool, notifications_while_locked, READ, NOTIFY)]
         #[qproperty(QStringList, notifications_off)]
         #[qproperty(QList_QVariant, commands, READ, NOTIFY)]
+        #[qproperty(QString, helper_status, READ, NOTIFY)]
         type LinkSettings = super::SettingsRust;
     }
 
@@ -53,6 +55,8 @@ pub mod qobject {
         fn set_commands(self: Pin<&mut LinkSettings>, list: &QList_QVariant);
         #[qinvokable]
         fn unpair(self: Pin<&mut LinkSettings>, id: &QString);
+        #[qinvokable]
+        fn start_helper(self: Pin<&mut LinkSettings>, name: &QString);
     }
 
     impl cxx_qt::Threading for LinkSettings {}
@@ -68,6 +72,7 @@ pub struct SettingsRust {
     notifications_while_locked: bool,
     notifications_off: QStringList,
     commands: QList<QVariant>,
+    helper_status: QString,
 }
 
 fn strings(list: &[String]) -> QStringList {
@@ -172,5 +177,36 @@ impl qobject::LinkSettings {
 
     fn unpair(self: Pin<&mut Self>, id: &QString) {
         hub::send(Command::Unpair(id.to_string()));
+    }
+
+    /// Starts the phone's clipboard helper through `andromeda-link-apps`, which opens its pairing window when the
+    /// phone is not paired for wireless debugging yet.
+    fn start_helper(mut self: Pin<&mut Self>, name: &QString) {
+        self.as_mut().show_helper("Starting…");
+        let (thread, name) = (self.qt_thread(), name.to_string());
+        std::thread::spawn(move || {
+            let apps = std::env::current_exe()
+                .ok()
+                .and_then(|exe| Some(exe.parent()?.join("andromeda-link-apps")))
+                .filter(|path| path.exists())
+                .map_or("andromeda-link-apps".into(), std::path::PathBuf::into_os_string);
+            let status = match Process::new(apps).arg(&name).arg("--helper").stdin(Stdio::null()).output() {
+                Ok(output) if String::from_utf8_lossy(&output.stdout).contains("runs on the phone") => {
+                    "Running until the phone restarts".to_owned()
+                }
+                Ok(output) => String::from_utf8_lossy(&output.stderr)
+                    .lines()
+                    .rfind(|line| !line.trim().is_empty())
+                    .map_or("Not started", |line| line.split_once("] ").map_or(line, |(_, text)| text))
+                    .to_owned(),
+                Err(error) => format!("andromeda-link-apps: {error}"),
+            };
+            let _ = thread.queue(move |settings| settings.show_helper(&status));
+        });
+    }
+
+    fn show_helper(mut self: Pin<&mut Self>, status: &str) {
+        self.as_mut().rust_mut().helper_status = QString::from(status);
+        self.as_mut().helper_status_changed();
     }
 }

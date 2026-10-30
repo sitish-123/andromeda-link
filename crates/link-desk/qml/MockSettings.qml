@@ -27,5 +27,7 @@ QtObject {
     function setQuickShareVisible(on) { quickShareVisible = on }
     function setNotificationsWhileLocked(on) { notificationsWhileLocked = on }
     function setCommands(list) { commands = list }
+    property string helperStatus: ""
     function unpair(id) { console.log("unpair", id) }
+    function startHelper(name) { helperStatus = "Running until the phone restarts" }
 }

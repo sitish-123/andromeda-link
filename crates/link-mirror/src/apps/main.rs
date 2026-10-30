@@ -1,5 +1,6 @@
 //! `andromeda-link-apps`: the paired phone's apps, each opened in its own desktop window through scrcpy over wireless
 //! debugging, the only way a phone app runs on a second display. `--list` and `--launch` work without a window.
+//! `--helper` starts Link's clipboard helper on the phone, with a window only to pair.
 
 mod adb;
 
@@ -24,6 +25,9 @@ struct Cli {
     /// Open the app with this package name and exit.
     #[arg(long, value_name = "PACKAGE")]
     launch: Option<String>,
+    /// Start Link's clipboard helper on the phone and exit; opens a window to pair when the phone is not paired.
+    #[arg(long)]
+    helper: bool,
 }
 
 fn main() -> ExitCode {
@@ -38,10 +42,19 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
+    if cli.helper
+        && let Found::Serial(serial) = adb::find(&cli.name)?
+    {
+        adb::start_helper(&serial)?;
+        println!("the clipboard helper runs on the phone until it restarts");
+        return Ok(());
+    }
     if !cli.list && cli.launch.is_none() {
-        let app = gtk4::Application::builder().application_id("org.andromeda.LinkApps").build();
-        let name = cli.name;
-        app.connect_activate(move |app| window(app, &name));
+        // The helper's pairing window is its own instance, not the apps window raised.
+        let flags = if cli.helper { gio::ApplicationFlags::NON_UNIQUE } else { gio::ApplicationFlags::empty() };
+        let app = gtk4::Application::builder().application_id("org.andromeda.LinkApps").flags(flags).build();
+        let (name, helper) = (cli.name, cli.helper);
+        app.connect_activate(move |app| window(app, &name, helper));
         app.run_with_args::<&str>(&[]);
         return Ok(());
     }
@@ -64,13 +77,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 
 struct Ui {
     name: String,
+    /// Starts the clipboard helper once paired, in place of listing apps.
+    helper: bool,
     stack: gtk4::Stack,
     list: gtk4::ListBox,
     status: gtk4::Label,
     code: gtk4::Entry,
 }
 
-fn window(app: &gtk4::Application, name: &str) {
+fn window(app: &gtk4::Application, name: &str, helper: bool) {
     let status = gtk4::Label::builder().wrap(true).xalign(0.0).css_classes(["dim-label"]).build();
     let list = gtk4::ListBox::builder().selection_mode(gtk4::SelectionMode::None).css_classes(["boxed-list"]).build();
     let search = gtk4::SearchEntry::builder().placeholder_text("Search apps").build();
@@ -84,11 +99,11 @@ fn window(app: &gtk4::Application, name: &str) {
     let pair_page = gtk4::Box::new(gtk4::Orientation::Vertical, 12);
     pair_page.append(
         &gtk4::Label::builder()
-            .label(
-                "Phone apps open through wireless debugging. On the phone, open Settings, Developer options, Wireless \
-                 debugging; turn it on, tap Pair device with pairing code, and enter the code here. This is needed \
-                 once.",
-            )
+            .label(format!(
+                "{} through wireless debugging. On the phone, open Settings, Developer options, Wireless debugging; \
+                 turn it on, tap Pair device with pairing code, and enter the code here. This is needed once.",
+                if helper { "The clipboard helper starts" } else { "Phone apps open" }
+            ))
             .wrap(true)
             .xalign(0.0)
             .build(),
@@ -99,6 +114,7 @@ fn window(app: &gtk4::Application, name: &str) {
     stack.add_named(&gtk4::Spinner::builder().spinning(true).build(), Some("looking"));
     stack.add_named(&pair_page, Some("pair"));
     stack.add_named(&apps_page, Some("apps"));
+    stack.add_named(&gtk4::Box::new(gtk4::Orientation::Vertical, 0), Some("done"));
     let content = gtk4::Box::builder()
         .orientation(gtk4::Orientation::Vertical)
         .spacing(12)
@@ -111,12 +127,12 @@ fn window(app: &gtk4::Application, name: &str) {
     content.append(&status);
     let window = gtk4::ApplicationWindow::builder()
         .application(app)
-        .title(format!("{name}: apps"))
+        .title(if helper { format!("{name}: clipboard helper") } else { format!("{name}: apps") })
         .default_width(420)
         .default_height(640)
         .child(&content)
         .build();
-    let ui = Rc::new(Ui { name: name.to_owned(), stack, list, status, code });
+    let ui = Rc::new(Ui { name: name.to_owned(), helper, stack, list, status, code });
     {
         let ui = ui.clone();
         search.connect_search_changed(move |search| {
@@ -142,10 +158,11 @@ fn refresh(ui: &Rc<Ui>) {
     ui.status.set_text("Looking for the phone…");
     let ui = ui.clone();
     glib::spawn_future_local(async move {
-        let name = ui.name.clone();
+        let (name, helper) = (ui.name.clone(), ui.helper);
         let found = gio::spawn_blocking(move || {
             let found = adb::find(&name)?;
             let apps = match &found {
+                Found::Serial(serial) if helper => adb::start_helper(serial).map(|()| Vec::new())?,
                 Found::Serial(serial) => adb::apps(serial)?,
                 Found::Unpaired { .. } => Vec::new(),
             };
@@ -153,6 +170,12 @@ fn refresh(ui: &Rc<Ui>) {
         })
         .await;
         match found {
+            Ok(Ok((Found::Serial(_), _))) if ui.helper => {
+                println!("the clipboard helper runs on the phone until it restarts");
+                ui.stack.set_visible_child_name("done");
+                ui.status
+                    .set_text("The clipboard helper runs on the phone until it restarts. You can close this window.");
+            }
             Ok(Ok((Found::Serial(serial), apps))) => show_apps(&ui, &serial, apps),
             Ok(Ok((Found::Unpaired { .. }, _))) => {
                 ui.status.set_text("");

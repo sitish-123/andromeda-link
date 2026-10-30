@@ -1,10 +1,15 @@
 //! The phone over wireless debugging: finding it (`adb devices`, then the `_adb-tls-connect` services `adb mdns`
-//! lists), pairing it once with the code its Wireless debugging screen shows, and listing and launching its apps
-//! through scrcpy, which puts each app on its own virtual display in its own window.
+//! lists), pairing it once with the code its Wireless debugging screen shows, listing and launching its apps
+//! through scrcpy, which puts each app on its own virtual display in its own window, and starting Link's clipboard
+//! helper.
 
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
+
+const LINK: &str = "org.andromeda.link";
+const HELPER: &str = "org.andromeda.link.clipboard.LogHelper";
+const HELPER_LOG: &str = "/data/local/tmp/andromeda-link-helper.log";
 
 pub struct App {
     pub name: String,
@@ -128,4 +133,32 @@ pub fn launch(serial: &str, app: &App) -> anyhow::Result<()> {
         .spawn()
         .context("running scrcpy; install scrcpy")?;
     Ok(())
+}
+
+/// Starts Link's log helper as the shell user, the way Shizuku starts its server, and lets Link draw over other apps,
+/// which its clipboard read needs. The helper outlives this connection and runs until the phone restarts; a second
+/// start finds it running and exits.
+pub fn start_helper(serial: &str) -> anyhow::Result<()> {
+    let paths = adb(&["-s", serial, "shell", "pm", "path", LINK])?;
+    let apk = paths
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("package:"))
+        .find(|path| path.ends_with("/base.apk"))
+        .context("Link is not installed on the phone")?;
+    adb(&["-s", serial, "shell", "appops", "set", LINK, "SYSTEM_ALERT_WINDOW", "allow"])?;
+    adb(&[
+        "-s",
+        serial,
+        "shell",
+        &format!("CLASSPATH='{apk}' setsid app_process /system/bin {HELPER} {LINK} </dev/null >{HELPER_LOG} 2>&1 &"),
+    ])?;
+    let mut log = String::new();
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        log = adb(&["-s", serial, "shell", "cat", HELPER_LOG]).unwrap_or_default();
+        if log.contains("helper for") || log.contains("already running") {
+            return Ok(());
+        }
+    }
+    bail!("the clipboard helper did not start: {}", log.trim())
 }

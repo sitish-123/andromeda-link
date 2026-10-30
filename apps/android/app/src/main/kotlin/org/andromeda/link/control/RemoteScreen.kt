@@ -203,7 +203,11 @@ fun PresenterScreen(
     val view = LocalView.current
     DisposableEffect(view) {
         view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
+        viewModel.presenting(true)
+        onDispose {
+            view.keepScreenOn = false
+            viewModel.presenting(false)
+        }
     }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }

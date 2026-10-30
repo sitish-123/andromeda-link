@@ -2,6 +2,7 @@ package org.andromeda.link.control
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,6 +88,11 @@ class RemoteViewModel(
         val kept = before.commonPrefixWith(after).length
         repeat(before.length - kept) { key(RemoteKey.Backspace) }
         if (after.length > kept) send(RemoteInput.Text(after.substring(kept)))
+    }
+
+    /** The presenter opened or closed: the desktop stays awake meanwhile. Runs even as the view model clears. */
+    fun presenting(on: Boolean) {
+        viewModelScope.launch(NonCancellable) { repository.setPresenting(desktopId, on) }
     }
 
     fun failureShown() {

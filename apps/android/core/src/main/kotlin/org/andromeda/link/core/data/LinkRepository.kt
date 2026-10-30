@@ -344,6 +344,11 @@ class LinkRepository(
         input: RemoteInput,
     ): Result<Unit> = call { it.sendInput(desktopId, input.toFfi()) }
 
+    suspend fun setPresenting(
+        desktopId: String,
+        on: Boolean,
+    ): Result<Unit> = call { it.setPresenting(desktopId, on) }
+
     suspend fun runCommand(
         desktopId: String,
         commandId: String,

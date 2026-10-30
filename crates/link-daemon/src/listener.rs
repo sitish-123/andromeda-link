@@ -32,6 +32,11 @@ pub struct Listener {
     context: Arc<Context>,
 }
 
+/// Handshakes and sessions at once, over QUIC and Bluetooth: far above the phones one desktop pairs.
+const MAX_CONNECTIONS: usize = 256;
+/// Above this many, a new QUIC connection must answer a Retry first, so spoofed sources cost nothing.
+const RETRY_ABOVE: usize = 16;
+
 struct Context {
     hub: HubHandle,
     own: Spki,
@@ -60,7 +65,14 @@ impl Listener {
             tokio::select! {
                 incoming = self.endpoint.accept() => {
                     let Some(incoming) = incoming else { return Ok(()) };
-                    connections.spawn(handle(incoming, self.context.clone()));
+                    if connections.len() >= MAX_CONNECTIONS {
+                        incoming.refuse();
+                    } else if connections.len() >= RETRY_ABOVE && incoming.may_retry() {
+                        // A Retry proves the source address before the handshake costs a task.
+                        let _ = incoming.retry();
+                    } else {
+                        connections.spawn(handle(incoming, self.context.clone()));
+                    }
                 }
                 Some(fd) = self.bluetooth.incoming.recv() => {
                     connections.spawn(handle_stream(fd, self.acceptor.clone(), self.context.clone()));

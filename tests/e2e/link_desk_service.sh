@@ -18,7 +18,8 @@ PACKAGE=org.andromeda.link
 rm -rf "$OUT"
 mkdir -p "$OUT"
 RUNTIME=$(mktemp -d /tmp/link-desk-service.XXXX)
-trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+# The bus starts andromeda-linkd, so it is no job of this script: stop it before the bus.
+trap 'kill $(linkd_pid 2>/dev/null) $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 wait_for() {
   local tries=$(( $1 * 10 )) what=$2; shift 2
@@ -60,7 +61,10 @@ devices() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 
 connected() { devices | grep -q "', true)"; }
 said() { grep -q "SVC $1" "$OUT/app.log"; }
 owned() { gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus -m org.freedesktop.DBus.NameHasOwner org.andromeda.Link1 | grep -q true; }
-linkd_pid() { pgrep -f "^$BIN/andromeda-linkd" | head -1; }
+linkd_pid() {
+  gdbus call --session -d org.freedesktop.DBus -o /org/freedesktop/DBus \
+    -m org.freedesktop.DBus.GetConnectionUnixProcessID org.andromeda.Link1 | sed -E 's/^\(uint32 ([0-9]+),\)$/\1/'
+}
 
 # Pairing needs the service: start it by activation from the script, as the first run.
 link CancelPairing > /dev/null 2>&1 || true

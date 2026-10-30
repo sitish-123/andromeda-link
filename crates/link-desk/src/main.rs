@@ -7,6 +7,7 @@ mod history;
 mod hub;
 mod link;
 mod messages;
+mod mirror;
 mod pairing;
 mod photos;
 mod screen;

@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
@@ -34,10 +35,11 @@ class ScreenMirror(
     private fun on(command: MirrorCommand) {
         when (command) {
             is MirrorCommand.Requested -> ask(command.desktopId)
-            is MirrorCommand.Input -> ScreenInput.perform(command)
+            is MirrorCommand.Input -> if (ScreenInput.enabled) ScreenInput.perform(command) else askForControl()
             is MirrorCommand.Keyframe -> ScreenCapture.requestKeyframe()
             is MirrorCommand.Stopped -> {
                 notifications.cancel(REQUEST_NOTIFICATION)
+                notifications.cancel(CONTROL_NOTIFICATION)
                 ScreenCapture.stop(context, command.desktopId)
             }
         }
@@ -86,6 +88,31 @@ class ScreenMirror(
         notifications.notify(REQUEST_NOTIFICATION, notification)
     }
 
+    /** Input arrived while the accessibility service is off: Android drops it, so ask the user to turn it on. */
+    private fun askForControl() {
+        if (notifications.activeNotifications.any { it.id == CONTROL_NOTIFICATION }) return
+        Log.i(TAG, "input dropped: the accessibility service is off")
+        val settings =
+            PendingIntent.getActivity(
+                context,
+                0,
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE,
+            )
+        val notification =
+            NotificationCompat
+                .Builder(context, Channels.SCREEN)
+                .setSmallIcon(R.drawable.ic_stat_link)
+                .setContentTitle(context.getString(R.string.screen_control_off))
+                .setContentText(context.getString(R.string.screen_input_description))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(context.getString(R.string.screen_input_description)))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(settings)
+                .setAutoCancel(true)
+                .build()
+        notifications.notify(CONTROL_NOTIFICATION, notification)
+    }
+
     fun refuse(
         desktopId: String,
         reason: String,
@@ -109,6 +136,7 @@ class ScreenMirror(
     companion object {
         const val EXTRA_DESKTOP = "desktop"
         const val REQUEST_NOTIFICATION = 40
+        private const val CONTROL_NOTIFICATION = 42
 
         // The desktop gives up after 60 s.
         const val REQUEST_TIMEOUT_MS = 60_000L

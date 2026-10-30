@@ -1,9 +1,11 @@
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import QtMultimedia
 import org.andromeda.Link
 
-// The mirror shows in andromeda-link-mirror's own window; this page holds its controls.
+// The phone's screen inside the page, as Phone Link shows it: click to tap, drag to swipe, the wheel to scroll, and
+// typing goes to the phone.
 Item {
     id: page
     required property var link
@@ -59,31 +61,77 @@ Item {
 
             Rectangle {
                 id: phone
+                readonly property real aspect: page.api.videoWidth > 0 ? page.api.videoWidth / page.api.videoHeight : 0.47
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: page.live && page.granted ? -40 : 0
-                height: Math.min(parent.height - (page.live && page.granted ? 140 : 40), 440)
-                width: height * 0.47
-                radius: 32
-                color: page.mirroring ? Qt.alpha(Theme.acc, 0.08) : Theme.elev
-                border.width: page.mirroring ? 3 : 1.5
-                border.color: page.mirroring ? Theme.acc : Theme.b1
-                Column {
+                height: page.mirroring ? parent.height - 112
+                                       : Math.min(parent.height - (page.live && page.granted ? 140 : 40), 440)
+                width: height * aspect
+                radius: page.mirroring ? 20 : 32
+                color: page.mirroring ? "black" : Theme.elev
+                border.width: page.mirroring ? 0 : 1.5
+                border.color: Theme.b1
+                Icon {
                     anchors.centerIn: parent
-                    spacing: 12
-                    Icon {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        glyph: "screen"
-                        size: 24
-                        color: page.mirroring ? Theme.acc : Theme.t3
+                    visible: !page.mirroring
+                    glyph: "screen"
+                    size: 24
+                    color: Theme.t3
+                }
+                VideoOutput {
+                    id: video
+                    anchors.fill: parent
+                    visible: page.mirroring
+                    fillMode: VideoOutput.PreserveAspectFit
+                    Component.onCompleted: page.api.setSink(videoSink)
+                    Component.onDestruction: page.api.setSink(null)
+                }
+                MouseArea {
+                    id: touch
+                    // Phone units: 1/10000 of the picture's width and height.
+                    function unit(px, py) {
+                        const r = video.contentRect
+                        return [Math.round(Math.max(0, Math.min(1, (px - r.x) / r.width)) * 10000),
+                                Math.round(Math.max(0, Math.min(1, (py - r.y) / r.height)) * 10000)]
                     }
-                    Label {
-                        width: phone.width - 40
-                        visible: page.mirroring
-                        text: page.phoneName + " shows in its own window"
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: Theme.small
-                        color: Theme.t2
+                    property point from
+                    property real at: 0
+                    anchors.fill: parent
+                    enabled: page.mirroring
+                    cursorShape: Qt.PointingHandCursor
+                    onPressed: mouse => { from = Qt.point(mouse.x, mouse.y); at = Date.now(); keys.forceActiveFocus() }
+                    onReleased: mouse => {
+                        const [x, y] = unit(from.x, from.y)
+                        const held = Date.now() - at
+                        if (Math.hypot(mouse.x - from.x, mouse.y - from.y) < 12)
+                            page.api.input(held >= 500 ? "long-press" : "tap", x, y, 0, 0, held)
+                        else {
+                            const [x2, y2] = unit(mouse.x, mouse.y)
+                            page.api.input("swipe", x, y, x2, y2, Math.max(50, Math.min(2000, held)))
+                        }
+                    }
+                    // Content follows the wheel: a notch moves 0.15 of the screen.
+                    onWheel: wheel => {
+                        const [x, y] = unit(wheel.x, wheel.y)
+                        const step = d => Math.max(-10000, Math.min(10000, Math.round(d / 120 * 1500)))
+                        page.api.input("scroll", x, y, step(wheel.angleDelta.x), step(wheel.angleDelta.y), 0)
+                    }
+                }
+                Item {
+                    id: keys
+                    focus: page.mirroring
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Escape)
+                            page.api.back()
+                        else if (event.key === Qt.Key_Backspace)
+                            page.api.typeText("\b")
+                        else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                            page.api.typeText("\n")
+                        else if (event.text !== "" && event.text.charCodeAt(0) >= 32)
+                            page.api.typeText(event.text)
+                        else
+                            return
+                        event.accepted = true
                     }
                 }
             }

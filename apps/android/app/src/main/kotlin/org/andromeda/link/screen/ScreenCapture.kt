@@ -326,7 +326,7 @@ class ScreenCapture : Service() {
         private const val NOTIFICATION_ID = 41
         private const val MAX_SHORT_SIDE = 1080
         private const val ALIGN = 16
-        private const val MAX_BITRATE = 8_000_000
+        private const val MAX_BITRATE = 16_000_000
         private const val MIN_BITRATE = 1_000_000
         private const val REPEAT_AFTER_US = 100_000L
         private const val FPS = 60

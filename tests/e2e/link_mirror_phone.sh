@@ -7,7 +7,7 @@
 #    MirrorInput 30 times and times each flip's arrival in the viewer's decoded frames (andromeda-link-mirror --luma).
 #    The input path, capture, encode, network, and decode are all in the measure. Median under 250 ms.
 # 2. Bitrate under loss: while the fixture draws noise, 3 Mbit/s and 2 % loss on the relay make the phone step its
-#    encoder down from 8 Mbit/s; after the link is clean again it steps back up. Frames keep arriving throughout.
+#    encoder down from 16 Mbit/s; after the link is clean again it steps back up. Frames keep arriving throughout.
 # 3. Sound: the fixture's 440 Hz tone arrives as Opus and decodes to audio.wav with that pitch.
 # Needs the debug APKs and the phone on USB debugging, on the same Wi-Fi as this machine; see link_phone_lib.sh.
 # Updates Link on the phone, keeps its other pairings, and unpairs the run's desktop after. Holds

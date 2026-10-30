@@ -16,6 +16,8 @@ cxx-qt = "0.10"
 cxx-qt-lib = { version = "0.10", features = ["qt_gui", "qt_qml"] }
 env_logger.workspace = true
 futures-util.workspace = true
+gstreamer = "0.25"
+gstreamer-app = "0.25"
 ksni = "0.3"
 link-api.workspace = true
 log.workspace = true

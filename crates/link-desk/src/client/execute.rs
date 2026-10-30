@@ -1,7 +1,8 @@
 use std::fs::File;
 use std::io::{Seek, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use link_api::Link1Proxy;
 use tokio::sync::mpsc::UnboundedSender;
@@ -77,9 +78,12 @@ pub(super) async fn execute(
             Ok(())
         }
         Command::CancelPairing => proxy.cancel_pairing().await,
-        Command::MirrorKey { device, action } => {
-            let args: std::collections::HashMap<&str, &zbus::Variant<'_>> = std::collections::HashMap::new();
-            proxy.mirror_input(&device, action, args).await
+        Command::MirrorInput { device, action, points, ms, text } => {
+            mirror_input(proxy, &device, action, points, ms, text).await
+        }
+        Command::OpenMirror(device) => {
+            open_mirror(proxy, events, device);
+            Ok(())
         }
         Command::MirrorKeyframe(device) => proxy.mirror_keyframe(&device).await,
         Command::ShowInFolder(path) => show_in_folder(proxy.inner().connection(), &path).await,
@@ -119,6 +123,36 @@ pub(super) async fn execute(
             Ok(())
         }
     }
+}
+
+async fn mirror_input(
+    proxy: &Link1Proxy<'static>,
+    device: &str,
+    action: &str,
+    points: Vec<(&'static str, i32)>,
+    ms: Option<u32>,
+    text: Option<String>,
+) -> zbus::Result<()> {
+    let mut values: Vec<(&str, zbus::Variant<'_>)> =
+        points.into_iter().map(|(key, value)| (key, zbus::Variant::from(value))).collect();
+    values.extend(ms.map(|ms| ("ms", zbus::Variant::from(ms))));
+    values.extend(text.map(|text| ("text", zbus::Variant::from(text))));
+    let args: std::collections::HashMap<&str, &zbus::Variant<'_>> =
+        values.iter().map(|(key, value)| (*key, value)).collect();
+    proxy.mirror_input(device, action, args).await
+}
+
+/// Asks the phone to mirror, beside the loop: the phone asks its user first, so the answer may take a minute.
+fn open_mirror(proxy: &Link1Proxy<'static>, events: &UnboundedSender<Event>, device: String) {
+    let (proxy, events) = (proxy.clone(), events.clone());
+    tokio::spawn(async move {
+        let opened = proxy
+            .open_mirror(&device)
+            .await
+            .map(|(fd, width, height)| (Arc::new(OwnedFd::from(fd)), width, height))
+            .map_err(|error| reason(&error));
+        let _ = events.send(Event::MirrorOpened { device, opened });
+    });
 }
 
 async fn send_files(

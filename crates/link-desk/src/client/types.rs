@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct Device {
@@ -154,6 +156,11 @@ pub enum Event {
         path: String,
         entries: Result<Vec<Entry>, String>,
     },
+    /// The mirror's stream socket and video size, or why the phone did not start.
+    MirrorOpened {
+        device: String,
+        opened: Result<(Arc<OwnedFd>, u32, u32), String>,
+    },
     /// A PNG thumbnail of a phone file, written to the cache; None when the phone gave none.
     Thumbnail {
         device: String,
@@ -256,10 +263,15 @@ pub enum Command {
     },
     Pair,
     CancelPairing,
-    /// back, home, or recents on the mirrored screen.
-    MirrorKey {
+    /// Asks the phone to mirror its screen; the answer comes as [`Event::MirrorOpened`].
+    OpenMirror(String),
+    /// Input on the mirrored screen, as `MirrorInput` takes it: x, y, x2, y2 in 1/10000 of the screen.
+    MirrorInput {
         device: String,
         action: &'static str,
+        points: Vec<(&'static str, i32)>,
+        ms: Option<u32>,
+        text: Option<String>,
     },
     MirrorKeyframe(String),
     /// Shows a local file selected in the file manager.

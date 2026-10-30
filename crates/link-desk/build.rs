@@ -34,6 +34,7 @@ fn main() {
     }
     CxxQtBuilder::new_qml_module(QmlModule::new("org.andromeda.Link").qml_files(qml))
         .qt_module("Quick")
+        .qt_module("Multimedia")
         .qrc_resources(QResources::new().resource(resources))
         .file("src/link.rs")
         .files(PAGES.map(|page| format!("src/{page}.rs")))

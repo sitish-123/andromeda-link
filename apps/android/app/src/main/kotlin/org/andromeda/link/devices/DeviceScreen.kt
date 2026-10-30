@@ -1,6 +1,8 @@
 package org.andromeda.link.devices
 
+import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
@@ -34,10 +36,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.andromeda.link.R
 import org.andromeda.link.core.domain.Feature
+import org.andromeda.link.files.PhoneFiles
 import org.andromeda.link.screen.ScreenInput
 import org.andromeda.link.ui.components.DashboardCard
 import org.andromeda.link.ui.components.Glyph
@@ -67,8 +71,11 @@ fun DeviceScreen(
     val unpaired by viewModel.unpaired.collectAsStateWithLifecycle()
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     var controlEnabled by rememberSaveable { mutableStateOf(ScreenInput.enabled) }
+    val context = LocalContext.current
+    var allFiles by rememberSaveable { mutableStateOf(PhoneFiles.allFiles(context)) }
     LifecycleResumeEffect(Unit) {
         controlEnabled = ScreenInput.enabled
+        allFiles = PhoneFiles.allFiles(context)
         onPauseOrDispose {}
     }
     val resources = LocalContext.current.resources
@@ -145,8 +152,25 @@ fun DeviceScreen(
                                 .padding(vertical = Space.s8),
                         )
                     }
+                    if (row.feature == Feature.Browse && sharing.browse && !allFiles) {
+                        Label(
+                            stringResource(R.string.device_browse_photos_only, desktop.name),
+                            LinkTheme.type.bodyMedium,
+                            LinkTheme.colors.textSecondary,
+                            Modifier.padding(start = 36.dp),
+                        )
+                        Label(
+                            stringResource(R.string.settings_turn_on),
+                            LinkTheme.type.titleSmall,
+                            LinkTheme.colors.accentText,
+                            Modifier
+                                .padding(start = 36.dp)
+                                .clip(Radius.pill)
+                                .clickable(role = Role.Button) { context.startActivity(allFilesSettings(context)) }
+                                .padding(vertical = Space.s8),
+                        )
+                    }
                     if (row.feature == Feature.Screen && sharing.screen && !controlEnabled) {
-                        val context = LocalContext.current
                         PaperRow(
                             stringResource(R.string.screen_control_off),
                             icon = Icons.Filled.Lock,
@@ -270,6 +294,17 @@ fun DeviceScreen(
         }
     }
 }
+
+/** Android 11+ grants All files access on its own page; Android 10 has only the storage permission in App info. */
+private fun allFilesSettings(context: Context): Intent =
+    Intent(
+        if (Build.VERSION.SDK_INT >= 30) {
+            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
+        } else {
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+        },
+        "package:${context.packageName}".toUri(),
+    )
 
 private data class FeatureRow(
     val feature: Feature,

@@ -333,6 +333,7 @@
     <string name="device_control_system_hint">Volume, brightness, lock, sleep, Do not disturb</string>
     <string name="device_allowed">Allowed</string>
     <string name="device_not_allowed">Off</string>
+    <string name="device_browse_photos_only">Without All files access, %1$s sees only Photos.</string>
     <string name="device_touchpad_hint">Use this phone as the desktop\'s mouse and keyboard</string>
     <string name="device_presenter_hint">Next and previous slide</string>
     <string name="device_desktop_decides">%1$s decides what this phone may control. Change it in Link on %1$s.</string>

@@ -62,9 +62,7 @@ class PhoneFiles(
             else -> MediaAccess.None
         }
 
-    /** Whether the whole shared storage can be listed: All files access, or on Android 10 the legacy read grant. */
-    fun allFiles(): Boolean =
-        if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager() else granted(Manifest.permission.READ_EXTERNAL_STORAGE)
+    fun allFiles(): Boolean = allFiles(context)
 
     suspend fun media(
         kind: MediaKind,
@@ -159,6 +157,14 @@ class PhoneFiles(
         const val FOLDER = "inode/directory"
         private const val MEDIA_LIMIT = 600
         private const val THUMBNAIL_CACHE = 240
+
+        /** Whether the whole shared storage can be listed: All files access, or on Android 10 the legacy read grant. */
+        fun allFiles(context: Context): Boolean =
+            if (Build.VERSION.SDK_INT >= 30) {
+                Environment.isExternalStorageManager()
+            } else {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
 
         /** What to ask Android for so Photos and Videos can list the library. */
         val mediaPermissions: Array<String> =

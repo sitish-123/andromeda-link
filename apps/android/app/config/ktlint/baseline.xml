@@ -11,9 +11,9 @@
         <error line="193" column="5" source="compose:modifier-missing-check" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/DeviceScreen.kt">
-        <error line="59" column="5" source="standard:function-naming" />
-        <error line="59" column="5" source="compose:modifier-missing-check" />
-        <error line="61" column="5" source="compose:lambda-param-in-effect" />
+        <error line="63" column="5" source="standard:function-naming" />
+        <error line="63" column="5" source="compose:modifier-missing-check" />
+        <error line="65" column="5" source="compose:lambda-param-in-effect" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/HomeScreen.kt">
         <error line="113" column="5" source="standard:function-naming" />

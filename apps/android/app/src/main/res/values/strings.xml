@@ -406,6 +406,10 @@
     <string name="log_method_none">None found yet</string>
     <string name="log_method_shizuku">Shizuku</string>
     <string name="log_method_root">Root</string>
+    <string name="log_method_helper">Helper</string>
+    <string name="log_method_helper_hint">Started from the desktop, until the phone restarts</string>
+    <string name="log_method_off">Off</string>
+    <string name="log_method_helper_step">In Link on the desktop, open Settings, pick this phone, and click Start helper. Wireless debugging must be on.</string>
     <string name="log_method_android">Android</string>
     <string name="log_method_android_hint">Asks every time</string>
     <string name="log_method_running">Running</string>

@@ -52,6 +52,7 @@ data class LogMethods(
     val shizukuAsks: Boolean,
     val root: Boolean,
     val su: Boolean,
+    val helper: Boolean,
     val readLogs: Boolean,
 ) {
     fun ready(method: Method): Boolean =
@@ -59,6 +60,7 @@ data class LogMethods(
             Method.Automatic -> inUse != null
             Method.Shizuku -> shizuku
             Method.Root -> root
+            Method.Helper -> helper
             Method.Android -> readLogs
         }
 }
@@ -123,6 +125,7 @@ fun BoxScope.LogAccessSheet(
                             Method.Automatic ->
                                 methods.inUse?.let { stringResource(R.string.log_method_found, stringResource(it.title())) }
                                     ?: stringResource(R.string.log_method_none)
+                            Method.Helper -> stringResource(R.string.log_method_helper_hint)
                             Method.Android -> stringResource(R.string.log_method_android_hint)
                             else -> null
                         },
@@ -173,6 +176,8 @@ private fun stateWord(
                 methods.su -> R.string.settings_set_up to colors.warning
                 else -> R.string.log_method_no_su to colors.textTertiary
             }
+        Method.Helper ->
+            if (methods.helper) R.string.log_method_running to colors.success else R.string.log_method_off to colors.textTertiary
         Method.Android -> if (methods.readLogs) null else R.string.settings_set_up to colors.warning
     }
 
@@ -184,6 +189,7 @@ private fun setupStep(
         Method.Automatic, Method.Android -> R.string.log_method_android_step
         Method.Shizuku -> if (methods.shizukuAsks) R.string.log_method_shizuku_allow_step else R.string.log_method_shizuku_step
         Method.Root -> if (methods.su) R.string.log_method_root_step else R.string.log_method_no_su_step
+        Method.Helper -> R.string.log_method_helper_step
     }
 
 fun Method.title(): Int =
@@ -191,6 +197,7 @@ fun Method.title(): Int =
         Method.Automatic -> R.string.log_method_automatic
         Method.Shizuku -> R.string.log_method_shizuku
         Method.Root -> R.string.log_method_root
+        Method.Helper -> R.string.log_method_helper
         Method.Android -> R.string.log_method_android
     }
 
@@ -201,5 +208,6 @@ fun logMethods(context: Context): LogMethods =
         LogAccess.shizukuAsks(),
         LogAccess.rootGranted(),
         LogAccess.suFound(),
+        LogAccess.helperRunning(),
         LogAccess.readLogs(context),
     )

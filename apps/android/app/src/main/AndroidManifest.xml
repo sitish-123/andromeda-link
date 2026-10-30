@@ -142,6 +142,13 @@
             android:exported="false"
             android:grantUriPermissions="true" />
 
+        <!-- The desktop's log helper (shell uid) writes clipboard lines here; LogLineProvider checks the uid too. -->
+        <provider
+            android:name=".clipboard.LogLineProvider"
+            android:authorities="${applicationId}.loghelper"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <service
             android:name=".clipboard.ClipboardTileService"
             android:exported="true"

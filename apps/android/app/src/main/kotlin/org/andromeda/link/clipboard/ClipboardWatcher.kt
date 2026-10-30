@@ -39,8 +39,9 @@ class ClipboardWatcher(
             LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START && wanted) restartIfBlind() },
         )
         // Shizuku's binder arrives after the app starts, and its grant comes later still; either moves logcat to it.
-        Shizuku.addBinderReceivedListenerSticky(::restartOnShizuku)
-        Shizuku.addRequestPermissionResultListener { _, _ -> restartOnShizuku() }
+        Shizuku.addBinderReceivedListenerSticky(::restartWhenQuiet)
+        Shizuku.addRequestPermissionResultListener { _, _ -> restartWhenQuiet() }
+        LogAccess.onHelper = { scope.launch(Dispatchers.Main) { restartWhenQuiet() } }
         scope.launch {
             LogAccess.method.drop(1).collect {
                 if (!wanted) return@collect
@@ -50,7 +51,7 @@ class ClipboardWatcher(
         }
     }
 
-    private fun restartOnShizuku() {
+    private fun restartWhenQuiet() {
         if (!wanted || !LogAccess.quiet()) return
         stop()
         start()
@@ -113,6 +114,9 @@ class ClipboardWatcher(
             }
         } catch (_: IOException) {
             // stop() destroys logcat under a blocked read, which is how this ends.
+        } finally {
+            // The helper's pipe ends with no process exit; restartIfBlind must see it as dead.
+            logcat.destroy()
         }
     }
 

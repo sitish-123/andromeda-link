@@ -3,27 +3,34 @@ package org.andromeda.link.clipboard
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.ParcelFileDescriptor
 import android.provider.Settings
 import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import rikka.shizuku.Shizuku
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.concurrent.thread
 
 /**
- * The three ways this app reads other apps' log lines. Shizuku (started over wireless debugging, or by root) and `su`
- * run logcat outside this app, so Android asks nothing; READ_LOGS alone makes Android 13+ ask at every logcat start.
+ * The ways this app reads other apps' log lines. Shizuku (started over wireless debugging, or by root), `su` and the
+ * [LogHelper] the desktop starts over adb run logcat outside this app, so Android asks nothing; READ_LOGS alone makes
+ * Android 13+ ask at every logcat start.
  */
 object LogAccess {
-    enum class Method { Automatic, Shizuku, Root, Android }
+    enum class Method { Automatic, Shizuku, Root, Helper, Android }
 
     /** Whether `su` granted this app a shell; null until [logcat] first tries it. */
     @Volatile private var root: Boolean? = null
 
     private val _method = MutableStateFlow(Method.Automatic)
 
-    /** The user's pick in Settings > Advanced; Automatic tries Shizuku, then root, then READ_LOGS. */
+    /** The user's pick in Settings > Advanced; Automatic tries Shizuku, then root, then the helper, then READ_LOGS. */
     val method: StateFlow<Method> = _method.asStateFlow()
 
     fun load(context: Context) {
@@ -43,18 +50,20 @@ object LogAccess {
 
     fun allowed(context: Context): Boolean =
         when (method.value) {
-            Method.Automatic -> shizuku() || rootMayWork() || readLogs(context)
+            Method.Automatic -> shizuku() || rootMayWork() || helper() || readLogs(context)
             Method.Shizuku -> shizuku()
             Method.Root -> rootMayWork()
+            Method.Helper -> helper()
             Method.Android -> readLogs(context)
         }
 
     /** Whether logcat starts without Android's log access dialog, so also from the background. */
     fun quiet(): Boolean =
         when (method.value) {
-            Method.Automatic -> shizuku() || root == true
+            Method.Automatic -> shizuku() || root == true || helper()
             Method.Shizuku -> shizuku()
             Method.Root -> root == true
+            Method.Helper -> helper()
             Method.Android -> false
         }
 
@@ -65,6 +74,7 @@ object LogAccess {
                 when {
                     shizuku() -> Method.Shizuku
                     rootMayWork() -> Method.Root
+                    helper() -> Method.Helper
                     readLogs(context) -> Method.Android
                     else -> null
                 }
@@ -76,6 +86,8 @@ object LogAccess {
     fun rootGranted(): Boolean = root == true
 
     fun suFound(): Boolean = hasSu()
+
+    fun helperRunning(): Boolean = helper()
 
     fun readLogs(context: Context): Boolean =
         context.checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
@@ -95,6 +107,13 @@ object LogAccess {
         if (pick.allows(Method.Root) && root == true) {
             return ProcessBuilder("su", "-c", (listOf("logcat") + args).joinToString(" ") { "'$it'" }).start()
         }
+        // The helper runs its own logcat and sends only this app's denial lines, whatever args asks for.
+        if (pick.allows(Method.Helper) && helper()) {
+            val (input, output) = ParcelFileDescriptor.createPipe()
+            val writer = ParcelFileDescriptor.AutoCloseOutputStream(output)
+            helperReaders += writer
+            return HelperProcess(input, writer)
+        }
         return ProcessBuilder("logcat", *args).start()
     }
 
@@ -113,6 +132,76 @@ object LogAccess {
     private fun su(command: String): Boolean =
         runCatching { ProcessBuilder("su", "-c", command).start().waitFor() == 0 }.getOrDefault(false).also { root = it }
 
+    /** The open stream from [LogHelper], drained here so it never blocks; null while no helper writes. */
+    @Volatile private var helperStream: ParcelFileDescriptor? = null
+
+    /** Write ends of the pipes [logcat] gave out for the helper; each gets the helper's lines from now on. */
+    private val helperReaders = CopyOnWriteArrayList<ParcelFileDescriptor.AutoCloseOutputStream>()
+
+    /** Runs on a binder thread when a helper connects; the watcher moves to it. */
+    @Volatile var onHelper: () -> Unit = {}
+
+    private fun helper(): Boolean = helperStream != null
+
+    /** From [LogLineProvider]: the helper's newest stream; an older one ends when its writer goes. */
+    internal fun helperConnected(stream: ParcelFileDescriptor) {
+        helperStream = stream
+        thread(isDaemon = true, name = "log-helper") {
+            runCatching {
+                ParcelFileDescriptor.AutoCloseInputStream(stream).bufferedReader().forEachLine { line ->
+                    if (line.isEmpty()) return@forEachLine
+                    for (reader in helperReaders) {
+                        runCatching {
+                            reader.write((line + "\n").toByteArray())
+                            reader.flush()
+                        }.onFailure { helperReaders -= reader }
+                    }
+                }
+            }
+            // The helper went away: readers see the end of their stream, as when logcat ends.
+            if (helperStream === stream) {
+                helperStream = null
+                for (reader in helperReaders) runCatching { reader.close() }
+                helperReaders.clear()
+            }
+        }
+        onHelper()
+    }
+
+    /** The helper's lines as a logcat [Process]; destroying it ends its pipe. */
+    private class HelperProcess(
+        private val input: ParcelFileDescriptor,
+        private val output: ParcelFileDescriptor.AutoCloseOutputStream,
+    ) : Process() {
+        @Volatile private var closed = false
+
+        override fun getInputStream(): InputStream = ParcelFileDescriptor.AutoCloseInputStream(input)
+
+        override fun getOutputStream(): OutputStream =
+            object : OutputStream() {
+                override fun write(b: Int) = Unit
+            }
+
+        override fun getErrorStream(): InputStream = ByteArrayInputStream(ByteArray(0))
+
+        override fun waitFor(): Int {
+            while (!closed) Thread.sleep(WAIT_MS)
+            return 0
+        }
+
+        override fun exitValue(): Int = if (closed) 0 else throw IllegalThreadStateException()
+
+        override fun isAlive(): Boolean = !closed
+
+        // Closing the write end ends a read blocked on the read end.
+        override fun destroy() {
+            closed = true
+            helperReaders -= output
+            runCatching { output.close() }
+            runCatching { input.close() }
+        }
+    }
+
     private fun shizuku(): Boolean = Shizuku.pingBinder() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
 
     // An app's PATH often leaves out where Magisk and KernelSU put su.
@@ -129,6 +218,7 @@ object LogAccess {
             .apply { isAccessible = true }
     }
 
+    private const val WAIT_MS = 200L
     private const val PREFS = "log_access"
     private const val KEY_METHOD = "method"
 }

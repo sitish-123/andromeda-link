@@ -1,0 +1,106 @@
+# A tag v* builds every Link package and publishes them as one GitHub release: the Android APK, the macOS app zip,
+# Ubuntu .debs, Fedora RPMs, and the Flatpak bundle. Secrets: LINK_KEYSTORE_BASE64, LINK_KEYSTORE_PASSWORD, and
+# LINK_KEY_ALIAS for the APK; without them the APK is unsigned.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "aarch64-linux-android,x86_64-linux-android" }
+      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler && cargo install cargo-ndk --locked
+      - name: Signing key
+        env: { KEY: "${{ secrets.LINK_KEYSTORE_BASE64 }}" }
+        if: env.KEY != ''
+        run: |
+          echo "$KEY" | base64 -d > "$RUNNER_TEMP/link.jks"
+          echo "LINK_KEYSTORE=$RUNNER_TEMP/link.jks" >> "$GITHUB_ENV"
+      - working-directory: apps/android
+        env:
+          LINK_KEYSTORE_PASSWORD: ${{ secrets.LINK_KEYSTORE_PASSWORD }}
+          LINK_KEY_ALIAS: ${{ secrets.LINK_KEY_ALIAS }}
+        run: ./gradlew -q :app:assembleRelease
+      - uses: actions/upload-artifact@v4
+        with: { name: android, path: apps/android/app/build/outputs/apk/release/*.apk }
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: jurplel/install-qt-action@v4
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
+      - run: brew install protobuf
+      - run: cargo build --release --locked -p link-desk -p link-daemon -p link-session
+      - run: QT_MAC="$QT_ROOT_DIR" dist/macos/bundle.sh target/release "Andromeda Link.app"
+      - run: ditto -c -k --keepParent "Andromeda Link.app" Andromeda-Link-macos-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: Andromeda-Link-macos-arm64.zip }
+
+  deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: >
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler pkg-config libdbus-1-dev libfuse3-dev
+          libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev
+      - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror
+      - run: dist/deb/build-deb.sh target/release out
+      - uses: actions/upload-artifact@v4
+        with: { name: deb, path: out/*.deb }
+
+  rpm:
+    runs-on: ubuntu-24.04
+    container: registry.fedoraproject.org/fedora:43
+    steps:
+      - run: >
+          dnf install -y git rust cargo rpm-build protobuf-compiler pkgconf dbus-devel fuse3-devel gtk4-devel
+          gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-bad-free-devel qt6-qtbase-devel
+          qt6-qtdeclarative-devel qt6-qtmultimedia-devel clang
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "$PWD"
+      - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror -p link-desk
+      - run: >
+          rpmbuild -bb dist/rpm/andromeda-link.spec --define "linkroot $PWD" --define "linkbin $PWD/target/release"
+          --define "linkversion 0~r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)" --define "_rpmdir $PWD/out"
+      - uses: actions/upload-artifact@v4
+        with: { name: rpm, path: out/**/*.rpm }
+
+  flatpak:
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: andromeda-link.flatpak
+          manifest-path: dist/flatpak/org.andromeda.Link.yml
+          upload-artifact: false
+      - uses: actions/upload-artifact@v4
+        with: { name: flatpak, path: andromeda-link.flatpak }
+
+  publish:
+    needs: [android, macos, deb, rpm, flatpak]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+          draft: ${{ github.event_name == 'workflow_dispatch' }}

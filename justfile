@@ -18,6 +18,10 @@ check:
 android-check:
     cd apps/android && ./gradlew ktlintCheck lintDebug
 
+# Every release package into target/dist (see tools/release.sh): `just release`, or `just release deb rpm`.
+release *kinds:
+    tools/release.sh {{kinds}}
+
 # "Andromeda Link.app" for macOS arm64, cross-built here: target/macos (see tools/macos/build.sh for its needs).
 mac-app:
     tools/macos/build.sh

@@ -59,6 +59,10 @@ pub fn start(sink: impl Fn(Event) + Send + 'static) -> UnboundedSender<Command> 
 }
 
 async fn run(mut commands: UnboundedReceiver<Command>, events: UnboundedSender<Event>) {
+    #[cfg(target_os = "macos")]
+    if let Err(error) = install_agents() {
+        let _ = events.send(Event::Failed(format!("Could not set up the Link service: {error}")));
+    }
     loop {
         match session(&mut commands, &events).await {
             Ok(()) => return,
@@ -84,6 +88,21 @@ async fn run(mut commands: UnboundedReceiver<Command>, events: UnboundedSender<E
             }
         }
     }
+}
+
+/// Loads the service and link-session as launchd agents on the app's first start, from the bundle's installer.
+#[cfg(target_os = "macos")]
+fn install_agents() -> std::io::Result<()> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    if home.join("Library/LaunchAgents/org.andromeda.linkd.plist").exists() {
+        return Ok(());
+    }
+    // The binary is Andromeda Link.app/Contents/MacOS/andromeda-link.
+    let exe = std::env::current_exe()?;
+    let contents = exe.parent().and_then(std::path::Path::parent).ok_or(std::io::ErrorKind::NotFound)?;
+    let app = contents.parent().ok_or(std::io::ErrorKind::NotFound)?;
+    let status = std::process::Command::new(contents.join("Resources/install-agents.sh")).arg(app).status()?;
+    if status.success() { Ok(()) } else { Err(std::io::Error::other(format!("install-agents.sh: {status}"))) }
 }
 
 /// launchd keeps the daemon alive; this starts it when the user stopped it.

@@ -6,6 +6,7 @@ AGENTS=$HOME/Library/LaunchAgents
 mkdir -p "$AGENTS"
 for label in org.andromeda.linkd org.andromeda.link-session; do
   launchctl bootout "gui/$(id -u)/$label" 2> /dev/null || true
-  cp "$APP/Contents/Resources/LaunchAgents/$label.plist" "$AGENTS/"
+  # The agents name the app's binaries; point them at wherever the app was put.
+  sed "s|/Applications/Andromeda Link.app|$APP|" "$APP/Contents/Resources/LaunchAgents/$label.plist" > "$AGENTS/$label.plist"
   launchctl bootstrap "gui/$(id -u)" "$AGENTS/$label.plist"
 done

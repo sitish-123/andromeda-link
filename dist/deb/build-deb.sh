@@ -36,7 +36,9 @@ install -Dm644 "$ROOT/dist/andromeda-link-localsend.firewalld.xml" \
 install -Dm644 "$ROOT/dist/60-andromeda-link-bluetooth.conf" \
   "$P/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
 install -Dm644 "$ROOT/LICENSE" "$P/usr/share/doc/andromeda-link/copyright"
-install -Dm755 "$BIN/andromeda-link" "$A/usr/bin/andromeda-link"
+# The app needs Qt 6.7; where the release has older Qt it is not built, and the Flatpak carries it instead.
+APP=$([[ -x $BIN/andromeda-link ]] && echo yes || true)
+[[ -z $APP ]] || install -Dm755 "$BIN/andromeda-link" "$A/usr/bin/andromeda-link"
 install -Dm644 "$ROOT/dist/org.andromeda.Link.desktop" "$A/usr/share/applications/org.andromeda.Link.desktop"
 cp -r "$ROOT/dist/icons" "$A/usr/share/"
 install -Dm644 "$ROOT/LICENSE" "$A/usr/share/doc/andromeda-link-app/copyright"
@@ -82,4 +84,4 @@ Description: Andromeda Link app
 EOF
 mkdir -p "$OUT"
 dpkg-deb --root-owner-group --build "$P" "$OUT/andromeda-link_${VERSION}_amd64.deb"
-dpkg-deb --root-owner-group --build "$A" "$OUT/andromeda-link-app_${VERSION}_amd64.deb"
+[[ -z $APP ]] || dpkg-deb --root-owner-group --build "$A" "$OUT/andromeda-link-app_${VERSION}_amd64.deb"

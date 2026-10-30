@@ -14,8 +14,10 @@ use super::http::{self, Body};
 use super::wire::{Announcement, Info, PrepareUpload};
 use super::{Answer, LocalSendHandle, Received};
 
-/// How long a peer may take to finish its TLS handshake and request head.
+/// How long a peer may take to finish its TLS handshake, its request head, a JSON body, or the next upload chunk.
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
+/// Connections served at once; more wait in the kernel's backlog.
+const MAX_CONNECTIONS: usize = 32;
 const CHUNK: usize = 256 * 1024;
 const PROGRESS_EVERY: u64 = 1 << 20;
 
@@ -28,7 +30,7 @@ pub async fn accept(
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
-            accepted = listener.accept() => match accepted {
+            accepted = listener.accept(), if connections.len() < MAX_CONNECTIONS => match accepted {
                 Ok((stream, from)) => {
                     let (acceptor, handle, info) = (acceptor.clone(), handle.clone(), info.clone());
                     connections.spawn(async move {
@@ -61,7 +63,7 @@ async fn serve(
     let query = |key: &str| head.query.get(key).cloned().unwrap_or_default();
     match (head.method.as_str(), head.path.as_str()) {
         ("POST" | "GET", "/api/localsend/v2/register" | "/api/localsend/v2/info") => {
-            let bytes = body.read_all(&mut read, http::MAX_JSON).await?;
+            let bytes = tokio::time::timeout(STEP_TIMEOUT, body.read_all(&mut read, http::MAX_JSON)).await??;
             // A register answers an announcement of ours, so its sender is a peer on the LAN.
             if let Ok(peer) = serde_json::from_slice::<Info>(&bytes) {
                 handle.announced(Announcement { info: peer, announce: false }, from.ip()).await;
@@ -69,7 +71,7 @@ async fn serve(
             http::write_response(&mut write, 200, Some(&info)).await
         }
         ("POST", "/api/localsend/v2/prepare-upload") => {
-            let bytes = body.read_all(&mut read, http::MAX_JSON).await?;
+            let bytes = tokio::time::timeout(STEP_TIMEOUT, body.read_all(&mut read, http::MAX_JSON)).await??;
             let Ok(request) = serde_json::from_slice::<PrepareUpload>(&bytes) else {
                 return http::write_response(&mut write, 400, None).await;
             };
@@ -127,7 +129,8 @@ async fn write_part<R: AsyncRead + Unpin>(
     let mut buf = vec![0; CHUNK];
     let mut reported = 0;
     loop {
-        let read = match body.read(read, &mut buf).await {
+        let chunk = tokio::time::timeout(STEP_TIMEOUT, body.read(read, &mut buf)).await;
+        let read = match chunk.unwrap_or_else(|_| Err(anyhow::anyhow!("no data for {STEP_TIMEOUT:?}"))) {
             Ok(0) => break,
             Ok(read) => read,
             Err(error) => {

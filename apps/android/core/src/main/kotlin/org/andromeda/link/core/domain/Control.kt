@@ -37,6 +37,12 @@ enum class RemoteKey { Enter, Backspace, Delete, Escape, Tab, Space, Left, Right
 
 /** The phone as the desktop's touchpad and keyboard; moves and scrolls are in the desktop's logical pixels. */
 sealed interface RemoteInput {
+    /** The pointer to ([x], [y]) in 1/[MIRROR_UNIT] of remote control's picture. */
+    data class Point(
+        val x: Int,
+        val y: Int,
+    ) : RemoteInput
+
     data class Move(
         val dx: Int,
         val dy: Int,

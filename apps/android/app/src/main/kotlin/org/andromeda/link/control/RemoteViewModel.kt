@@ -28,6 +28,7 @@ class RemoteViewModel(
     private var moveY = 0f
     private var scrollX = 0f
     private var scrollY = 0f
+    private var point: RemoteInput.Point? = null
     private val _failure = MutableStateFlow<LinkFailure?>(null)
     val failure: StateFlow<LinkFailure?> = _failure
 
@@ -52,6 +53,12 @@ class RemoteViewModel(
     ) {
         moveX += dx * POINTER_SPEED
         moveY += dy * POINTER_SPEED
+        wake.trySend(Unit)
+    }
+
+    /** The pointer to a place on remote control's picture; only the latest of a frame goes. */
+    fun point(at: RemoteInput.Point) {
+        point = at
         wake.trySend(Unit)
     }
 
@@ -87,6 +94,8 @@ class RemoteViewModel(
     }
 
     private fun flush() {
+        point?.let { outbox.trySend(it) }
+        point = null
         val (mx, my) = moveX.roundToInt() to moveY.roundToInt()
         if (mx != 0 || my != 0) {
             outbox.trySend(RemoteInput.Move(mx, my))

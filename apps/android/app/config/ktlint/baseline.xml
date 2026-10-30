@@ -6,9 +6,20 @@
         <error line="81" column="13" source="compose:vm-forwarding-check" />
         <error line="96" column="13" source="compose:vm-forwarding-check" />
         <error line="119" column="13" source="standard:function-naming" />
-        <error line="161" column="13" source="standard:function-naming" />
-        <error line="193" column="5" source="standard:function-naming" />
-        <error line="193" column="5" source="compose:modifier-missing-check" />
+        <error line="161" column="14" source="standard:function-naming" />
+        <error line="196" column="5" source="standard:function-naming" />
+        <error line="196" column="5" source="compose:modifier-missing-check" />
+    </file>
+    <file name="src/main/kotlin/org/andromeda/link/control/ViewerScreen.kt">
+        <error line="88" column="5" source="standard:function-naming" />
+        <error line="115" column="13" source="compose:vm-forwarding-check" />
+        <error line="125" column="13" source="compose:vm-forwarding-check" />
+        <error line="158" column="13" source="standard:function-naming" />
+        <error line="175" column="13" source="standard:function-naming" />
+        <error line="385" column="13" source="standard:function-naming" />
+        <error line="418" column="13" source="standard:function-naming" />
+        <error line="475" column="13" source="standard:function-naming" />
+        <error line="493" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/DeviceScreen.kt">
         <error line="63" column="5" source="standard:function-naming" />
@@ -126,16 +137,16 @@
         <error line="350" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/ui/LinkApp.kt">
-        <error line="62" column="5" source="standard:function-naming" />
-        <error line="62" column="5" source="compose:modifier-missing-check" />
-        <error line="65" column="5" source="compose:lambda-param-in-effect" />
-        <error line="65" column="5" source="compose:parameter-naming" />
-        <error line="74" column="9" source="compose:vm-injection-check" />
-        <error line="75" column="9" source="compose:vm-injection-check" />
+        <error line="64" column="5" source="standard:function-naming" />
+        <error line="64" column="5" source="compose:modifier-missing-check" />
+        <error line="67" column="5" source="compose:lambda-param-in-effect" />
+        <error line="67" column="5" source="compose:parameter-naming" />
         <error line="76" column="9" source="compose:vm-injection-check" />
         <error line="77" column="9" source="compose:vm-injection-check" />
         <error line="78" column="9" source="compose:vm-injection-check" />
-        <error line="201" column="33" source="compose:vm-injection-check" />
+        <error line="79" column="9" source="compose:vm-injection-check" />
+        <error line="80" column="9" source="compose:vm-injection-check" />
+        <error line="204" column="33" source="compose:vm-injection-check" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/ui/components/Controls.kt">
         <error line="65" column="5" source="standard:function-naming" />

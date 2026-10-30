@@ -66,6 +66,7 @@ fun DeviceScreen(
     onMirrorApps: () -> Unit,
     onRemote: () -> Unit,
     onPresenter: () -> Unit,
+    onViewer: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val unpaired by viewModel.unpaired.collectAsStateWithLifecycle()
@@ -221,6 +222,17 @@ fun DeviceScreen(
                         onClick = onPresenter,
                         trailing = inputState,
                     )
+                    // Only a desktop that says it can share its screen offers it; older ones cannot.
+                    if (state.capabilities?.contains(CAN_SCREEN) == true) {
+                        PaperRow(
+                            stringResource(R.string.viewer_title),
+                            subtitle = stringResource(R.string.device_viewer_hint),
+                            icon = LinkIcons.Computer,
+                            enabled = input,
+                            onClick = onViewer,
+                            trailing = inputState,
+                        )
+                    }
                 }
                 if (desktop.control) {
                     PaperRow(

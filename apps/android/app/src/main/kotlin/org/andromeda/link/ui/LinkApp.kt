@@ -32,6 +32,8 @@ import org.andromeda.link.R
 import org.andromeda.link.control.PresenterScreen
 import org.andromeda.link.control.RemoteScreen
 import org.andromeda.link.control.RemoteViewModel
+import org.andromeda.link.control.ViewerScreen
+import org.andromeda.link.control.ViewerViewModel
 import org.andromeda.link.devices.DeviceScreen
 import org.andromeda.link.devices.DeviceViewModel
 import org.andromeda.link.devices.HomeScreen
@@ -53,7 +55,7 @@ import org.andromeda.link.ui.components.LinkIcons
 import org.andromeda.link.ui.components.PillNav
 import org.andromeda.link.ui.theme.Motion
 
-private enum class Screen { Home, Activity, Settings, Device, Pairing, Setup, Media, MirrorApps, Remote, Presenter }
+private enum class Screen { Home, Activity, Settings, Device, Pairing, Setup, Media, MirrorApps, Remote, Presenter, Viewer }
 
 private val rootScreens = listOf(Screen.Home, Screen.Activity, Screen.Settings)
 
@@ -194,6 +196,7 @@ fun LinkApp(
                                 onMirrorApps = { screen = Screen.MirrorApps },
                                 onRemote = { screen = Screen.Remote },
                                 onPresenter = { screen = Screen.Presenter },
+                                onViewer = { screen = Screen.Viewer },
                             )
                         }
                     Screen.Remote, Screen.Presenter ->
@@ -209,6 +212,14 @@ fun LinkApp(
                             } else {
                                 PresenterScreen(remote, name) { screen = Screen.Device }
                             }
+                        }
+                    Screen.Viewer ->
+                        desktopId?.let { id ->
+                            ViewerScreen(
+                                viewModel(key = "viewer-$id") { ViewerViewModel(container.repository, id) },
+                                viewModel(key = "remote-$id") { RemoteViewModel(container.repository, id) },
+                                onBack = { screen = Screen.Device },
+                            )
                         }
                     Screen.Pairing ->
                         PairingScreen(

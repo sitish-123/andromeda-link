@@ -158,7 +158,10 @@ private fun Touchpad(
 
 /** Text goes as it is typed; a correction the keyboard makes goes as Backspace and the new text. */
 @Composable
-private fun Typing(viewModel: RemoteViewModel) {
+internal fun Typing(
+    viewModel: RemoteViewModel,
+    modifier: Modifier = Modifier,
+) {
     var text by rememberSaveable { mutableStateOf("") }
     BasicTextField(
         value = text,
@@ -167,7 +170,7 @@ private fun Typing(viewModel: RemoteViewModel) {
             text = it
         },
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .clip(Radius.list)
                 .background(LinkTheme.colors.surfaceSecondary)

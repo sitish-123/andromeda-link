@@ -51,7 +51,11 @@ import org.andromeda.link.core.domain.PhoneNotification
 import org.andromeda.link.core.domain.PlaybackState
 import org.andromeda.link.core.domain.PointerButton
 import org.andromeda.link.core.domain.RecentClip
+import org.andromeda.link.core.domain.RemoteEvent
 import org.andromeda.link.core.domain.RemoteInput
+import org.andromeda.link.core.domain.RemoteSource
+import org.andromeda.link.core.domain.RemoteUnit
+import org.andromeda.link.core.domain.RemoteVideo
 import org.andromeda.link.core.domain.SavedFile
 import org.andromeda.link.core.domain.ShareKind
 import org.andromeda.link.core.domain.Sharing
@@ -70,6 +74,7 @@ import org.andromeda.link.ffi.MirrorSession
 import org.andromeda.link.ffi.OutgoingFile
 import org.andromeda.link.ffi.PhoneLibrary
 import org.andromeda.link.ffi.PhoneMessages
+import org.andromeda.link.ffi.RemoteView
 import org.andromeda.link.ffi.generateIdentity
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -125,6 +130,7 @@ class LinkRepository(
     private val _ringingDesktops = MutableStateFlow<Set<String>>(emptySet())
     private val _callActions = MutableSharedFlow<CallAction>(extraBufferCapacity = INCOMING_BUFFER)
     private val _mirrorCommands = MutableSharedFlow<MirrorCommand>(extraBufferCapacity = MIRROR_BUFFER)
+    private val _remote = MutableSharedFlow<RemoteEvent>(extraBufferCapacity = MIRROR_BUFFER)
     private val _commands = MutableStateFlow<Map<String, List<DesktopCommand>>>(emptyMap())
     private val _capabilities = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     private val _desktopVolumes = MutableStateFlow<Map<String, DesktopVolume>>(emptyMap())
@@ -295,6 +301,17 @@ class LinkRepository(
         desktopId: String,
         reason: String?,
     ): Result<Unit> = call { it.stopMirror(desktopId, reason) }
+
+    /** Desktops' answers to this phone's requests for their screens. */
+    val remote: SharedFlow<RemoteEvent> = _remote.asSharedFlow()
+
+    /** Asks the desktop for its screen, or to switch to [source] of its last [RemoteEvent.Started]. */
+    suspend fun startRemote(
+        desktopId: String,
+        source: Int?,
+    ): Result<Unit> = call { it.startRemote(desktopId, source?.toUInt()) }
+
+    suspend fun stopRemote(desktopId: String): Result<Unit> = call { it.stopRemote(desktopId) }
 
     /** What each desktop lets this phone run there, by desktop id. */
     val commands: StateFlow<Map<String, List<DesktopCommand>>> = _commands.asStateFlow()
@@ -649,6 +666,19 @@ class LinkRepository(
                     )
                 is LinkEvent.MirrorKeyframeRequested -> _mirrorCommands.emit(MirrorCommand.Keyframe(event.desktopId))
                 is LinkEvent.MirrorStopped -> _mirrorCommands.emit(MirrorCommand.Stopped(event.desktopId, event.reason))
+                is LinkEvent.RemoteStarted ->
+                    _remote.emit(
+                        RemoteEvent.Started(
+                            event.desktopId,
+                            event.sources.map { RemoteSource(it.name, it.window) },
+                            event.current.toInt(),
+                        ),
+                    )
+                is LinkEvent.RemoteStream ->
+                    _remote.emit(
+                        RemoteEvent.Stream(event.desktopId, event.width.toInt(), event.height.toInt(), FfiRemote(event.stream)),
+                    )
+                is LinkEvent.RemoteStopped -> _remote.emit(RemoteEvent.Stopped(event.desktopId, event.reason))
                 is LinkEvent.CommandsChanged ->
                     _commands.update {
                         it + (event.desktopId to event.commands.map { command -> DesktopCommand(command.id, command.name) })
@@ -810,6 +840,7 @@ private fun PointerButton.toFfi(): InputButton =
 private fun RemoteInput.toFfi(): InputEvent =
     when (this) {
         is RemoteInput.Move -> InputEvent(InputAction.MOVE, dx, dy, null, null, null)
+        is RemoteInput.Point -> InputEvent(InputAction.POINT, x, y, null, null, null)
         is RemoteInput.Scroll -> InputEvent(InputAction.SCROLL, dx, dy, null, null, null)
         is RemoteInput.Click -> InputEvent(InputAction.CLICK, null, null, button.toFfi(), null, null)
         is RemoteInput.Press -> InputEvent(InputAction.PRESS, null, null, button.toFfi(), null, null)
@@ -880,6 +911,14 @@ private fun FfiMirrorAction.toDomain(): MirrorAction =
         FfiMirrorAction.RECENTS -> MirrorAction.Recents
         FfiMirrorAction.TEXT -> MirrorAction.Text
     }
+
+private class FfiRemote(
+    private val view: RemoteView,
+) : RemoteVideo {
+    override suspend fun next(): RemoteUnit? = view.nextUnit()?.let { RemoteUnit(it.ptsUs.toLong(), it.flags.toInt(), it.data) }
+
+    override suspend fun stop() = view.stop()
+}
 
 private class FfiMirror(
     private val session: MirrorSession,

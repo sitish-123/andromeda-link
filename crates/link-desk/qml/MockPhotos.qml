@@ -22,6 +22,7 @@ QtObject {
                                 thumbUrl: "file:///tmp/link-desk-pages/thumbs/" + (n % 18) + ".png",
                                 video: n % 7 === 3, durationText: n % 7 === 3 ? "0:42" : "", day: day })
     }
+    function want(path) {}
     function copy(paths) { saved(paths.length, "clipboard") }
     function save(paths) { saved(paths.length, "Downloads") }
 

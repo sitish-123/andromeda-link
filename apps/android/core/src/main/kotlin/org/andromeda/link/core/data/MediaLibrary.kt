@@ -2,6 +2,7 @@ package org.andromeda.link.core.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.ImageDecoder
 import android.media.ThumbnailUtils
 import android.provider.MediaStore
 import android.util.Size
@@ -9,6 +10,7 @@ import org.andromeda.link.ffi.LibraryItem
 import org.andromeda.link.ffi.PhoneLibrary
 import java.io.ByteArrayOutputStream
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * The media store by album, for a desktop browsing `Photos`: images and videos, which the core reads by path (the
@@ -27,18 +29,33 @@ class MediaLibrary(
     ): ByteArray? =
         runCatching {
             val file = File(path)
-            val size = Size(px.toInt(), px.toInt())
             val bitmap =
                 if (mimeTypeOf(file.name).startsWith("video/")) {
-                    ThumbnailUtils.createVideoThumbnail(file, size, null)
+                    ThumbnailUtils.createVideoThumbnail(file, Size(px.toInt(), px.toInt()), null)
                 } else {
-                    ThumbnailUtils.createImageThumbnail(file, size, null)
+                    imageThumbnail(file, px.toInt())
                 }
             ByteArrayOutputStream()
                 .also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 .toByteArray()
                 .also { bitmap.recycle() }
         }.getOrNull()
+
+    /**
+     * The image scaled to [px] on its longer side, upright. ThumbnailUtils returns the small embedded EXIF thumbnail
+     * when there is one, and its whole-number subsampling leaves the shorter side of a tall screenshot near px / 2.
+     * ImageDecoder applies the EXIF orientation itself.
+     */
+    private fun imageThumbnail(
+        file: File,
+        px: Int,
+    ): Bitmap =
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+            val (width, height) = info.size.width to info.size.height
+            val scale = minOf(1f, px.toFloat() / maxOf(width, height))
+            decoder.setTargetSize(maxOf(1, (width * scale).roundToInt()), maxOf(1, (height * scale).roundToInt()))
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
 
     private class Row(
         val album: String,

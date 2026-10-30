@@ -1,6 +1,6 @@
 //! `LinkPhotos`: every album under the current phone's /Photos as one grid, newest first, with thumbnails.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 
 use cxx::UniquePtr;
@@ -42,6 +42,8 @@ pub mod qobject {
         #[qinvokable]
         fn reload(self: Pin<&mut LinkPhotos>);
         #[qinvokable]
+        fn want(self: Pin<&mut LinkPhotos>, path: &QString);
+        #[qinvokable]
         fn copy(self: Pin<&mut LinkPhotos>, paths: &QStringList);
         #[qinvokable]
         fn save(self: Pin<&mut LinkPhotos>, paths: &QStringList);
@@ -55,8 +57,9 @@ pub mod qobject {
 
 /// The phone's root of albums, one folder each.
 const ROOT: &str = "/Photos";
-/// Thumbnail pixels on the longer side.
-const THUMB: u16 = 256;
+/// Thumbnail pixels on the longer side. A cell crops to the shorter side, up to 400 px at scale 2; a 640 x 480 RGB PNG
+/// stays under `MAX_FS_READ` even with no compression.
+const THUMB: u16 = 640;
 /// Thumbnails asked for at once.
 const IN_FLIGHT: usize = 4;
 const ROLES: &[&str] = &["path", "name", "thumbUrl", "video", "durationText", "day"];
@@ -83,8 +86,10 @@ pub struct PhotosRust {
     all: Vec<Photo>,
     /// Albums listed but not answered yet.
     pending: usize,
-    /// Paths without a thumbnail request yet, the next one last.
+    /// Paths on screen without a thumbnail request yet, the next one last.
     queue: Vec<String>,
+    /// Paths asked for, so a cell scrolled past twice asks once.
+    asked_thumbs: HashSet<String>,
     in_flight: usize,
     /// The path of each row on show.
     shown: Vec<String>,
@@ -105,6 +110,7 @@ impl Default for PhotosRust {
             all: Vec::new(),
             pending: 0,
             queue: Vec::new(),
+            asked_thumbs: HashSet::new(),
             in_flight: 0,
             shown: Vec::new(),
         }
@@ -140,6 +146,7 @@ impl qobject::LinkPhotos {
             Event::Phone(id) => {
                 state.phone = id;
                 (state.all, state.queue, state.in_flight) = (Vec::new(), Vec::new(), 0);
+                state.asked_thumbs.clear();
                 if state.asked {
                     return self.reload();
                 }
@@ -213,12 +220,20 @@ impl qobject::LinkPhotos {
             return;
         }
         state.all.sort_by_key(|photo| std::cmp::Reverse(photo.mtime));
-        let queue = state.all.iter().rev().filter(|photo| photo.thumb.is_empty()).map(|photo| photo.path.clone());
-        state.queue = queue.collect();
         self.as_mut().set_error(QString::default());
         self.as_mut().set_loading(false);
-        self.as_mut().refresh();
-        self.ask_thumbnails();
+        self.refresh();
+    }
+
+    fn want(mut self: Pin<&mut Self>, path: &QString) {
+        let mut state = self.as_mut().rust_mut();
+        let path = path.to_string();
+        if state.all.iter().any(|photo| photo.path == path && photo.thumb.is_empty())
+            && state.asked_thumbs.insert(path.clone())
+        {
+            state.queue.push(path);
+            self.ask_thumbnails();
+        }
     }
 
     fn ask_thumbnails(mut self: Pin<&mut Self>) {
@@ -274,6 +289,7 @@ impl qobject::LinkPhotos {
         let mut state = self.as_mut().rust_mut();
         state.asked = true;
         state.queue.clear();
+        state.asked_thumbs.clear();
         if state.phone.is_empty() {
             return;
         }

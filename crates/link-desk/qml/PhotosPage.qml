@@ -122,6 +122,7 @@ Item {
                 model: page.api.photos
                 selected: page.selected
                 onToggled: path => page.toggle(path)
+                onWanted: path => page.api.want(path)
             }
             Grid {
                 id: skeleton

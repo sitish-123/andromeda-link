@@ -35,6 +35,7 @@ Item {
         anchors.fill: parent
         source: art.source
         visible: status === Image.Ready
+        asynchronous: true
         fillMode: Image.PreserveAspectCrop
         // A size of 0 or less before layout would fail the load.
         sourceSize: Qt.size(Math.max(64, art.width * 2), Math.max(64, art.height * 2))

@@ -474,10 +474,7 @@ impl Hub {
             Command::Browse { id, request, reply } => self.browse(id, request, reply).await,
             Command::OpenMirror { id, reply } => self.open_mirror(id, reply).await,
             Command::ServeRemote { id, stream, reply } => drop(reply.send(self.serve_remote(id, stream).await)),
-            Command::StopRemote { id, reason } => {
-                self.remotes.stop(&id);
-                self.tell_remote_stop(&id, &reason).await;
-            }
+            Command::StopRemote { id, reason } => self.stop_remote(&id, &reason).await,
             Command::SetCommands { commands, reply } => drop(reply.send(self.set_commands(commands).await)),
             Command::SetCapabilities { owner, can } => self.set_capabilities(Some((owner, can))).await,
             Command::SetDesktopStatus { status } => self.set_desktop_status(status).await,
@@ -1394,6 +1391,11 @@ impl Hub {
             .map_err(|error| error.to_string())?;
         log::info!("{id}: showing the screen at {}x{}", stream.width, stream.height);
         self.remotes.serve(id, stream.socket, sender).map_err(|error| error.to_string())
+    }
+
+    async fn stop_remote(&mut self, id: &DeviceId, reason: &str) {
+        self.remotes.stop(id);
+        self.tell_remote_stop(id, reason).await;
     }
 
     async fn tell_remote_stop(&self, id: &DeviceId, reason: &str) {

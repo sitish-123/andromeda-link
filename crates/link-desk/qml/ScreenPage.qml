@@ -4,8 +4,8 @@ import QtQuick.Layouts
 import QtMultimedia
 import org.andromeda.Link
 
-// The phone's screen inside the page, as Phone Link shows it: click to tap, drag to swipe, the wheel to scroll, and
-// typing goes to the phone.
+// The phone's screen inside the page, as Phone Link shows it: the pointer is a finger, the wheel scrolls, typing and
+// shortcuts go to the phone, and F11 shows the screen alone in fullscreen.
 Item {
     id: page
     required property var link
@@ -15,6 +15,31 @@ Item {
     readonly property bool live: link.serviceRunning && link.connected
     readonly property bool granted: (settings.grants[link.currentPhone] || []).indexOf("screen") >= 0
     readonly property bool mirroring: live && api.state === "live"
+    property bool full: false
+
+    function toggleFull() {
+        const window = page.Window.window
+        if (!window)
+            return
+        full = !full && mirroring
+        if (full)
+            window.showFullScreen()
+        else
+            window.showNormal()
+        // Reparenting the phone takes focus off its keys.
+        Qt.callLater(keys.forceActiveFocus)
+    }
+
+    onMirroringChanged: if (!mirroring && full) toggleFull()
+
+    Rectangle {
+        id: backdrop
+        parent: page.Window.contentItem
+        anchors.fill: parent
+        z: 1000
+        visible: page.full
+        color: "black"
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -71,6 +96,15 @@ Item {
                 color: page.mirroring ? "black" : Theme.elev
                 border.width: page.mirroring ? 0 : 1.5
                 border.color: Theme.b1
+                states: State {
+                    when: page.full
+                    ParentChange { target: phone; parent: backdrop }
+                    PropertyChanges {
+                        phone.anchors.verticalCenterOffset: 0
+                        phone.height: Math.min(backdrop.height, backdrop.width / phone.aspect)
+                        phone.radius: 0
+                    }
+                }
                 Icon {
                     anchors.centerIn: parent
                     visible: !page.mirroring
@@ -94,44 +128,51 @@ Item {
                         return [Math.round(Math.max(0, Math.min(1, (px - r.x) / r.width)) * 10000),
                                 Math.round(Math.max(0, Math.min(1, (py - r.y) / r.height)) * 10000)]
                     }
-                    property point from
-                    property real at: 0
+                    property real moved: 0
+                    property point last
+                    function finger(action, px, py) {
+                        last = Qt.point(px, py)
+                        const [x, y] = unit(px, py)
+                        page.api.input(action, x, y, 0, 0)
+                    }
                     anchors.fill: parent
                     enabled: page.mirroring
                     cursorShape: Qt.PointingHandCursor
-                    onPressed: mouse => { from = Qt.point(mouse.x, mouse.y); at = Date.now(); keys.forceActiveFocus() }
-                    onReleased: mouse => {
-                        const [x, y] = unit(from.x, from.y)
-                        const held = Date.now() - at
-                        if (Math.hypot(mouse.x - from.x, mouse.y - from.y) < 12)
-                            page.api.input(held >= 500 ? "long-press" : "tap", x, y, 0, 0, held)
-                        else {
-                            const [x2, y2] = unit(mouse.x, mouse.y)
-                            page.api.input("swipe", x, y, x2, y2, Math.max(50, Math.min(2000, held)))
+                    onPressed: mouse => {
+                        keys.forceActiveFocus()
+                        touch.moved = Date.now()
+                        touch.finger("touch-down", mouse.x, mouse.y)
+                    }
+                    // At most one move per 8 ms; the release carries the final point.
+                    onPositionChanged: mouse => {
+                        if (Date.now() - touch.moved >= 8) {
+                            touch.moved = Date.now()
+                            touch.finger("touch-move", mouse.x, mouse.y)
                         }
                     }
-                    // Content follows the wheel: a notch moves 0.15 of the screen.
+                    onReleased: mouse => touch.finger("touch-up", mouse.x, mouse.y)
+                    onCanceled: touch.finger("touch-up", touch.last.x, touch.last.y)
+                    // angleDelta is 120 per notch and positive away from the user; the phone takes 100 per notch,
+                    // positive right and down.
                     onWheel: wheel => {
                         const [x, y] = unit(wheel.x, wheel.y)
-                        const step = d => Math.max(-10000, Math.min(10000, Math.round(d / 120 * 1500)))
-                        page.api.input("scroll", x, y, step(wheel.angleDelta.x), step(wheel.angleDelta.y), 0)
+                        const turn = d => Math.max(-10000, Math.min(10000, Math.round(-d / 120 * 100)))
+                        page.api.input("wheel", x, y, turn(wheel.angleDelta.x), turn(wheel.angleDelta.y))
                     }
                 }
                 Item {
                     id: keys
                     focus: page.mirroring
+                    onActiveFocusChanged: if (!activeFocus) page.api.releaseKeys()
                     Keys.onPressed: event => {
-                        if (event.key === Qt.Key_Escape)
-                            page.api.back()
-                        else if (event.key === Qt.Key_Backspace)
-                            page.api.typeText("\b")
-                        else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                            page.api.typeText("\n")
-                        else if (event.text !== "" && event.text.charCodeAt(0) >= 32)
-                            page.api.typeText(event.text)
+                        if (event.key === Qt.Key_F11)
+                            page.toggleFull()
                         else
-                            return
-                        event.accepted = true
+                            event.accepted = page.api.key(event.key, event.modifiers, event.text, true)
+                    }
+                    Keys.onReleased: event => {
+                        if (event.key !== Qt.Key_F11)
+                            event.accepted = page.api.key(event.key, event.modifiers, event.text, false)
                     }
                 }
             }
@@ -143,7 +184,7 @@ Item {
                 anchors.verticalCenter: phone.verticalCenter
                 iconName: "mouse"
                 title: "Mouse"
-                text: "Click to tap. Drag to swipe. Scroll to scroll."
+                text: "Click to tap. Drag to swipe. Scroll to scroll. F11 for fullscreen."
             }
             Hint {
                 visible: page.mirroring && x + width < parent.width
@@ -152,7 +193,7 @@ Item {
                 anchors.verticalCenter: phone.verticalCenter
                 iconName: "kbd"
                 title: "Keyboard"
-                text: "Type to enter text on the phone. Enter adds a new line."
+                text: "Type to enter text on the phone. Shortcuts like Ctrl+C work too. Esc goes back."
             }
 
             ColumnLayout {
@@ -168,7 +209,8 @@ Item {
                     kind: "primary"
                     iconName: "screen"
                     enabled: page.api.state === "idle"
-                    text: page.api.state === "starting" ? "Starting…" : "Mirror the screen"
+                    text: page.api.state === "starting" ? "Starting…"
+                        : page.api.state === "reconnecting" ? "Reconnecting…" : "Mirror the screen"
                     onClicked: page.api.start()
                 }
                 Label {

@@ -6,6 +6,7 @@ mod files;
 mod format;
 mod history;
 mod hub;
+mod keys;
 mod link;
 mod messages;
 #[cfg_attr(target_os = "macos", path = "mirror_mac.rs")]

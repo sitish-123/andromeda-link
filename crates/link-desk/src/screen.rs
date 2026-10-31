@@ -1,15 +1,17 @@
-//! `LinkScreen`: the current phone's screen inside the Screen page, decoded here into the page's video sink; taps,
-//! swipes, scrolls, keys, and Back/Home/Recents go back as `MirrorInput`.
+//! `LinkScreen`: the current phone's screen inside the Screen page, decoded here into the page's video sink; touches,
+//! the wheel, keys, and the phone's buttons go back as `MirrorInput`. A broken stream reopens up to [`RETRIES`] times.
 
 use std::os::unix::net::UnixStream;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
 use crate::client::{Command, Event};
 use crate::hub;
+use crate::keys::{self, Key};
 use crate::mirror::{Frame, Stream};
 
 #[cxx_qt::bridge]
@@ -32,6 +34,7 @@ pub mod qobject {
         #[qproperty(QString, error)]
         #[qproperty(i32, video_width)]
         #[qproperty(i32, video_height)]
+        #[qproperty(bool, screen_off)]
         type LinkScreen = super::ScreenRust;
     }
 
@@ -52,10 +55,22 @@ pub mod qobject {
         /// The page's video sink, or null when it goes.
         #[qinvokable]
         unsafe fn set_sink(self: Pin<&mut LinkScreen>, sink: *mut QVideoSink);
-        /// tap (x, y), long-press (x, y, ms), swipe (x, y, x2, y2, ms), or scroll (x, y and a delta x2, y2); points
-        /// in 1/10000 of the screen.
+        /// touch-down, touch-move, touch-up (x, y), or wheel (x, y and the turn x2, y2 in 1/100 of a notch,
+        /// positive right and down); points in 1/10000 of the screen.
         #[qinvokable]
-        fn input(self: Pin<&mut LinkScreen>, action: &QString, x: i32, y: i32, x2: i32, y2: i32, ms: i32);
+        fn input(self: Pin<&mut LinkScreen>, action: &QString, x: i32, y: i32, x2: i32, y2: i32);
+        /// A Qt key press or release; whether it went to the phone.
+        #[qinvokable]
+        fn key(self: Pin<&mut LinkScreen>, key: i32, modifiers: i32, text: &QString, pressed: bool) -> bool;
+        /// Lifts every key still down on the phone, when the page loses the keyboard.
+        #[qinvokable]
+        fn release_keys(self: Pin<&mut LinkScreen>);
+        /// Presses and releases an Android key, such as volume or power.
+        #[qinvokable]
+        fn press(self: Pin<&mut LinkScreen>, code: i32);
+        /// Turns the phone's own panel off or back on; mirroring goes on.
+        #[qinvokable]
+        fn toggle_screen(self: Pin<&mut LinkScreen>);
         /// Text into the phone's focused field: U+0008 deletes, a newline presses Enter.
         #[qinvokable]
         fn type_text(self: Pin<&mut LinkScreen>, text: &QString);
@@ -78,7 +93,22 @@ pub struct ScreenRust {
     pending: Arc<Mutex<Option<Frame>>>,
     /// The user stopped the mirror, so its end is no failure.
     stopped: bool,
+    screen_off: bool,
+    /// Reopens since the stream last broke.
+    tries: u32,
+    /// Qt keys down on the phone, with the Android code and meta they went down with.
+    held: Vec<(i32, i32, i32)>,
+    /// When the page last showed a picture of the open stream.
+    last_frame: Option<Instant>,
+    /// When the open stream opened.
+    opened_at: Option<Instant>,
 }
+
+const RETRIES: u32 = 3;
+/// Pictures for this long after an open mean the stream works again, so its reopens count from 0.
+const STEADY: Duration = Duration::from_secs(5);
+/// The phone repeats a still screen every 100 ms, so a gap this long means the link is down.
+const STALL: Duration = Duration::from_secs(2);
 
 impl Default for ScreenRust {
     fn default() -> Self {
@@ -92,6 +122,11 @@ impl Default for ScreenRust {
             sink: std::ptr::null_mut(),
             pending: Arc::default(),
             stopped: false,
+            screen_off: false,
+            tries: 0,
+            held: Vec::new(),
+            last_frame: None,
+            opened_at: None,
         }
     }
 }
@@ -103,6 +138,12 @@ impl cxx_qt::Initialize for qobject::LinkScreen {
             if let Event::Devices(_) | Event::Phone(_) | Event::MirrorOpened { .. } = event {
                 let event = event.clone();
                 let _ = thread.queue(move |screen| screen.apply(event));
+            }
+        });
+        let thread = self.qt_thread();
+        std::thread::spawn(move || {
+            while thread.queue(qobject::LinkScreen::check_stall).is_ok() {
+                std::thread::sleep(STALL / 4);
             }
         });
     }
@@ -144,7 +185,7 @@ impl qobject::LinkScreen {
                         let _ = thread.queue(qobject::LinkScreen::show);
                     }
                 },
-                move || drop(ended.queue(|screen| screen.ended(""))),
+                move |broke| drop(ended.queue(move |screen| screen.ended("", broke))),
             )?;
             Ok(Some((stream, width, height)))
         });
@@ -155,19 +196,47 @@ impl qobject::LinkScreen {
                 if let Some((_, slot)) = &mut self.as_mut().rust_mut().mirror {
                     *slot = Some(stream);
                 }
+                self.as_mut().rust_mut().last_frame = Some(Instant::now());
+                self.as_mut().rust_mut().opened_at = Some(Instant::now());
                 self.as_mut().set_state(QString::from("live"));
                 hub::send(Command::MirrorKeyframe(device.to_owned()));
             }
-            Err(reason) if asked => self.ended(&reason),
+            Err(reason) if asked => {
+                let reconnecting = self.state == QString::from("reconnecting");
+                self.ended(&reason, reconnecting);
+            }
             Ok(None) | Err(_) => {}
         }
     }
 
-    /// The stream closed, or never opened: back to idle, with the reason unless the user stopped it.
-    fn ended(mut self: Pin<&mut Self>, reason: &str) {
+    /// The stream closed, or never opened: reopened after a break, else back to idle, with the reason unless the user
+    /// stopped it.
+    fn ended(mut self: Pin<&mut Self>, reason: &str, broke: bool) {
         let mut state = self.as_mut().rust_mut();
-        state.mirror = None;
+        let phone = state.mirror.take().map(|(phone, _)| phone);
+        state.held.clear();
+        state.last_frame = None;
+        state.opened_at = None;
         let stopped = std::mem::take(&mut state.stopped);
+        if let Some(phone) = &phone {
+            self.as_mut().restore_screen(phone);
+        }
+        let tries = self.tries;
+        if let Some(phone) = phone.filter(|_| broke && !stopped && tries < RETRIES) {
+            log::info!("the mirror broke ({reason}), reopening in {} s", 1 << tries);
+            let mut state = self.as_mut().rust_mut();
+            state.tries += 1;
+            state.mirror = Some((phone, None));
+            self.as_mut().set_error(QString::default());
+            self.as_mut().set_state(QString::from("reconnecting"));
+            let thread = self.qt_thread();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(1 << tries));
+                let _ = thread.queue(qobject::LinkScreen::reopen);
+            });
+            return;
+        }
+        self.as_mut().rust_mut().tries = 0;
         let reason = if stopped {
             ""
         } else if reason.is_empty() {
@@ -179,9 +248,50 @@ impl qobject::LinkScreen {
         self.set_state(QString::from("idle"));
     }
 
-    fn show(self: Pin<&mut Self>) {
+    fn reopen(self: Pin<&mut Self>) {
+        if self.state != QString::from("reconnecting") {
+            return;
+        }
+        if let Some((phone, None)) = &self.mirror {
+            hub::send(Command::OpenMirror(phone.clone()));
+        }
+    }
+
+    fn restore_screen(mut self: Pin<&mut Self>, phone: &str) {
+        if self.screen_off {
+            self.as_mut().set_screen_off(false);
+            let device = phone.to_owned();
+            hub::send(Command::MirrorInput { device, action: "screen-on", points: Vec::new(), ms: None, text: None });
+        }
+    }
+
+    /// A live stream that stopped bringing pictures shows as reconnecting until they come again.
+    fn check_stall(mut self: Pin<&mut Self>) {
+        let stalled = self.last_frame.is_some_and(|last| last.elapsed() > STALL);
+        if stalled && self.state == QString::from("live") {
+            log::info!("no picture for {} s", STALL.as_secs());
+            self.as_mut().set_state(QString::from("reconnecting"));
+        }
+    }
+
+    fn show(mut self: Pin<&mut Self>) {
         let frame = self.pending.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(frame) = frame {
+            let open = matches!(self.mirror, Some((_, Some(_))));
+            if open {
+                self.as_mut().rust_mut().last_frame = Some(Instant::now());
+                if self.tries > 0 && self.opened_at.is_some_and(|at| at.elapsed() >= STEADY) {
+                    self.as_mut().rust_mut().tries = 0;
+                }
+                if self.state == QString::from("reconnecting") {
+                    self.as_mut().set_state(QString::from("live"));
+                }
+            }
+            // A rotated phone sends a new size mid-stream.
+            if (frame.width, frame.height) != (self.video_width, self.video_height) {
+                self.as_mut().set_video_width(frame.width);
+                self.as_mut().set_video_height(frame.height);
+            }
             // SAFETY: the page clears the sink before the sink goes, and both live on this thread.
             unsafe { qobject::show_nv12(self.sink, frame.width, frame.height, frame.stride, frame.data.as_slice()) };
         }
@@ -213,8 +323,14 @@ impl qobject::LinkScreen {
         self.as_mut().rust_mut().stopped = open;
         if !open {
             // Still asking: the answer finds no mirror and closes its socket.
-            self.ended("");
-        } else if let Some((_, stream)) = &mut self.as_mut().rust_mut().mirror {
+            self.ended("", false);
+            return;
+        }
+        if let Some((phone, _)) = &self.mirror {
+            let phone = phone.clone();
+            self.as_mut().restore_screen(&phone);
+        }
+        if let Some((_, stream)) = &mut self.as_mut().rust_mut().mirror {
             // The decoder's end runs `ended`.
             drop(stream.take());
         }
@@ -241,15 +357,53 @@ impl qobject::LinkScreen {
         self.send("recents", Vec::new(), None, None);
     }
 
-    fn input(self: Pin<&mut Self>, action: &QString, x: i32, y: i32, x2: i32, y2: i32, ms: i32) {
-        let ms = u32::try_from(ms).ok();
-        match action.to_string().as_str() {
-            "tap" => self.send("tap", vec![("x", x), ("y", y)], None, None),
-            "long-press" => self.send("long-press", vec![("x", x), ("y", y)], ms, None),
-            "swipe" => self.send("swipe", vec![("x", x), ("y", y), ("x2", x2), ("y2", y2)], ms, None),
-            "scroll" => self.send("scroll", vec![("x", x), ("y", y), ("x2", x2), ("y2", y2)], None, None),
-            other => log::warn!("not a mirror action: {other}"),
+    fn input(self: Pin<&mut Self>, action: &QString, x: i32, y: i32, x2: i32, y2: i32) {
+        let action = match action.to_string().as_str() {
+            "touch-down" => "touch-down",
+            "touch-move" => "touch-move",
+            "touch-up" => "touch-up",
+            "wheel" => return self.send("wheel", vec![("x", x), ("y", y), ("x2", x2), ("y2", y2)], None, None),
+            other => return log::warn!("not a mirror action: {other}"),
+        };
+        self.send(action, vec![("x", x), ("y", y)], None, None);
+    }
+
+    fn key(mut self: Pin<&mut Self>, key: i32, modifiers: i32, text: &QString, pressed: bool) -> bool {
+        if !pressed {
+            let Some(at) = self.held.iter().position(|(held, _, _)| *held == key) else { return false };
+            let (_, code, meta) = self.as_mut().rust_mut().held.remove(at);
+            self.send("key-up", vec![("code", code), ("meta", meta)], None, None);
+            return true;
         }
+        match keys::map(key, modifiers, &text.to_string()) {
+            Some(Key::Text(text)) => self.send("text", Vec::new(), None, Some(text)),
+            Some(Key::Android { code, meta }) => {
+                self.as_mut().rust_mut().held.push((key, code, meta));
+                self.send("key-down", vec![("code", code), ("meta", meta)], None, None);
+            }
+            None => return false,
+        }
+        true
+    }
+
+    fn release_keys(mut self: Pin<&mut Self>) {
+        for (_, code, meta) in std::mem::take(&mut self.as_mut().rust_mut().held) {
+            self.send("key-up", vec![("code", code), ("meta", meta)], None, None);
+        }
+    }
+
+    fn press(self: Pin<&mut Self>, code: i32) {
+        self.send("key-down", vec![("code", code), ("meta", 0)], None, None);
+        self.send("key-up", vec![("code", code), ("meta", 0)], None, None);
+    }
+
+    fn toggle_screen(mut self: Pin<&mut Self>) {
+        if !matches!(&self.mirror, Some((_, Some(_)))) {
+            return;
+        }
+        let off = !self.screen_off;
+        self.as_mut().set_screen_off(off);
+        self.send(if off { "screen-off" } else { "screen-on" }, Vec::new(), None, None);
     }
 
     fn type_text(self: Pin<&mut Self>, text: &QString) {

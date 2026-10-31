@@ -46,20 +46,20 @@
         <error line="404" column="13" source="standard:function-naming" />
         <error line="423" column="13" source="standard:function-naming" />
         <error line="444" column="13" source="standard:function-naming" />
-        <error line="501" column="13" source="standard:function-naming" />
-        <error line="518" column="13" source="standard:function-naming" />
-        <error line="536" column="13" source="standard:function-naming" />
-        <error line="606" column="13" source="standard:function-naming" />
-        <error line="677" column="13" source="standard:function-naming" />
-        <error line="804" column="13" source="standard:function-naming" />
-        <error line="808" column="5" source="compose:lambda-param-event-trailing" />
-        <error line="868" column="13" source="standard:function-naming" />
-        <error line="876" column="5" source="compose:lambda-param-event-trailing" />
-        <error line="920" column="13" source="standard:function-naming" />
-        <error line="920" column="13" source="compose:multiple-emitters-check" />
-        <error line="985" column="13" source="standard:function-naming" />
-        <error line="1065" column="13" source="standard:function-naming" />
-        <error line="1097" column="13" source="standard:function-naming" />
+        <error line="499" column="13" source="standard:function-naming" />
+        <error line="516" column="13" source="standard:function-naming" />
+        <error line="534" column="13" source="standard:function-naming" />
+        <error line="609" column="13" source="standard:function-naming" />
+        <error line="680" column="13" source="standard:function-naming" />
+        <error line="807" column="13" source="standard:function-naming" />
+        <error line="811" column="5" source="compose:lambda-param-event-trailing" />
+        <error line="871" column="13" source="standard:function-naming" />
+        <error line="879" column="5" source="compose:lambda-param-event-trailing" />
+        <error line="923" column="13" source="standard:function-naming" />
+        <error line="923" column="13" source="compose:multiple-emitters-check" />
+        <error line="988" column="13" source="standard:function-naming" />
+        <error line="1068" column="13" source="standard:function-naming" />
+        <error line="1100" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/SettingsScreen.kt">
         <error line="69" column="5" source="standard:function-naming" />

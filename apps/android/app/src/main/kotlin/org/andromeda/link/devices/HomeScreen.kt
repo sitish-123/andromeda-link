@@ -489,10 +489,8 @@ private fun PlayerCard(
                 onCommand(MediaCommandKind.Next, null)
             }
         }
-        player.lengthMs?.let { length ->
-            Seek(player.positionMs, length, player.receivedAt, playing, MediaCommandKind.Seek in player.can) {
-                onCommand(MediaCommandKind.Seek, it)
-            }
+        Seek(player.positionMs, player.lengthMs, player.receivedAt, playing, MediaCommandKind.Seek in player.can) {
+            onCommand(MediaCommandKind.Seek, it)
         }
     }
 }
@@ -535,7 +533,7 @@ private fun MediaButton(
 @Composable
 private fun Seek(
     positionMs: Long,
-    lengthMs: Long,
+    lengthMs: Long?,
     receivedAt: Long,
     playing: Boolean,
     seekable: Boolean,
@@ -551,6 +549,11 @@ private fun Seek(
         }
     }
     val position = if (playing) positionMs + (now - receivedAt) else positionMs
+    // A player without a length (a live stream, or media still loading) cannot seek: only the elapsed time shows.
+    if (lengthMs == null) {
+        Label(clock(position), LinkTheme.type.labelMedium, colors.textTertiary, Modifier.padding(top = Space.s10))
+        return
+    }
     val fraction = (position.toFloat() / lengthMs.coerceAtLeast(1)).coerceIn(0f, 1f)
     Row(
         Modifier.padding(top = Space.s10),

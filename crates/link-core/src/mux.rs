@@ -11,7 +11,7 @@ use link_proto::mux::{self, Frame, Header, MuxError};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
-/// No frame for this long ends the connection, as QUIC's idle timeout does.
+/// No frame for this long ends a Bluetooth connection; a present phone pings every 10 s.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Bulk bytes queued for the writer before `write_all` waits, so a fast file never buffers without bound.
 const QUEUED: usize = 4 * mux::MAX_DATA;

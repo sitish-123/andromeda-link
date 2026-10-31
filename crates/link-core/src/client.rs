@@ -157,6 +157,9 @@ enum Command {
     },
 }
 
+/// How long unpairing waits to tell the desktop before it forgets it anyway.
+const UNPAIR_TELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// The handle apps hold; every method is answered by the [`ClientActor`].
 #[derive(Clone)]
 pub struct Client {
@@ -428,10 +431,14 @@ impl Client {
 
     /// Tells the desktop, then forgets it. Returns whether the desktop was told; it is forgotten either way.
     pub async fn unpair(&self, id: DeviceId) -> Result<bool, Error> {
-        let told = match self.session(id.clone()).await {
-            Ok(handle) => handle.unpair().await,
-            Err(error) => Err(error),
+        // Telling the desktop is a courtesy: one that went away without closing would hold this until QUIC times out.
+        let tell = async {
+            match self.session(id.clone()).await {
+                Ok(handle) => handle.unpair().await,
+                Err(error) => Err(error),
+            }
         };
+        let told = tokio::time::timeout(UNPAIR_TELL_TIMEOUT, tell).await.unwrap_or(Err(Error::NotConnected));
         if let Err(error) = &told {
             log::info!("unpairing {id} without telling it: {error}");
         }

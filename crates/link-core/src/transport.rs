@@ -12,10 +12,12 @@ use crate::Error;
 use crate::identity::Identity;
 use crate::tls::{self, ServerPin};
 
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-/// A present phone's PING interval; `ARCHITECTURE.md` (Session) says why a third of [`IDLE_TIMEOUT`].
-pub const KEEP_ALIVE: Duration = Duration::from_secs(10);
+/// The desktop's PING interval; `ARCHITECTURE.md` (Session) says why a third of [`IDLE_TIMEOUT`].
+pub const KEEP_ALIVE: Duration = Duration::from_secs(30);
+/// A present phone's PING interval: a third of the 30 s idle timeout of older desktops and of the Bluetooth mux.
+pub const PHONE_KEEP_ALIVE: Duration = Duration::from_secs(10);
 /// Bulk streams a peer may open at once: a transfer streams four files, the rest is room for other transfers.
 const MAX_BULK_STREAMS: u8 = 8;
 
@@ -64,7 +66,7 @@ pub fn punchable_server_endpoint(identity: &Identity, addr: SocketAddr) -> Resul
     crypto.max_early_data_size = u32::MAX;
     let crypto = QuicServerConfig::try_from(crypto).map_err(|_| Error::BadKey)?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
-    config.transport_config(transport_config(None));
+    config.transport_config(transport_config(Some(KEEP_ALIVE)));
     let socket = std::net::UdpSocket::bind(addr)?;
     let puncher = Puncher(Arc::new(socket.try_clone()?));
     let runtime = quinn::default_runtime().ok_or_else(|| std::io::Error::other("no async runtime"))?;
@@ -105,7 +107,7 @@ impl Dialer {
     #[must_use]
     pub fn present(&self) -> Self {
         let mut config = self.config.clone();
-        config.transport_config(transport_config(Some(KEEP_ALIVE)));
+        config.transport_config(transport_config(Some(PHONE_KEEP_ALIVE)));
         Self { endpoint: self.endpoint.clone(), config }
     }
 

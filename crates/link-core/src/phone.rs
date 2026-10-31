@@ -21,7 +21,7 @@ use crate::reach::{self, Reached, Via};
 use crate::store::{Feature, Peer, Store};
 use crate::stream::{BluetoothOpener, FdStream, StreamDialer};
 use crate::tls::{self, ServerPin};
-use crate::transport::{Dialer, KEEP_ALIVE};
+use crate::transport::{Dialer, PHONE_KEEP_ALIVE};
 use crate::uri::PairingUri;
 use crate::wire::Connection;
 use crate::{Error, discovery};
@@ -229,7 +229,7 @@ impl Phone {
         };
         let fd =
             tokio::task::spawn_blocking(move || opener.open(&address, false)).await.map_err(|_| Error::Stopped)??;
-        let keep_alive = self.present.then_some(KEEP_ALIVE);
+        let keep_alive = self.present.then_some(PHONE_KEEP_ALIVE);
         let (mux, desktop) =
             self.stream_dialer.connect(FdStream::new(fd)?, peer.spki()?.fingerprint(), keep_alive).await?;
         if desktop.device_id() != peer.id {

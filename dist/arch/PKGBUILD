@@ -1,0 +1,58 @@
+# Andromeda Link on Arch without the Andromeda desktop, built from this checkout: `cd dist/arch && makepkg`.
+# The release workflow builds it for each tag; the AUR's andromeda-link-bin repackages that release file.
+# Unlike the Andromeda desktop's andromeda-link-git, the services start with any graphical session.
+pkgname=andromeda-link
+pkgver=0.0.0  # the release workflow sets the tag's version
+pkgrel=1
+pkgdesc='Andromeda Link: your Android phone and your Linux desktop as one'
+arch=(x86_64)
+url='https://github.com/sitish-123/andromeda-link'
+license=(MIT)
+depends=(glibc gcc-libs dbus fuse3 gtk4 qt6-base qt6-declarative qt6-multimedia gstreamer gst-plugins-base-libs
+  gst-plugins-bad gst-plugin-gtk4)
+makedepends=(cargo protobuf clang lld)
+optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
+  "networkmanager: joining the phone's hotspot or Wi-Fi Direct group for large transfers away from Wi-Fi"
+  'gst-plugin-va: hardware decoding of the mirrored phone screen'
+  'gst-libav: software decoding of the mirrored phone screen without VA-API'
+  'scrcpy: phone apps in their own windows (andromeda-link-apps)'
+  'android-tools: adb for andromeda-link-apps')
+provides=(andromeda-link)
+conflicts=(andromeda-link-git)
+backup=(etc/ufw/applications.d/andromeda-link)
+install=andromeda-link.install
+ROOT=$(cd "$startdir/../.." && pwd)
+
+build() {
+  # The host makepkg.conf (CachyOS) sets -march=native; packages must run on any x86-64 CPU.
+  CFLAGS="${CFLAGS//-march=native/-march=x86-64 -mtune=generic}" CXXFLAGS="${CXXFLAGS//-march=native/-march=x86-64 -mtune=generic}"
+  cd "$ROOT"
+  # Own target dir: makepkg flags differ from dev builds, so a shared dir rebuilds everything each time.
+  export CARGO_TARGET_DIR=$ROOT/target/arch
+  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --release --locked \
+    -p link-daemon -p link-session -p link-mount -p link-mirror -p link-desk
+}
+
+package() {
+  local bin=$ROOT/target/arch/release dist=$ROOT/dist user=$pkgdir/usr/lib/systemd/user
+  for b in andromeda-link andromeda-linkd andromeda-link-mount andromeda-link-mirror andromeda-link-apps \
+    andromeda-link-session; do
+    install -Dm755 "$bin/$b" "$pkgdir/usr/bin/$b"
+  done
+  install -d "$user/graphical-session.target.wants"
+  for s in andromeda-linkd andromeda-link-mount andromeda-link-session; do
+    install -Dm644 "$dist/$s.service" "$user/$s.service"
+    ln -s "../$s.service" "$user/graphical-session.target.wants/$s.service"
+  done
+  install -Dm644 "$dist/org.andromeda.Link1.service" "$pkgdir/usr/share/dbus-1/services/org.andromeda.Link1.service"
+  install -Dm644 "$ROOT/api/org.andromeda.Link1.xml" "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.Link1.xml"
+  install -Dm644 "$dist/andromeda-link.ufw" "$pkgdir/etc/ufw/applications.d/andromeda-link"
+  install -Dm644 "$dist/andromeda-link.firewalld.xml" "$pkgdir/usr/lib/firewalld/services/andromeda-link.xml"
+  install -Dm644 "$dist/andromeda-link-localsend.firewalld.xml" \
+    "$pkgdir/usr/lib/firewalld/services/andromeda-link-localsend.xml"
+  install -Dm644 "$dist/60-andromeda-link-bluetooth.conf" \
+    "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
+  install -Dm644 "$dist/org.andromeda.Link.desktop" "$pkgdir/usr/share/applications/org.andromeda.Link.desktop"
+  cp -r "$dist/icons" "$pkgdir/usr/share/"
+  install -Dm644 "$ROOT/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

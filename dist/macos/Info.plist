@@ -26,6 +26,8 @@
     <string>NSApplication</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Andromeda Link finds and connects to your phone on this network.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Andromeda Link connects to your phone over Bluetooth when there is no network.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_andromeda-link._udp</string>

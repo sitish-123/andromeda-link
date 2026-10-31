@@ -3,10 +3,12 @@
 set -euo pipefail
 APP=${1:-/Applications/Andromeda Link.app}
 AGENTS=$HOME/Library/LaunchAgents
-mkdir -p "$AGENTS"
+LOGS=$HOME/Library/Logs/Andromeda\ Link
+mkdir -p "$AGENTS" "$LOGS"
 for label in org.andromeda.linkd org.andromeda.link-session; do
   launchctl bootout "gui/$(id -u)/$label" 2> /dev/null || true
   # The agents name the app's binaries; point them at wherever the app was put.
-  sed "s|/Applications/Andromeda Link.app|$APP|" "$APP/Contents/Resources/LaunchAgents/$label.plist" > "$AGENTS/$label.plist"
+  sed -e "s|/Applications/Andromeda Link.app|$APP|" -e "s|@LOGS@|$LOGS|" \
+    "$APP/Contents/Resources/LaunchAgents/$label.plist" > "$AGENTS/$label.plist"
   launchctl bootstrap "gui/$(id -u)" "$AGENTS/$label.plist"
 done

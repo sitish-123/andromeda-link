@@ -23,7 +23,15 @@ fi
 
 rm -rf "$APP"
 mkdir -p "$C/MacOS" "$C/Frameworks" "$C/PlugIns" "$C/Resources/qml" "$C/Resources/LaunchAgents"
-cp "$BIN/andromeda-link" "$BIN/andromeda-linkd" "$BIN/andromeda-link-session" "$C/MacOS/"
+cp "$BIN/andromeda-link" "$BIN/andromeda-linkd" "$C/MacOS/"
+# What the Mac plays, read by Apple's perl for the daemon (crates/link-nowplaying).
+cp "$BIN/liblink_nowplaying.dylib" "$C/Frameworks/"
+# link-session runs from its own bundle, so Accessibility and notifications name it "Andromeda Link Helper".
+HELPER="$C/Library/LoginItems/Andromeda Link Helper.app/Contents"
+mkdir -p "$HELPER/MacOS" "$HELPER/Resources"
+cp "$BIN/andromeda-link-session" "$HELPER/MacOS/"
+cp "$HERE/Helper-Info.plist" "$HELPER/Info.plist"
+cp "$HERE/AppIcon.icns" "$HELPER/Resources/AppIcon.icns"
 cp "$HERE"/org.andromeda.*.plist "$C/Resources/LaunchAgents/"
 cp "$HERE/install-agents.sh" "$C/Resources/"
 cp "$HERE/Info.plist" "$C/Info.plist"
@@ -39,12 +47,15 @@ done
 for module in QtQml QtQuick QtMultimedia; do
   cp -a "$QT/qml/$module" "$C/Resources/qml/"
 done
+# The menu bar item.
+mkdir -p "$C/Resources/qml/Qt/labs"
+cp -a "$QT/qml/Qt/labs/platform" "$C/Resources/qml/Qt/labs/"
 
 # Copies every Qt framework that a binary in the bundle links, until none is missing.
 while :; do
   missing=$(find "$C" -type f \( -name '*.dylib' -o -path '*/MacOS/*' -o -path '*.framework/Versions/A/*' \) \
     -print0 | xargs -0 bash -c "$(declare -f libs); libs \"\$@\"" _ 2> /dev/null \
-    | sed -n 's|^\s*@rpath/\(Qt[A-Za-z]*\)\.framework/.*|\1|p' | sort -u \
+    | sed -n 's|^\s*@rpath/\(Qt[A-Za-z0-9]*\)\.framework/.*|\1|p' | sort -u \
     | while read -r name; do [[ -e $C/Frameworks/$name.framework ]] || echo "$name"; done)
   [[ -n $missing ]] || break
   for name in $missing; do

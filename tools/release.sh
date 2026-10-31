@@ -7,6 +7,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$ROOT/target/dist
 VERSION="r$(git -C "$ROOT" rev-list --count HEAD).g$(git -C "$ROOT" rev-parse --short HEAD)"
+# A build with uncommitted changes gets its time, so it never takes a committed build's name.
+git -C "$ROOT" diff --quiet HEAD || VERSION+=".dirty$(date +%m%d%H%M)"
 SIGNING=$HOME/.config/andromeda-link/signing.env
 SERVICES=(-p link-daemon -p link-session -p link-mount -p link-mirror)
 mkdir -p "$OUT"

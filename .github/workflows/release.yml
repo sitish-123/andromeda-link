@@ -100,8 +100,24 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: flatpak, path: andromeda-link.flatpak }
 
+  arch:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - run: >
+          pacman -Syu --noconfirm --needed base-devel git cargo protobuf clang lld dbus fuse3 gtk4 qt6-base
+          qt6-declarative qt6-multimedia gstreamer gst-plugins-base-libs gst-plugins-bad gst-plugin-gtk4
+      - uses: actions/checkout@v4
+      # makepkg refuses to run as root.
+      - run: useradd -m builder && chown -R builder "$PWD"
+      - run: >
+          su builder -c "cd dist/arch && sed -i 's/^pkgver=.*/pkgver=${GITHUB_REF_NAME#v}/' PKGBUILD
+          && makepkg --nodeps --noconfirm"
+      - uses: actions/upload-artifact@v4
+        with: { name: arch, path: dist/arch/*.pkg.tar.zst }
+
   publish:
-    needs: [android, macos, deb, rpm, flatpak]
+    needs: [android, macos, deb, rpm, flatpak, arch]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -111,3 +127,28 @@ jobs:
           files: dist/**/*
           generate_release_notes: true
           draft: ${{ github.event_name == 'workflow_dispatch' }}
+
+  # andromeda-link-bin on the AUR follows each published release. Secret: AUR_SSH_KEY, the AUR account's private key.
+  aur:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: arch, path: arch }
+      - run: |
+          version=${GITHUB_REF_NAME#v}
+          sed -e "s/@VERSION@/$version/" -e "s/@SHA256@/$(sha256sum arch/*.pkg.tar.zst | cut -d' ' -f1)/" \
+            -e "s/@INSTALL_SHA256@/$(sha256sum dist/andromeda-link.install | cut -d' ' -f1)/" \
+            dist/arch/andromeda-link-bin.PKGBUILD > PKGBUILD
+          mkdir aur && mv PKGBUILD aur/ && cp dist/andromeda-link.install aur/
+      - uses: KSXGitHub/github-actions-deploy-aur@v3
+        with:
+          pkgname: andromeda-link-bin
+          pkgbuild: aur/PKGBUILD
+          assets: aur/andromeda-link.install
+          commit_username: sitish-123
+          commit_email: sitish@akintechnologies.com
+          ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
+          commit_message: "andromeda-link-bin ${{ github.ref_name }}"

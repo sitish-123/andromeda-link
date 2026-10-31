@@ -19,6 +19,10 @@
 		<key>SuccessfulExit</key>
 		<false/>
 	</dict>
+	<key>StandardOutPath</key>
+	<string>@LOGS@/linkd.log</string>
+	<key>StandardErrorPath</key>
+	<string>@LOGS@/linkd.log</string>
 	<key>ProcessType</key>
 	<string>Background</string>
 </dict>

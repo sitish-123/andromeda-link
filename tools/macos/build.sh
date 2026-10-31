@@ -39,5 +39,5 @@ chmod +x "$TOOLS"/cc "$TOOLS"/cxx "$TOOLS"/qmake "$TOOLS"/libexec/rcc
 
 export QMAKE=$TOOLS/qmake CC_aarch64_apple_darwin=$TOOLS/cc CXX_aarch64_apple_darwin=$TOOLS/cxx
 export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=$TOOLS/cc CARGO_TARGET_DIR=$OUT/cargo
-cargo build --release -p link-desk -p link-daemon -p link-session --target aarch64-apple-darwin --manifest-path "$ROOT/Cargo.toml"
+cargo build --release -p link-desk -p link-daemon -p link-session -p link-nowplaying --target aarch64-apple-darwin --manifest-path "$ROOT/Cargo.toml"
 QT_MAC=$QT "$ROOT/dist/macos/bundle.sh" "$OUT/cargo/aarch64-apple-darwin/release" "$OUT/Andromeda Link.app"

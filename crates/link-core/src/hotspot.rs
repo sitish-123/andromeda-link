@@ -15,15 +15,13 @@ pub trait HotspotProvider: Send + Sync {
     fn stop(&self);
 }
 
-/// How long a Wi-Fi Direct group may take to form before the phone falls back to its hotspot.
-pub const WIFI_DIRECT_TIMEOUT: Duration = Duration::from_secs(25);
+/// How long a Wi-Fi Direct group may take to carry the session before the phone falls back to its hotspot. The desktop
+/// may ask its user before it leaves its own Wi-Fi for the group, as for the hotspot.
+pub const WIFI_DIRECT_TIMEOUT: Duration = Duration::from_secs(45);
 
-/// Forms a Wi-Fi Direct group with a desktop, so the desktop keeps its own network; either side may end up owning it.
-/// Blocking, like [`HotspotProvider`].
+/// Creates a Wi-Fi Direct group the phone owns, which a desktop joins with its credentials. Blocking, like
+/// [`HotspotProvider`].
 pub trait WifiDirectProvider: Send + Sync {
-    /// The name other devices see while this phone looks for peers.
-    fn name(&self) -> std::io::Result<String>;
-    /// Finds `peer`, a device address or else a name, and forms the group; returns once it is up.
-    fn connect(&self, peer: &str) -> std::io::Result<()>;
+    fn start(&self) -> std::io::Result<Hotspot>;
     fn stop(&self);
 }

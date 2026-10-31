@@ -71,6 +71,7 @@ async fn run() -> anyhow::Result<()> {
         localsend::LocalSend::new(&paths.state, paths.downloads.clone(), name.clone(), signals)?;
     let transfers = hub::Transfers { handle: transfers, events: transfer_events, localsend, localsend_signals };
     let (desktop_media, media_requests) = desktop_media::channel();
+    wifi_direct::remove_stale().await;
     let (mut hub, handle, snapshots, events) =
         hub::Hub::new(identity.spki().clone(), store, paths, desktop_media, transfers, puncher);
     let bluetooth = bluetooth::Bluetooth::start().await;

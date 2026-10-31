@@ -1,106 +1,158 @@
-//! Joining a phone's Wi-Fi Direct group as its client through `NetworkManager`'s Wi-Fi P2P device, which runs beside
-//! the desktop's own Wi-Fi connection instead of replacing it. The profile is volatile, like the hotspot's.
+//! Joining a Wi-Fi Direct group a phone owns, as a plain Wi-Fi client with the credentials it sent. `NetworkManager`
+//! joins P2P groups only by negotiating (its `Connect` passes `join: false` and a WPS method), which Android answers
+//! with a prompt on the phone. The desktop keeps its own Wi-Fi when its Wi-Fi device is idle or when the card runs a
+//! second managed interface; otherwise the hub asks the user before leaving it, as for the hotspot.
 
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use zbus::{OwnedObjectPath, OwnedVariant, Variant};
+use zbus::OwnedObjectPath;
 
-use crate::hotspot::{self, Joined, NM, NM_PATH, text};
+use crate::hotspot::{self, Active, Joined, NM, NM_PATH, text};
 
-const P2P_IFACE: &str = "org.freedesktop.NetworkManager.Device.WifiP2P";
-const DEVICE_TYPE_WIFI_P2P: u32 = 30;
-/// The phone starts looking for the desktop at the same time; finding each other takes a few scan rounds.
-const FIND_TIMEOUT: Duration = Duration::from_secs(20);
-/// Lets the phone's own connect go out first. Its request then waits on ours, so Android needs no confirmation and
-/// the phone's higher intent makes it the owner, serving DHCP; a request of ours that arrives first finds Android
-/// idle, which answers the app's connect with BUSY, prompts, and leaves the desktop owning a group whose DHCP a host
-/// firewall drops.
-const PHONE_FIRST: Duration = Duration::from_secs(3);
+/// The second managed interface, beside the one that keeps the desktop's own network.
+const SPARE: &str = "linkwifi0";
+const DEVICE: &str = "org.freedesktop.NetworkManager.Device";
+/// `NM_DEVICE_STATE_DISCONNECTED`: managed and ready to activate.
+const READY: u32 = 30;
+const READY_TIMEOUT: Duration = Duration::from_secs(10);
+/// `iw` answers at once; a hung one must not hold the hub.
+const IW_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How phones find this desktop over Wi-Fi Direct, when `NetworkManager` has a Wi-Fi P2P device: the host name iwd
-/// shows, and the device address a phone matches when `wpa_supplicant` shows no name. `NetworkManager` leaves the P2P
-/// device's own address empty; drivers with a P2P-device interface, iwlwifi among them, give it the card's permanent
-/// address, which the Wi-Fi device reports.
-pub async fn local_peer() -> Option<link_core::proto::message::WifiDirectReady> {
-    let bus = zbus::Connection::system().await.ok()?;
-    p2p_device(&bus).await.ok()??;
-    let name = std::fs::read_to_string("/proc/sys/kernel/hostname").ok()?.trim().to_owned();
-    if !(1..=link_core::proto::message::MAX_P2P_NAME_LEN).contains(&name.len()) {
-        return None;
-    }
-    let address = async {
-        let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.ok()?;
-        let wifi = hotspot::wifi_device(&bus, &manager).await.ok()?;
-        let wireless = zbus::Proxy::new(&bus, NM, wifi.as_str(), hotspot::WIRELESS).await.ok()?;
-        wireless.get_property::<String>("PermHwAddress").await.ok().map(|address| address.to_lowercase())
-    };
-    Some(link_core::proto::message::WifiDirectReady { name, address: address.await })
+/// Where to join a group without leaving the desktop's network: its idle Wi-Fi device, or an interface added for it.
+pub enum Spare {
+    Idle(OwnedObjectPath),
+    Added(String),
 }
 
-/// Finds the phone shown as `peer_name` and joins its group.
-pub async fn join(peer_name: &str) -> Result<Joined, String> {
+/// Where to join a group while the desktop keeps its network; None when only leaving it would do. Quick, since the
+/// hub awaits it: [`join`] waits for `NetworkManager` to take an added interface.
+pub async fn spare() -> Option<Spare> {
+    spare_device().await.inspect_err(|error| log::info!("no spare Wi-Fi interface: {error}")).ok()
+}
+
+async fn spare_device() -> Result<Spare, String> {
     let bus = zbus::Connection::system().await.map_err(text)?;
-    let device = p2p_device(&bus).await?.ok_or_else(|| "no Wi-Fi P2P device".to_owned())?;
-    let p2p = zbus::Proxy::new(&bus, NM, device.as_str(), P2P_IFACE).await.map_err(text)?;
-    let options: HashMap<&str, Variant<'_>> = HashMap::from([("timeout", Variant::from(30_i32))]);
-    p2p.call::<_, _, ()>("StartFind", &(options,)).await.map_err(text)?;
-    let found = find(&bus, &p2p, peer_name).await;
-    if let Err(error) = p2p.call::<_, _, ()>("StopFind", &()).await {
-        log::debug!("stopping the Wi-Fi Direct find: {error}");
-    }
-    let (peer, hwaddr) = found?;
-    tokio::time::sleep(PHONE_FIRST).await;
-    let user = std::env::var("USER").unwrap_or_default();
-    let settings: HashMap<&str, HashMap<&str, Variant<'_>>> = HashMap::from([
-        (
-            "connection",
-            HashMap::from([
-                ("id", Variant::from(format!("Andromeda Link: {peer_name}"))),
-                ("type", Variant::from("wifi-p2p")),
-                ("autoconnect", Variant::from(false)),
-                ("permissions", Variant::from(vec![format!("user:{user}")])),
-            ]),
-        ),
-        ("wifi-p2p", HashMap::from([("peer", Variant::from(hwaddr))])),
-        ("ipv4", HashMap::from([("method", Variant::from("auto"))])),
-        ("ipv6", HashMap::from([("method", Variant::from("ignore"))])),
-    ]);
     let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.map_err(text)?;
-    let options: HashMap<&str, Variant<'_>> = HashMap::from([("persist", Variant::from("volatile"))]);
-    let (_, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedVariant>) =
-        manager.call("AddAndActivateConnection2", &(settings, &device, &peer, options)).await.map_err(text)?;
-    hotspot::activated(&bus, active).await
+    let wifi = hotspot::wifi_device(&bus, &manager).await?;
+    let device = zbus::Proxy::new(&bus, NM, wifi.as_str(), DEVICE).await.map_err(text)?;
+    let active: OwnedObjectPath = device.get_property("ActiveConnection").await.map_err(text)?;
+    if active.as_str() == "/" {
+        log::info!("the Wi-Fi device is idle, so the group goes there");
+        return Ok(Spare::Idle(wifi));
+    }
+    let interface: String = device.get_property("Interface").await.map_err(text)?;
+    let phy = std::fs::read_to_string(format!("/sys/class/net/{interface}/phy80211/name")).map_err(text)?;
+    let info = iw(&["phy", phy.trim(), "info"]).await?;
+    if !two_stations(&info) {
+        return Err(format!("{} runs one Wi-Fi connection at a time", phy.trim()));
+    }
+    remove_stale().await;
+    iw(&["dev", &interface, "interface", "add", SPARE, "type", "managed"]).await?;
+    log::info!("added {SPARE} beside {interface} for the group");
+    Ok(Spare::Added(SPARE.to_owned()))
 }
 
-async fn p2p_device(bus: &zbus::Connection) -> Result<Option<OwnedObjectPath>, String> {
-    let manager = zbus::Proxy::new(bus, NM, NM_PATH, NM).await.map_err(text)?;
-    let devices: Vec<OwnedObjectPath> = manager.get_property("Devices").await.map_err(text)?;
-    for path in devices {
-        let device =
-            zbus::Proxy::new(bus, NM, path.as_str(), "org.freedesktop.NetworkManager.Device").await.map_err(text)?;
-        if device.get_property::<u32>("DeviceType").await.map_err(text)? == DEVICE_TYPE_WIFI_P2P {
-            return Ok(Some(path));
+/// Joins the group `ssid` on `spare`; a random address keeps a second interface apart from the first.
+pub async fn join(spare: Spare, ssid: &str, passphrase: &str) -> Result<Joined, String> {
+    let bus = zbus::Connection::system().await.map_err(text)?;
+    let added = match spare {
+        Spare::Idle(device) => return hotspot::join_on(&bus, &device, ssid, passphrase, false).await,
+        Spare::Added(added) => added,
+    };
+    let joined = async {
+        let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.map_err(text)?;
+        let device = managed(&bus, &manager, &added).await?;
+        hotspot::join_on(&bus, &device, ssid, passphrase, true).await
+    };
+    match joined.await {
+        Ok(Joined { active: Active::Manager(active), address }) => {
+            Ok(Joined { active: Active::Spare(active, added), address })
+        }
+        Ok(joined) => Ok(joined),
+        Err(error) => {
+            remove(&added).await;
+            Err(error)
         }
     }
-    Ok(None)
 }
 
-/// The peer object and hardware address of the device named `name`, once a find turns it up.
-async fn find(bus: &zbus::Connection, p2p: &zbus::Proxy<'_>, name: &str) -> Result<(OwnedObjectPath, String), String> {
-    let deadline = Instant::now() + FIND_TIMEOUT;
+pub async fn remove(interface: &str) {
+    if let Err(error) = iw(&["dev", interface, "del"]).await {
+        log::info!("removing {interface}: {error}");
+    }
+}
+
+/// Removes the spare interface a daemon that died left behind; the hub calls it only while no group of its own uses it.
+pub async fn remove_stale() {
+    if std::path::Path::new("/sys/class/net").join(SPARE).exists() {
+        log::info!("removing a stale {SPARE}");
+        remove(SPARE).await;
+    }
+}
+
+async fn iw(args: &[&str]) -> Result<String, String> {
+    let output = tokio::process::Command::new("iw").args(args).kill_on_drop(true).output();
+    let output = tokio::time::timeout(IW_TIMEOUT, output).await.map_err(|_| format!("iw {} hung", args.join(" ")))?;
+    let output = output.map_err(text)?;
+    if !output.status.success() {
+        return Err(format!("iw {}: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The `NetworkManager` device for `interface`, once it manages it.
+async fn managed(
+    bus: &zbus::Connection,
+    manager: &zbus::Proxy<'_>,
+    interface: &str,
+) -> Result<OwnedObjectPath, String> {
+    let deadline = Instant::now() + READY_TIMEOUT;
     while Instant::now() < deadline {
-        let peers: Vec<OwnedObjectPath> = p2p.get_property("Peers").await.map_err(text)?;
-        for path in peers {
-            let peer = zbus::Proxy::new(bus, NM, path.as_str(), "org.freedesktop.NetworkManager.WifiP2PPeer")
-                .await
-                .map_err(text)?;
-            if peer.get_property::<String>("Name").await.map_err(text)? == name {
-                let hwaddr = peer.get_property::<String>("HwAddress").await.map_err(text)?;
-                return Ok((path, hwaddr));
+        if let Ok(path) = manager.call::<_, _, OwnedObjectPath>("GetDeviceByIpIface", &(interface,)).await {
+            let device = zbus::Proxy::new(bus, NM, path.as_str(), DEVICE).await.map_err(text)?;
+            if device.get_property::<u32>("State").await.is_ok_and(|state| state >= READY) {
+                return Ok(path);
             }
         }
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    Err(format!("{name:?} did not show up over Wi-Fi Direct"))
+    Err(format!("NetworkManager did not take {interface}"))
+}
+
+/// Whether `iw phy <phy> info` lists a combination of two managed interfaces on two channels.
+fn two_stations(info: &str) -> bool {
+    let Some((_, rest)) = info.split_once("valid interface combinations:") else { return false };
+    let section = rest.lines().skip(1).take_while(|line| line.starts_with("\t\t")).collect::<Vec<_>>().join(" ");
+    let limit = |text: &str| -> Option<u32> {
+        let digits = text.trim_start().strip_prefix("<=")?.trim_start();
+        digits[..digits.find(|c: char| !c.is_ascii_digit()).unwrap_or(digits.len())].parse().ok()
+    };
+    section.split("* ").any(|combination| {
+        let managed: u32 = combination
+            .split("#{")
+            .skip(1)
+            .filter_map(|group| {
+                let (kinds, rest) = group.split_once('}')?;
+                kinds.split(',').any(|kind| kind.trim() == "managed").then(|| limit(rest)).flatten()
+            })
+            .sum();
+        let channels = combination.split_once("#channels").and_then(|(_, rest)| limit(rest)).unwrap_or(1);
+        managed >= 2 && channels >= 2
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::two_stations;
+
+    #[test]
+    fn finds_two_managed_interfaces_on_two_channels() {
+        let intel = "\tvalid interface combinations:\n\t\t * #{ managed } <= 2, #{ P2P-client, P2P-GO } <= 1, \
+                     #{ P2P-device } <= 1,\n\t\t   total <= 4, #channels <= 2\n\t\t * #{ managed } <= 2, #{ AP } <= \
+                     1,\n\t\t   total <= 4, #channels <= 1\n\tHT Capability overrides:\n";
+        assert!(two_stations(intel));
+        let single = "\tvalid interface combinations:\n\t\t * #{ managed } <= 1, #{ AP, P2P-client } <= 1,\n\t\t   \
+                      total <= 3, #channels <= 2\n\t\t * #{ managed } <= 2,\n\t\t   total <= 2, #channels <= 1\n";
+        assert!(!two_stations(single));
+    }
 }

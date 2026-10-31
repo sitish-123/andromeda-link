@@ -23,6 +23,8 @@ pub enum Active {
     /// A `NetworkManager` active connection.
     Manager(OwnedObjectPath),
     Iwd(crate::iwd::Left),
+    /// A `NetworkManager` active connection on an interface added for it, removed on leaving.
+    Spare(OwnedObjectPath, String),
 }
 
 /// An active hotspot connection and the address the desktop got on it.
@@ -38,7 +40,25 @@ pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
         return Ok(Joined { active: Active::Iwd(left), address });
     }
     let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.map_err(text)?;
+    let device = wifi_device(&bus, &manager).await?;
+    join_on(&bus, &device, ssid, passphrase, false).await
+}
+
+/// Joins `ssid` on the Wi-Fi `device`, from a random address with `random_address`.
+pub async fn join_on(
+    bus: &zbus::Connection,
+    device: &OwnedObjectPath,
+    ssid: &str,
+    passphrase: &str,
+    random_address: bool,
+) -> Result<Joined, String> {
+    let manager = zbus::Proxy::new(bus, NM, NM_PATH, NM).await.map_err(text)?;
     let user = std::env::var("USER").unwrap_or_default();
+    let mut wireless =
+        HashMap::from([("ssid", Variant::from(ssid.as_bytes().to_vec())), ("mode", Variant::from("infrastructure"))]);
+    if random_address {
+        wireless.insert("cloned-mac-address", Variant::from("random"));
+    }
     let settings: HashMap<&str, HashMap<&str, Variant<'_>>> = HashMap::from([
         (
             "connection",
@@ -49,13 +69,7 @@ pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
                 ("permissions", Variant::from(vec![format!("user:{user}")])),
             ]),
         ),
-        (
-            "802-11-wireless",
-            HashMap::from([
-                ("ssid", Variant::from(ssid.as_bytes().to_vec())),
-                ("mode", Variant::from("infrastructure")),
-            ]),
-        ),
+        ("802-11-wireless", wireless),
         (
             "802-11-wireless-security",
             HashMap::from([("key-mgmt", Variant::from("wpa-psk")), ("psk", Variant::from(passphrase))]),
@@ -64,20 +78,40 @@ pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
         ("ipv6", HashMap::from([("method", Variant::from("ignore"))])),
     ]);
     // iwd joins only networks its last scan saw, and the hotspot is seconds old, so it is scanned for first.
-    let (device, access_point) = scanned(&bus, &manager, ssid).await?;
+    let access_point = scanned(bus, device, ssid).await?;
     let options: HashMap<&str, Variant<'_>> = HashMap::from([("persist", Variant::from("volatile"))]);
-    let (_, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedVariant>) =
-        manager.call("AddAndActivateConnection2", &(settings, &device, &access_point, options)).await.map_err(text)?;
-    activated(&bus, active).await
+    let (profile, active, _): (OwnedObjectPath, OwnedObjectPath, HashMap<String, OwnedVariant>) =
+        manager.call("AddAndActivateConnection2", &(settings, device, &access_point, options)).await.map_err(text)?;
+    let joined = activated(bus, active.clone()).await;
+    if joined.is_err() {
+        abandon(bus, &manager, &active, &profile).await;
+    }
+    joined
 }
 
-/// The Wi-Fi device and the access point for `ssid`, rescanning until a scan shows it.
-async fn scanned(
+/// Deactivates a join that failed and deletes its profile, so the desktop's usual network comes back.
+async fn abandon(
     bus: &zbus::Connection,
     manager: &zbus::Proxy<'_>,
-    ssid: &str,
-) -> Result<(OwnedObjectPath, OwnedObjectPath), String> {
-    let device = wifi_device(bus, manager).await?;
+    active: &OwnedObjectPath,
+    profile: &OwnedObjectPath,
+) {
+    // Gone already when `NetworkManager` itself gave up on the join.
+    if let Err(error) = manager.call::<_, _, ()>("DeactivateConnection", &(active,)).await {
+        log::debug!("deactivating the failed join: {error}");
+    }
+    let deleted = async {
+        let settings =
+            zbus::Proxy::new(bus, NM, profile.as_str(), "org.freedesktop.NetworkManager.Settings.Connection").await?;
+        settings.call::<_, _, ()>("Delete", &()).await
+    };
+    if let Err(error) = deleted.await {
+        log::debug!("deleting the failed join's profile: {error}");
+    }
+}
+
+/// The access point for `ssid` on `device`, rescanning until a scan shows it.
+async fn scanned(bus: &zbus::Connection, device: &OwnedObjectPath, ssid: &str) -> Result<OwnedObjectPath, String> {
     let wireless = zbus::Proxy::new(bus, NM, device.as_str(), WIRELESS).await.map_err(text)?;
     let find = async {
         loop {
@@ -104,10 +138,9 @@ async fn scanned(
             }
         }
     };
-    let point = tokio::time::timeout(SCAN_TIMEOUT, find)
+    tokio::time::timeout(SCAN_TIMEOUT, find)
         .await
-        .map_err(|_| "the hotspot never showed up in a Wi-Fi scan".to_owned())??;
-    Ok((device, point))
+        .map_err(|_| "the hotspot never showed up in a Wi-Fi scan".to_owned())?
 }
 
 pub async fn wifi_device(bus: &zbus::Connection, manager: &zbus::Proxy<'_>) -> Result<OwnedObjectPath, String> {
@@ -122,8 +155,8 @@ pub async fn wifi_device(bus: &zbus::Connection, manager: &zbus::Proxy<'_>) -> R
     Err("no Wi-Fi device".to_owned())
 }
 
-/// Waits for `active` to come up and reads the address the desktop got on it; shared with Wi-Fi Direct.
-pub async fn activated(bus: &zbus::Connection, active: OwnedObjectPath) -> Result<Joined, String> {
+/// Waits for `active` to come up and reads the address the desktop got on it.
+async fn activated(bus: &zbus::Connection, active: OwnedObjectPath) -> Result<Joined, String> {
     let connection = zbus::Proxy::new(bus, NM, active.as_str(), "org.freedesktop.NetworkManager.Connection.Active")
         .await
         .map_err(text)?;
@@ -161,6 +194,12 @@ pub async fn leave(active: &Active) {
             Active::Manager(active) => {
                 let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await?;
                 manager.call::<_, _, ()>("DeactivateConnection", &(active,)).await
+            }
+            Active::Spare(active, interface) => {
+                let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await?;
+                let left = manager.call::<_, _, ()>("DeactivateConnection", &(active,)).await;
+                crate::wifi_direct::remove(interface).await;
+                left
             }
             Active::Iwd(left) => {
                 crate::iwd::leave(&bus, left).await;

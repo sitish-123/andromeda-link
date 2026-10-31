@@ -51,6 +51,12 @@ class ScreenMirror(
             refuse(desktopId, "the phone is already mirroring")
             return
         }
+        // The request is only a notification; when it cannot show, the desktop would wait in vain.
+        val channel = notifications.getNotificationChannel(Channels.SCREEN)
+        if (!notifications.areNotificationsEnabled() || channel?.importance == NotificationManager.IMPORTANCE_NONE) {
+            refuse(desktopId, "Link's notifications are off on the phone, so it cannot ask to share the screen")
+            return
+        }
         val name =
             repository.desktops.value
                 .firstOrNull { it.id == desktopId }

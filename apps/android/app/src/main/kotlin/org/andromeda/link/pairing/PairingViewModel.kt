@@ -44,6 +44,10 @@ class PairingViewModel(
         pair { repository.pairUri(uri) }
     }
 
+    fun reset() {
+        _state.value = PairingState()
+    }
+
     fun dismissLink() = _state.update { it.copy(link = null, failure = null) }
 
     fun updateCode(input: String) =
@@ -62,10 +66,9 @@ class PairingViewModel(
         viewModelScope.launch {
             _state.update { it.copy(busy = true, failure = null) }
             attempt()
-                .onSuccess { desktop ->
-                    _state.value = PairingState()
-                    pairedChannel.send(desktop)
-                }.onFailure { error -> _state.update { it.copy(busy = false, failure = error.linkFailure()) } }
+                // The screen stays busy while its exit animation runs; reset() clears it before the next pairing.
+                .onSuccess { desktop -> pairedChannel.send(desktop) }
+                .onFailure { error -> _state.update { it.copy(busy = false, failure = error.linkFailure()) } }
         }
     }
 }

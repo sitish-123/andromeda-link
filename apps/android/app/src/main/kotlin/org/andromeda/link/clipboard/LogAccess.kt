@@ -103,9 +103,9 @@ object LogAccess {
         if (pick.allows(Method.Shizuku) && shizuku()) {
             return newProcess.invoke(null, arrayOf("logcat", *args), null, null) as Process
         }
-        if (pick.allows(Method.Root) && hasSu() && root == null) root = su("true")
-        if (pick.allows(Method.Root) && root == true) {
-            return ProcessBuilder("su", "-c", (listOf("logcat") + args).joinToString(" ") { "'$it'" }).start()
+        if (pick.allows(Method.Root) && hasSu() && rootShell()) {
+            val logcat = (listOf("logcat") + args).joinToString(" ") { "'$it'" }
+            return RootProcess(ProcessBuilder("su", "-c", "echo \$\$; exec $logcat").start())
         }
         // The helper runs its own logcat and sends only this app's denial lines, whatever args asks for.
         if (pick.allows(Method.Helper) && helper()) {
@@ -123,14 +123,54 @@ object LogAccess {
     /** With root the overlay is given here, so the user sets nothing in Settings; blocks like [logcat]. */
     fun overlay(context: Context): Boolean =
         Settings.canDrawOverlays(context) ||
-            (hasSu() && root != false && su("appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow"))
+            (hasSu() && rootShell() && su("appops set ${context.packageName} SYSTEM_ALERT_WINDOW allow"))
 
     private fun Method.allows(other: Method) = this == Method.Automatic || this == other
 
     private fun rootMayWork(): Boolean = hasSu() && root != false
 
+    /** Only this probe sets [root]: a later command can fail with root granted. */
+    private fun rootShell(): Boolean {
+        if (root == null) root = su("true")
+        return root == true
+    }
+
     private fun su(command: String): Boolean =
-        runCatching { ProcessBuilder("su", "-c", command).start().waitFor() == 0 }.getOrDefault(false).also { root = it }
+        runCatching { ProcessBuilder("su", "-c", command).start().waitFor() == 0 }.getOrDefault(false)
+
+    /**
+     * A root logcat. Destroying the su client leaves logcat running as root, out of this app's reach, so destroy kills
+     * it through su by the PID its shell printed first.
+     */
+    private class RootProcess(
+        private val su: Process,
+    ) : Process() {
+        private val input = su.inputStream
+        private val pid: Int? =
+            runCatching {
+                generateSequence { input.read().takeIf { it >= 0 && it != '\n'.code } }
+                    .map { it.toChar() }
+                    .joinToString("")
+                    .toInt()
+            }.getOrNull()
+
+        override fun getInputStream(): InputStream = input
+
+        override fun getOutputStream(): OutputStream = su.outputStream
+
+        override fun getErrorStream(): InputStream = su.errorStream
+
+        override fun waitFor(): Int = su.waitFor()
+
+        override fun exitValue(): Int = su.exitValue()
+
+        override fun isAlive(): Boolean = su.isAlive
+
+        override fun destroy() {
+            if (su.isAlive) pid?.let { runCatching { ProcessBuilder("su", "-c", "kill $it").start() } }
+            su.destroy()
+        }
+    }
 
     /** The open stream from [LogHelper], drained here so it never blocks; null while no helper writes. */
     @Volatile private var helperStream: ParcelFileDescriptor? = null

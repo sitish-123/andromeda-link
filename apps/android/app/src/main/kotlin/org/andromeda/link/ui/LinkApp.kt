@@ -113,6 +113,7 @@ fun LinkApp(
         screen = Screen.Device
     }
     val openPair: () -> Unit = {
+        pairing.reset()
         returnScreen = screen
         screen = Screen.Pairing
     }

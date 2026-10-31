@@ -19,7 +19,23 @@ import kotlin.math.roundToInt
 class MediaLibrary(
     private val context: Context,
 ) : PhoneLibrary {
-    override fun albums(): List<String> = query(null).map { it.album }.distinct().sorted()
+    /** Reads only the album column: on a large library the full rows took a slow phone past the desktop's timeout. */
+    override fun albums(): List<String> {
+        val type = MediaStore.Files.FileColumns.MEDIA_TYPE
+        val args =
+            arrayOf(
+                MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
+                    .toString(),
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                    .toString(),
+            )
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        return context.contentResolver
+            .query(collection, arrayOf(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME), "($type=? OR $type=?)", args, null)
+            ?.use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(0) ?: "Other") } }
+            .orEmpty()
+            .sorted()
+    }
 
     override fun album(name: String): List<LibraryItem> = query(name).map { it.item }
 

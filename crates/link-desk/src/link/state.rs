@@ -96,6 +96,10 @@ impl qobject::Link {
                 return;
             }
             Event::Tick => {}
+            Event::HotspotAsk { device, ssid } => {
+                self.as_mut().set_hotspot_ask(QString::from(if ssid.is_empty() { "" } else { device.as_str() }));
+                return;
+            }
             other => {
                 let phone = state.current_phone.to_string();
                 if !state.history.apply(&other, &phone) {

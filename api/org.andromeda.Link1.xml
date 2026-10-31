@@ -288,8 +288,20 @@
       <arg name="device_id" type="s"/>
       <arg name="on" type="b"/>
     </signal>
+    <!-- The phone offers its hotspot ssid for a transfer, browsing, or mirroring too slow for Bluetooth. Joining takes
+         this desktop off its own Wi-Fi, so it joins only after AnswerHotspot allows it; no answer in 30 s declines.
+         An empty ssid withdraws the question. -->
+    <signal name="HotspotRequested">
+      <arg name="device_id" type="s"/>
+      <arg name="ssid" type="s"/>
+    </signal>
+    <!-- The user's answer to HotspotRequested. Errors: InvalidArgs for a malformed device id. -->
+    <method name="AnswerHotspot">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="allow" type="b" direction="in"/>
+    </method>
     <!-- This desktop is joining the phone's hotspot ssid to move a transfer, browsing, or mirroring off Bluetooth,
-         which takes it off its own Wi-Fi; sent before it joins. An empty ssid means it left, or the join failed, and
+         which takes it off its own Wi-Fi; sent once the user allowed it, before it joins. An empty ssid means it left, or the join failed, and
          NetworkManager is bringing the usual network back. -->
     <signal name="Hotspot">
       <arg name="device_id" type="s"/>

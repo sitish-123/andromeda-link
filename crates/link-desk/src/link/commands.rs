@@ -36,6 +36,15 @@ impl qobject::Link {
         self.to_phone(Command::Ring);
     }
 
+    pub(crate) fn answer_hotspot(mut self: Pin<&mut Self>, allow: bool) {
+        let device = self.hotspot_ask.to_string();
+        if device.is_empty() {
+            return;
+        }
+        self.as_mut().set_hotspot_ask(QString::default());
+        self.send(Command::AnswerHotspot { device, allow });
+    }
+
     pub(crate) fn send_clipboard(self: Pin<&mut Self>) {
         let text = qobject::clipboard_text().to_string();
         self.send(Command::OfferClipboard(text));

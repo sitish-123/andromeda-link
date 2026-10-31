@@ -31,6 +31,9 @@ const BT_PAIRING_WINDOW: Duration = Duration::from_secs(60);
 const DESKTOP_STATUS_EVERY: Duration = Duration::from_millis(150);
 /// How long a desktop's command waits for the phone's `system-result`.
 const SYSTEM_TIMEOUT: Duration = Duration::from_secs(5);
+/// Joining a hotspot takes the desktop off its Wi-Fi, so it waits this long for the user to allow it.
+const HOTSPOT_ASK_TIMEOUT: Duration = Duration::from_secs(30);
+const HOTSPOT_DECLINED: &str = "the hotspot was not allowed on this computer";
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
@@ -146,6 +149,12 @@ pub enum Event {
         id: DeviceId,
         text: Text,
     },
+    /// A phone offers its hotspot (`ssid`); the desktop joins only once the user allows it. An empty `ssid` withdraws
+    /// the question.
+    HotspotAsk {
+        id: DeviceId,
+        ssid: String,
+    },
     /// The desktop is joining a phone's hotspot (`ssid`), or left it or failed to join (None).
     Hotspot {
         id: DeviceId,
@@ -213,6 +222,7 @@ enum Command {
     StartPairing { reply: oneshot::Sender<anyhow::Result<(String, String)>> },
     CancelPairing,
     Unpair { id: DeviceId, reply: oneshot::Sender<bool> },
+    AnswerHotspot { id: DeviceId, allow: bool },
     ConfirmBtPairing { passkey: u32, reply: oneshot::Sender<bool> },
     Admit { spki: Spki, reply: oneshot::Sender<Admission> },
     Paired { spki: Spki, name: String, window: u64 },
@@ -294,6 +304,8 @@ pub struct Hub {
     joining: JoinSet<(DeviceId, Option<String>, Result<hotspot::Joined, String>)>,
     /// Phones whose hotspot this desktop is joining now.
     joining_hotspots: HashSet<DeviceId>,
+    /// Hotspots waiting for the user's answer, with their SSID.
+    hotspot_asks: HashMap<DeviceId, (oneshot::Sender<bool>, String)>,
     /// How phones find this desktop over Wi-Fi Direct, when it can join a group.
     wifi_direct_peer: Option<WifiDirectReady>,
     /// The code a phone with a session reported while Android pairs Bluetooth with it, until when it counts.
@@ -394,6 +406,7 @@ impl Hub {
             hotspots: HashMap::new(),
             joining: JoinSet::new(),
             joining_hotspots: HashSet::new(),
+            hotspot_asks: HashMap::new(),
             wifi_direct_peer: None,
             bt_pairing: None,
             bluetooth: None,
@@ -471,6 +484,14 @@ impl Hub {
                 let confirmed =
                     self.bt_pairing.take().is_some_and(|(code, until)| code == passkey && Instant::now() < until);
                 let _ = reply.send(confirmed);
+            }
+            Command::AnswerHotspot { id, allow } => {
+                if let Some((answer, ssid)) = self.hotspot_asks.remove(&id) {
+                    if allow {
+                        self.emit(Event::Hotspot { id: id.clone(), ssid: Some(ssid) }).await;
+                    }
+                    let _ = answer.send(allow);
+                }
             }
             Command::Unpair { id, reply } => {
                 let unpaired = self.unpair(&id);
@@ -1487,14 +1508,19 @@ impl Hub {
         }
         // The phone offers its hotspot only after giving up on a group, which this desktop may have joined anyway.
         let abandoned = self.hotspots.remove(&id);
-        log::info!("{id}: joining the phone's hotspot {:?}", offered.ssid);
+        log::info!("{id}: asking whether to join the phone's hotspot {:?}", offered.ssid);
         self.joining_hotspots.insert(id.clone());
-        self.emit(Event::Hotspot { id: id.clone(), ssid: Some(offered.ssid.clone()) }).await;
+        let (answer, answered) = oneshot::channel();
+        self.hotspot_asks.insert(id.clone(), (answer, offered.ssid.clone()));
+        self.emit(Event::HotspotAsk { id: id.clone(), ssid: offered.ssid.clone() }).await;
         self.joining.spawn(async move {
             if let Some(group) = abandoned {
                 hotspot::leave(&group).await;
             }
-            let joined = hotspot::join(&offered.ssid, &offered.passphrase).await;
+            let joined = match tokio::time::timeout(HOTSPOT_ASK_TIMEOUT, answered).await {
+                Ok(Ok(true)) => hotspot::join(&offered.ssid, &offered.passphrase).await,
+                _ => Err(HOTSPOT_DECLINED.to_owned()),
+            };
             (id, Some(offered.ssid), joined)
         });
     }
@@ -1504,6 +1530,9 @@ impl Hub {
     async fn hotspot_joined(&mut self, id: DeviceId, ssid: Option<String>, joined: Result<hotspot::Joined, String>) {
         if ssid.is_some() {
             self.joining_hotspots.remove(&id);
+            if self.hotspot_asks.remove(&id).is_some() {
+                self.emit(Event::HotspotAsk { id: id.clone(), ssid: String::new() }).await;
+            }
         } else if self.joining_hotspots.contains(&id) || self.hotspots.contains_key(&id) {
             // The phone gave up on its group and runs a hotspot now, which a HotspotEnd would stop.
             log::info!("{id}: dropping the Wi-Fi Direct group the phone gave up on");
@@ -1513,10 +1542,11 @@ impl Hub {
             return;
         }
         let Some(session) = self.sessions.get(&id).cloned() else {
+            let declined = joined.as_ref().is_err_and(|reason| reason == HOTSPOT_DECLINED);
             if let Ok(joined) = joined {
                 hotspot::leave(&joined.active).await;
             }
-            if ssid.is_some() {
+            if ssid.is_some() && !declined {
                 self.emit(Event::Hotspot { id, ssid: None }).await;
             }
             return;
@@ -1531,7 +1561,9 @@ impl Hub {
             Err(reason) => {
                 log::info!("{id}: joining the hotspot failed: {reason}");
                 if ssid.is_some() {
-                    self.emit(Event::Hotspot { id: id.clone(), ssid: None }).await;
+                    if reason != HOTSPOT_DECLINED {
+                        self.emit(Event::Hotspot { id: id.clone(), ssid: None }).await;
+                    }
                     self.fail_waiting(&id, &reason).await;
                 }
                 let reason = reason.chars().take(link_core::proto::message::MAX_REASON_LEN).collect();
@@ -1739,6 +1771,10 @@ impl HubHandle {
     /// Whether a phone with a session just reported `passkey` for the Bluetooth pairing under way; it counts once.
     pub async fn confirm_bt_pairing(&self, passkey: u32) -> bool {
         self.request(|reply| Command::ConfirmBtPairing { passkey, reply }).await.unwrap_or(false)
+    }
+
+    pub async fn answer_hotspot(&self, id: DeviceId, allow: bool) {
+        self.tell(Command::AnswerHotspot { id, allow }).await;
     }
 
     pub async fn unpair(&self, id: DeviceId) -> bool {

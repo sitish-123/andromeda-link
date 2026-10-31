@@ -16,6 +16,8 @@
 #    limit fails with it and nothing is sent, while a 2 MiB send (past the 1 MiB upgrade threshold, within the limit)
 #    asks for the hotspot, then goes over Bluetooth when the join fails, in both directions. A 512 KiB send never asks for it.
 # 5. The hotspot's address is not stored as a last-known address.
+# 6. The desktop joins only after the user allows it (HotspotRequested, AnswerHotspot); declined, a 2 MiB send goes
+#    over Bluetooth and the desktop never tries to join.
 # Every control message is validated against api/messages.cddl.
 # Writes results.jsonl, hold.jsonl, nm.jsonl, signals.txt, transcript.jsonl, linkd.log to $OUT (default
 # ./artifacts/link-hotspot).
@@ -102,6 +104,13 @@ link SetAutoAccept "'$ID'" true > /dev/null || fail "SetAutoAccept"
 in_phone tc qdisc add dev p0 root netem loss 100%
 
 dbus-monitor --session "type='signal',interface='org.andromeda.Link1',member='Hotspot'" > "$OUT/signals.txt" 2>&1 &
+# The user: allows every hotspot question, or declines once $RUNTIME/decline-hotspot exists.
+gdbus monitor --session -d org.andromeda.Link1 | while read -r line; do
+  [[ $line =~ HotspotRequested\ \(\'([0-9a-f]+)\',\ \'([^\']+)\'\) ]] || continue
+  allow=true; [[ -e $RUNTIME/decline-hotspot ]] && allow=false
+  echo "${BASH_REMATCH[2]} $allow" >> "$OUT/asks.txt"
+  link AnswerHotspot "${BASH_REMATCH[1]}" "$allow" > /dev/null || true
+done &
 wait_for 5 "dbus-monitor did not start" test -s "$OUT/signals.txt"
 mkfifo "$RUNTIME/phone.in"
 exec 3<> "$RUNTIME/phone.in"
@@ -110,6 +119,19 @@ RUST_LOG=info nsenter -t "$PHONE_NS" -n -- "$BIN/andromeda-link-phone" --state "
   --hotspot "AndromedaTest:secret pass 1" hold --on-offer accept < "$RUNTIME/phone.in" > "$OUT/hold.jsonl" \
   2> "$OUT/hold.log" &
 wait_for 30 "the held phone never connected over Bluetooth" eval '[[ $(last_via) == bluetooth ]]'
+
+mkdir -p "$RUNTIME/src"
+head -c 2097152 /dev/urandom > "$RUNTIME/src/declined.bin"
+touch "$RUNTIME/decline-hotspot"
+say "send $RUNTIME/src/declined.bin"
+wait_for 90 "a 2 MiB send with the hotspot declined never arrived over Bluetooth" test -f "$DOWNLOADS/declined.bin"
+[[ $(sha "$RUNTIME/src/declined.bin") == $(sha "$DOWNLOADS/declined.bin") ]] || fail "the declined 2 MiB differs"
+grep -q "AndromedaTest false" "$OUT/asks.txt" || fail "the desktop did not ask before joining: $(cat "$OUT/asks.txt" 2>&1)"
+! grep -q '"call": "add-and-activate"' "$OUT/nm.jsonl" 2> /dev/null || fail "the desktop joined a hotspot the user declined"
+[[ $(last_via) == bluetooth ]] || fail "the declined send left Bluetooth"
+rm "$RUNTIME/decline-hotspot"
+# The declined attempt started and stopped the phone's hotspot once; the idle stop below is the second.
+record '{"step":"declined-hotspot-stays-on-bluetooth","bytes":2097152,"sha256_match":true}'
 
 head -c 33554432 /dev/urandom > "$RUNTIME/src/up.bin"
 say "send $RUNTIME/src/up.bin"
@@ -133,7 +155,7 @@ wait_for 60 "the phone's 32 MiB never reached the desktop" test -f "$DOWNLOADS/u
 grep -A2 'member=Hotspot' "$OUT/signals.txt" | grep -q 'string "AndromedaTest"' || fail "no Hotspot signal with the SSID"
 record '{"step":"phone-send-moves-to-hotspot","bytes":33554432,"sha256_match":true}'
 
-wait_for 90 "the phone never ended the idle hotspot" grep -q "hotspot stopped" "$OUT/hold.log"
+wait_for 90 "the phone never ended the idle hotspot" eval '(( $(grep -c "hotspot stopped" "$OUT/hold.log") >= 2 ))'
 date +%s.%N > "$OUT/stopped-at.txt"
 wait_for 10 "the desktop did not leave the hotspot" eval '[[ $(nm_calls deactivate) == 1 ]]'
 wait_for 20 "the phone was not back on Bluetooth soon after" eval '[[ $(last_via) == bluetooth ]]'
@@ -182,6 +204,7 @@ wait_for 30 "a 512 KiB send never arrived over Bluetooth" test -f "$DOWNLOADS/ti
 [[ $(sha "$RUNTIME/src/tiny.bin") == $(sha "$DOWNLOADS/tiny.bin") ]] || fail "the 512 KiB file differs on the desktop"
 (( $(nm_calls add-and-activate) == JOINS )) || fail "a 512 KiB send asked for the hotspot"
 record '{"step":"tiny-send-stays-on-bluetooth","bytes":524288,"sha256_match":true}'
+
 
 STORED=$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["peers"][0]["addresses"]))' "$RUNTIME/phone/devices.json")
 [[ $STORED != *10.80.0.* ]] || fail "the hotspot's address was stored: $STORED"

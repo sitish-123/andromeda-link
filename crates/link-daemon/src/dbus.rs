@@ -452,6 +452,13 @@ impl Link {
         self.send(&device_id, Message::Ringing(Ringing { on })).await
     }
 
+    /// The user's answer to `HotspotRequested`: whether this desktop may leave its Wi-Fi for the phone's hotspot.
+    async fn answer_hotspot(&self, device_id: String, allow: bool) -> fdo::Result<()> {
+        let id = DeviceId::parse(&device_id).map_err(|_| fdo::Error::InvalidArgs("not a device id".to_owned()))?;
+        self.hub.answer_hotspot(id, allow).await;
+        Ok(())
+    }
+
     /// `mute` silences the phone's ringer; `decline` ends its ringing call.
     async fn call_action(&self, device_id: String, action: String) -> Result<(), LinkError> {
         let action = CallActionKind::parse(&action)
@@ -590,6 +597,11 @@ impl Link {
     /// an empty `ssid` means it left, or the join failed.
     #[zbus(signal)]
     async fn hotspot(emitter: &SignalEmitter<'_>, device_id: &str, ssid: &str) -> zbus::Result<()>;
+
+    /// The phone offers its hotspot `ssid` for work too slow for Bluetooth; answer with `AnswerHotspot`. No answer in
+    /// 30 s declines it. An empty `ssid` withdraws the question.
+    #[zbus(signal)]
+    async fn hotspot_requested(emitter: &SignalEmitter<'_>, device_id: &str, ssid: &str) -> zbus::Result<()>;
 
     #[zbus(signal)]
     async fn notification_removed(emitter: &SignalEmitter<'_>, device_id: &str, id: &str) -> zbus::Result<()>;
@@ -1024,6 +1036,7 @@ pub async fn forward(
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
                 Event::Hotspot { id, ssid } => Link::hotspot(emitter, id.as_str(), &ssid.unwrap_or_default()).await?,
+                Event::HotspotAsk { id, ssid } => Link::hotspot_requested(emitter, id.as_str(), &ssid).await?,
                 Event::TextReceived { id, text } => {
                     Link::text_received(emitter, id.as_str(), text.id, &text.address, &text.body).await?;
                 }

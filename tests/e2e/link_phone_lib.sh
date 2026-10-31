@@ -55,6 +55,10 @@ start_linkd() {
   link CancelPairing > /dev/null || fail "andromeda-linkd did not come up"
   wait_for 5 "andromeda-linkd logged no port" grep -q 'listening on port' "$OUT/linkd.log"
   dbus-monitor --session "type='signal',interface='org.andromeda.Link1'" > "$OUT/signals.txt" 2>&1 &
+  # The user allows every hotspot question, as a tap on "Use hotspot".
+  gdbus monitor --session -d org.andromeda.Link1 | while read -r line; do
+    [[ $line =~ HotspotRequested\ \(\'([0-9a-f]+)\',\ \'[^\']+\'\) ]] && link AnswerHotspot "${BASH_REMATCH[1]}" true > /dev/null
+  done &
   PORT=$(grep -o 'listening on port [0-9]*' "$OUT/linkd.log" | grep -o '[0-9]*$')
 }
 

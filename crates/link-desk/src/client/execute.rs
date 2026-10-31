@@ -61,6 +61,7 @@ pub(super) async fn execute(
         }
         Command::StartService | Command::Resync | Command::SetQuickShare(_) => Ok(()),
         Command::Accept(transfer) => proxy.accept_transfer(&transfer).await,
+        Command::AnswerHotspot { device, allow } => proxy.answer_hotspot(&device, allow).await,
         Command::Decline(transfer) => proxy.decline_transfer(&transfer).await,
         Command::Cancel(transfer) => proxy.cancel_transfer(&transfer).await,
         Command::SetGrant { device, feature, granted } => proxy.set_grant(&device, &feature, granted).await,

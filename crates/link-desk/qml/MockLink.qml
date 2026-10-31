@@ -48,6 +48,8 @@ QtObject {
     signal raiseRequested()
 
     function ring() { console.log("ring") }
+    property string hotspotAsk: ""
+    function answerHotspot(allow) { console.log("answerHotspot " + allow); hotspotAsk = "" }
     function sendClipboard() { console.log("sendClipboard") }
     function sendFiles(urls) { console.log("sendFiles", urls) }
     function setRinger(mode) { ringer = mode }

@@ -117,6 +117,11 @@ pub enum Event {
         device: String,
         id: String,
     },
+    /// The phone offers its hotspot; joining takes this computer off its Wi-Fi. An empty `ssid` withdraws it.
+    HotspotAsk {
+        device: String,
+        ssid: String,
+    },
     /// Files the device offers, as (name, size); they wait for consent unless it is auto accepted.
     Offered {
         transfer: String,
@@ -266,6 +271,10 @@ pub enum Command {
     StartService,
     Accept(String),
     Decline(String),
+    AnswerHotspot {
+        device: String,
+        allow: bool,
+    },
     Cancel(String),
     SetGrant {
         device: String,

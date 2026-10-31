@@ -80,6 +80,8 @@ pub mod qobject {
         #[qproperty(i64, length_ms)]
         #[qproperty(i32, player_volume, READ, NOTIFY)]
         #[qproperty(bool, has_player)]
+        /// The phone whose hotspot waits for the user's answer; empty when none does.
+        #[qproperty(QString, hotspot_ask)]
         #[qproperty(*mut ListModel, notifications, READ, CONSTANT)]
         #[qproperty(*mut ListModel, recent, READ, CONSTANT)]
         type Link = super::LinkRust;
@@ -115,6 +117,8 @@ pub mod qobject {
         fn choose_phone(self: Pin<&mut Link>, id: QString);
         #[qinvokable]
         fn ring(self: Pin<&mut Link>);
+        #[qinvokable]
+        fn answer_hotspot(self: Pin<&mut Link>, allow: bool);
         #[qinvokable]
         fn send_clipboard(self: Pin<&mut Link>);
         #[qinvokable]
@@ -187,6 +191,7 @@ pub struct LinkRust {
     length_ms: i64,
     player_volume: i32,
     has_player: bool,
+    hotspot_ask: QString,
     notifications: *mut qobject::ListModel,
     recent: *mut qobject::ListModel,
 
@@ -228,6 +233,7 @@ impl Default for LinkRust {
             length_ms: 0,
             player_volume: -1,
             has_player: false,
+            hotspot_ask: QString::default(),
             notifications: std::ptr::null_mut(),
             recent: std::ptr::null_mut(),
             notification_model: UniquePtr::null(),

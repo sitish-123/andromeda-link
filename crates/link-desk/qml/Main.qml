@@ -500,4 +500,53 @@ ApplicationWindow {
         }
         Timer { id: hide; interval: 4000; onTriggered: toast.visible = false }
     }
+    // Joining the phone's hotspot takes this computer off its Wi-Fi, so the service waits for this answer (30 s).
+    Popup {
+        id: hotspotAsk
+        readonly property string phone: ((window.link.phones || []).find(p => p.id === window.link.hotspotAsk) || {}).name || "Your phone"
+        anchors.centerIn: parent
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        visible: window.link.hotspotAsk !== ""
+        onVisibleChanged: if (visible) { window.show(); window.raise(); window.requestActivate() }
+        padding: 24
+        width: 440
+        background: Rectangle {
+            radius: 20
+            color: Theme.elev
+            border.width: 1
+            border.color: Theme.b2
+        }
+        Overlay.modal: Rectangle { color: Qt.alpha("black", 0.4) }
+        contentItem: ColumnLayout {
+            spacing: 8
+            Label {
+                Layout.fillWidth: true
+                text: "Use " + hotspotAsk.phone + "\u2019s hotspot?"
+                font.pixelSize: Theme.title
+                font.weight: Font.DemiBold
+                wrapMode: Text.WordWrap
+            }
+            Label {
+                Layout.fillWidth: true
+                text: "This is too slow over Bluetooth. This computer leaves its Wi-Fi and has no internet until it is done, then joins your Wi-Fi again."
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.body
+                color: Theme.t2
+            }
+            RowLayout {
+                Layout.topMargin: 16
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                TonalButton {
+                    text: "Not now"
+                    onClicked: window.link.answerHotspot(false)
+                }
+                TonalButton {
+                    text: "Use hotspot"
+                    onClicked: window.link.answerHotspot(true)
+                }
+            }
+        }
+    }
 }

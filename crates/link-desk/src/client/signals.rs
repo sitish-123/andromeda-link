@@ -130,6 +130,10 @@ pub(super) fn signal(message: zbus::Message) -> Option<Event> {
         let args = signal.args().ok()?;
         return Some(Event::NotificationRemoved { device: owned(args.device_id), id: owned(args.id) });
     }
+    if let Some(signal) = link_api::HotspotRequested::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        return Some(Event::HotspotAsk { device: owned(args.device_id), ssid: owned(args.ssid) });
+    }
     if let Some(signal) = link_api::TransferOffered::from_message(message.clone()) {
         let args = signal.args().ok()?;
         let files = args.files.iter().map(|&(name, size)| (owned(name), size)).collect();

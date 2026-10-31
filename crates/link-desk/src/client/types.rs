@@ -200,6 +200,12 @@ pub enum Event {
         path: String,
         file: Option<PathBuf>,
     },
+    /// A phone file copied whole into the cache for the photo viewer; None when the copy failed.
+    Viewed {
+        device: String,
+        path: String,
+        file: Option<PathBuf>,
+    },
     Fetched {
         device: String,
         /// The page that asked: "photos" or "files".
@@ -299,6 +305,11 @@ pub enum Command {
         device: String,
         path: String,
         size: u16,
+    },
+    /// Copies a whole phone file into the cache once, for the photo viewer.
+    View {
+        device: String,
+        path: String,
     },
     /// Copies phone files into this folder.
     Fetch {

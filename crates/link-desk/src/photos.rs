@@ -9,7 +9,7 @@ use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, Q
 
 use crate::client::{Command, Entry, Event, Fetch};
 use crate::desktop;
-use crate::format::{day_text, file_kind, file_url, text, variant};
+use crate::format::{clock, day_detail, day_text, file_kind, file_url, size, text, variant};
 use crate::hub;
 use crate::link::new_list_model;
 
@@ -58,6 +58,15 @@ pub mod qobject {
         fn take_photo(self: Pin<&mut LinkPhotos>);
         #[qsignal]
         fn saved(self: Pin<&mut LinkPhotos>, count: i32, folder: QString);
+        /// Copies the whole photo or video into the cache for the viewer; `viewed` answers.
+        #[qinvokable]
+        fn view(self: Pin<&mut LinkPhotos>, path: &QString);
+        /// The `photos` row of a path, or -1.
+        #[qinvokable]
+        fn row_of(self: &LinkPhotos, path: &QString) -> i32;
+        /// The file url of a viewed photo, or "" when it did not copy.
+        #[qsignal]
+        fn viewed(self: Pin<&mut LinkPhotos>, path: QString, url: QString);
     }
 
     impl cxx_qt::Threading for LinkPhotos {}
@@ -73,7 +82,7 @@ const ALBUMS_AT_ONCE: usize = 2;
 const THUMB: u16 = 640;
 /// Thumbnails asked for at once.
 const IN_FLIGHT: usize = 4;
-const ROLES: &[&str] = &["path", "name", "thumbUrl", "video", "durationText", "day"];
+const ROLES: &[&str] = &["path", "name", "thumbUrl", "video", "durationText", "day", "album", "taken", "size"];
 const LINE_ROLES: &[&str] = &["day", "cells", "thumbs"];
 const PAGE: &str = "photos";
 
@@ -81,6 +90,7 @@ struct Photo {
     path: String,
     name: String,
     mtime: u64,
+    size: u64,
     thumb: String,
 }
 
@@ -158,7 +168,7 @@ impl cxx_qt::Initialize for qobject::LinkPhotos {
             let wanted = match event {
                 Event::Listed { path, .. } => path.starts_with(ROOT),
                 Event::Fetched { page, .. } => *page == PAGE,
-                Event::Thumbnail { .. } | Event::Devices(_) | Event::Phone(_) => true,
+                Event::Thumbnail { .. } | Event::Viewed { .. } | Event::Devices(_) | Event::Phone(_) => true,
                 _ => false,
             };
             if wanted {
@@ -261,6 +271,10 @@ impl qobject::LinkPhotos {
                 }
                 return self.ask_thumbnails();
             }
+            Event::Viewed { device, path, file } if device == state.phone => {
+                let url = file.map(|file| file_url(&file.to_string_lossy())).unwrap_or_default();
+                return self.viewed(QString::from(&path), QString::from(&url));
+            }
             Event::Fetched { purpose, paths, .. } => {
                 let folder = desktop::fetched(purpose, &paths);
                 if purpose == Fetch::Photo {
@@ -314,7 +328,13 @@ impl qobject::LinkPhotos {
             if !state.index.contains_key(&path) {
                 let at = state.all.len();
                 state.index.insert(path.clone(), at);
-                state.all.push(Photo { path, name: file.name, mtime: file.mtime, thumb: String::new() });
+                state.all.push(Photo {
+                    path,
+                    name: file.name,
+                    mtime: file.mtime,
+                    size: file.size,
+                    thumb: String::new(),
+                });
             }
         }
         if state.pending > 0 {
@@ -371,6 +391,9 @@ impl qobject::LinkPhotos {
                     variant(&is_video(&photo.name)),
                     text(""),
                     text(day),
+                    text(photo.path.rsplit('/').nth(1).unwrap_or_default()),
+                    text(&format!("{} {}", day_detail(photo.mtime), clock(photo.mtime))),
+                    text(&size(photo.size)),
                 ]
             })
             .collect();
@@ -432,6 +455,15 @@ impl qobject::LinkPhotos {
         self.as_mut().set_loading(true);
     }
 
+    fn view(self: Pin<&mut Self>, path: &QString) {
+        let path = path.to_string();
+        hub::to_phone(|device| Command::View { device, path });
+    }
+
+    fn row_of(&self, path: &QString) -> i32 {
+        self.shown.get(&path.to_string()).and_then(|&(row, _)| i32::try_from(row).ok()).unwrap_or(-1)
+    }
+
     fn copy(self: Pin<&mut Self>, paths: &QStringList) {
         desktop::fetch(PAGE, paths, Fetch::Copy);
     }
@@ -483,7 +515,7 @@ mod tests {
     }
 
     fn photo(path: &str) -> Photo {
-        Photo { path: path.to_owned(), name: "a.jpg".to_owned(), mtime: 0, thumb: String::new() }
+        Photo { path: path.to_owned(), name: "a.jpg".to_owned(), mtime: 0, size: 0, thumb: String::new() }
     }
 
     #[test]

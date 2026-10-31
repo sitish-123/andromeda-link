@@ -178,6 +178,7 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::FsDelete(_) => Some(Feature::Files),
         Message::MirrorRequest
         | Message::MirrorStarted(_)
+        | Message::ScreenShape(_)
         | Message::MirrorStop(_)
         | Message::MirrorInput(_)
         | Message::MirrorKeyframe => Some(Feature::Screen),

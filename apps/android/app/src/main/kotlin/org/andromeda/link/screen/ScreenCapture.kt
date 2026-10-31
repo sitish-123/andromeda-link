@@ -133,6 +133,7 @@ class ScreenCapture : Service() {
                 return finish(tellDesktop = false, reason = null)
             }
         this.stream = stream
+        sendShape(desktop)
         val audio = MirrorAudio(this, projection)
         this.audio = audio
         scope.launch { audio.run(stream) }
@@ -149,6 +150,7 @@ class ScreenCapture : Service() {
             display?.surface = surface
             resizing = false
             Log.i(TAG, "resized: ${turnedWidth}x$turnedHeight")
+            sendShape(desktop)
             // A turn or size step during the rebuild was ignored; catch up with it now.
             if (videoSize() != size) {
                 resizing = true
@@ -310,6 +312,14 @@ class ScreenCapture : Service() {
 
         fun fit(side: Int) = (side * scale).toInt() / ALIGN * ALIGN
         return fit(width) to fit(height)
+    }
+
+    /** Off the capture path: the frame on the desktop is only looks, so a failure is logged, not fatal. */
+    private fun sendShape(desktop: String) {
+        val repository = (application as LinkApplication).container.repository
+        scope.launch {
+            repository.sendScreenShape(desktop, screenShape(this@ScreenCapture)).onFailure { Log.w(TAG, "screen shape: ${it.message}") }
+        }
     }
 
     private fun keyframe() {

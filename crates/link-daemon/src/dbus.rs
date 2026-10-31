@@ -531,6 +531,14 @@ impl Link {
     #[zbus(signal)]
     async fn phone_ringing(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
 
+    #[zbus(signal)]
+    async fn screen_shape(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        corners: Vec<u16>,
+        cutouts: Vec<(u16, u16, u16, u16)>,
+    ) -> zbus::Result<()>;
+
     /// A text the phone received, newer than every text kept for it.
     #[zbus(signal)]
     async fn text_received(
@@ -1054,6 +1062,10 @@ pub async fn forward(
                 Event::NotificationPosted { id, posted, alert } => emit_posted(emitter, &id, posted, alert).await?,
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
+                Event::ScreenShape { id, shape } => {
+                    let cutouts = shape.cutouts.iter().map(|rect| (rect.x, rect.y, rect.width, rect.height)).collect();
+                    Link::screen_shape(emitter, id.as_str(), shape.corners.to_vec(), cutouts).await?;
+                }
                 Event::Hotspot { id, ssid } => Link::hotspot(emitter, id.as_str(), &ssid.unwrap_or_default()).await?,
                 Event::HotspotAsk { id, ssid } => Link::hotspot_requested(emitter, id.as_str(), &ssid).await?,
                 Event::TextReceived { id, text } => {

@@ -121,6 +121,12 @@ Item {
                     Component.onCompleted: page.api.setSink(videoSink)
                     Component.onDestruction: page.api.setSink(null)
                 }
+                ScreenFrame {
+                    anchors.fill: parent
+                    visible: page.mirroring
+                    corners: page.api.corners
+                    cutouts: page.api.cutouts
+                }
                 MouseArea {
                     id: touch
                     // Phone units: 1/10000 of the picture's width and height.

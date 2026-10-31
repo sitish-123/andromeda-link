@@ -50,6 +50,48 @@ impl From<link_core::Error> for LinkError {
 }
 
 /// One type of a phone clip: its text, or a snapshot file of its bytes.
+/// A screen's rounded corners (top-left, top-right, bottom-right, bottom-left) and cutouts, in its own pixels.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PixelShape {
+    pub width: u32,
+    pub height: u32,
+    pub corners: Vec<u32>,
+    pub cutouts: Vec<PixelRect>,
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct PixelRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PixelShape {
+    /// In 1/10000 of the width or height, clamped to what `screen-shape` allows.
+    fn units(&self) -> message::ScreenShape {
+        let unit = |value: u32, side: u32| {
+            u16::try_from(u64::from(value) * 10_000 / u64::from(side.max(1))).unwrap_or(10_000).min(10_000)
+        };
+        let mut corners = [0; 4];
+        for (corner, radius) in corners.iter_mut().zip(&self.corners) {
+            *corner = unit(*radius, self.width).min(5_000);
+        }
+        let cutouts = self
+            .cutouts
+            .iter()
+            .take(message::MAX_CUTOUTS)
+            .filter_map(|rect| {
+                let (x, y) = (unit(rect.x, self.width).min(9_999), unit(rect.y, self.height).min(9_999));
+                let width = unit(rect.width, self.width).min(10_000 - x);
+                let height = unit(rect.height, self.height).min(10_000 - y);
+                (width > 0 && height > 0).then_some(message::ShapeRect { x, y, width, height })
+            })
+            .collect();
+        message::ScreenShape { corners, cutouts }
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ClipType {
     pub mime: String,
@@ -1219,6 +1261,13 @@ impl LinkClient {
         Ok(Arc::new(MirrorSession { runtime: self.runtime.handle().clone(), sender: Arc::new(sender) }))
     }
 
+    /// Tells the mirroring desktop the screen's rounded corners and cutouts, in pixels of a `width` x `height` screen.
+    pub async fn send_screen_shape(&self, desktop_id: String, shape: PixelShape) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let shape = shape.units();
+        self.run(async move { client.send_screen_shape(id, shape).await }).await
+    }
+
     /// Ends mirroring, or refuses the desktop's request, with a reason when it failed.
     pub async fn stop_mirror(&self, desktop_id: String, reason: Option<String>) -> Result<(), LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
@@ -1649,5 +1698,22 @@ impl From<message::MediaPlayer> for MediaPlayer {
             artwork: player.artwork,
             can: player.can.into_iter().map(Into::into).collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PixelRect, PixelShape};
+    use link_core::proto::message::Message;
+
+    #[test]
+    fn a_shape_past_the_screen_edges_still_makes_a_valid_message() {
+        let edge = PixelRect { x: 1400, y: 3100, width: 200, height: 200 };
+        let shape =
+            PixelShape { width: 1440, height: 3168, corners: vec![120, 120, 9000, 120], cutouts: vec![edge; 6] };
+        let units = shape.units();
+        assert_eq!(units.corners, [833, 833, 5000, 833]);
+        assert_eq!(units.cutouts.len(), 4);
+        assert!(Message::ScreenShape(units).validate().is_ok());
     }
 }

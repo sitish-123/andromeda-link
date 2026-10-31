@@ -314,6 +314,14 @@
       <arg name="device_id" type="s"/>
       <arg name="ssid" type="s"/>
     </signal>
+    <!-- The mirroring phone's screen shape, after the mirror starts and after each turn: rounded-corner radii
+         (top-left, top-right, bottom-right, bottom-left; all 0 when the phone does not know them) and camera cutouts
+         as (x, y, width, height), in 1/10000 of the picture's width (x, radii) or height (y). -->
+    <signal name="ScreenShape">
+      <arg name="device_id" type="s"/>
+      <arg name="corners" type="aq"/>
+      <arg name="cutouts" type="a(qqqq)"/>
+    </signal>
     <!-- The phone's own ringing started or stopped, for any reason. -->
     <signal name="PhoneRinging">
       <arg name="device_id" type="s"/>

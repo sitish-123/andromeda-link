@@ -11,7 +11,8 @@ use link_proto::message::{
     CALLS, CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT, MESSAGES,
     MIRROR_STREAMS, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
     NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, PRESENTING, PhotoRefusal, Punch,
-    STATUS_SIGNAL, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemResult, TransferId, WIFI_DIRECT_JOIN,
+    SCREEN_SHAPE, STATUS_SIGNAL, SYSTEM_CONTROL, ScreenShape, Share, Status, SystemCommand, SystemResult, TransferId,
+    WIFI_DIRECT_JOIN,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -345,6 +346,15 @@ impl Client {
         let sender = MirrorSender::open(&session, width, height, streams).await?;
         self.commands.send(Command::Mirroring { id, on: true }).await.map_err(|_| Error::Stopped)?;
         Ok(sender)
+    }
+
+    /// Tells a mirroring desktop the screen's corners and cutouts; a desktop without [`SCREEN_SHAPE`] gets nothing.
+    pub async fn send_screen_shape(&self, id: DeviceId, shape: ScreenShape) -> Result<(), Error> {
+        let desktops = self.desktops().await?;
+        if !desktops.iter().any(|desktop| desktop.peer.id == id && desktop.peer.has(SCREEN_SHAPE)) {
+            return Ok(());
+        }
+        self.session(id).await?.send(Message::ScreenShape(shape)).await
     }
 
     /// Ends mirroring, or refuses a request, with a reason when it failed.

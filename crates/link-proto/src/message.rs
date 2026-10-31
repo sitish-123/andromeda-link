@@ -63,6 +63,9 @@ pub const CLIP_ITEMS: &str = "feature:clip-items";
 /// phones send older desktops video and sound on one stream.
 pub const MIRROR_STREAMS: &str = "feature:mirror-streams";
 
+/// A desktop's hello carries this when it takes `screen-shape`; phones send older desktops no shape.
+pub const SCREEN_SHAPE: &str = "feature:screen-shape";
+
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
     let address = entry.strip_prefix(BLUETOOTH_SCHEME)?;
@@ -442,6 +445,41 @@ pub struct BtPairing {
 pub struct MirrorStarted {
     pub width: u32,
     pub height: u32,
+}
+
+/// Phone to desktop while mirroring, after `mirror-started` and after each rotation: the screen's rounded corners and
+/// camera cutouts as they sit in the picture. Lengths are in 1/10000 of the picture's width (x, radii) or height (y).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScreenShape {
+    /// Top-left, top-right, bottom-right, bottom-left.
+    pub corners: [u16; 4],
+    pub cutouts: Vec<ShapeRect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShapeRect {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+pub const MAX_CUTOUTS: usize = 4;
+
+impl ScreenShape {
+    fn valid(&self) -> bool {
+        let unit = 1..=10_000;
+        self.corners.iter().all(|corner| *corner <= 5_000)
+            && self.cutouts.len() <= MAX_CUTOUTS
+            && self.cutouts.iter().all(|rect| {
+                unit.contains(&rect.width)
+                    && unit.contains(&rect.height)
+                    && u32::from(rect.x) + u32::from(rect.width) <= 10_000
+                    && u32::from(rect.y) + u32::from(rect.height) <= 10_000
+            })
+    }
 }
 
 /// Either side ends mirroring, with a reason when it failed or was refused.
@@ -1824,6 +1862,7 @@ pub enum Message {
     BtPairing(BtPairing),
     MirrorRequest,
     MirrorStarted(MirrorStarted),
+    ScreenShape(ScreenShape),
     MirrorStop(MirrorStop),
     MirrorInput(MirrorInput),
     MirrorKeyframe,
@@ -1912,6 +1951,7 @@ impl Message {
             Self::BtPairing(_) => "bt-pairing",
             Self::MirrorRequest => "mirror-request",
             Self::MirrorStarted(_) => "mirror-started",
+            Self::ScreenShape(_) => "screen-shape",
             Self::MirrorStop(_) => "mirror-stop",
             Self::MirrorInput(_) => "mirror-input",
             Self::MirrorKeyframe => "mirror-keyframe",
@@ -1998,6 +2038,7 @@ impl Message {
             Self::WifiDirectReady(body) => Value::serialized(body),
             Self::BtPairing(body) => Value::serialized(body),
             Self::MirrorStarted(body) => Value::serialized(body),
+            Self::ScreenShape(body) => Value::serialized(body),
             Self::MirrorStop(body) | Self::RemoteStop(body) => Value::serialized(body),
             Self::MirrorInput(body) => Value::serialized(body),
             Self::MirrorData(body) => Value::serialized(body),
@@ -2092,6 +2133,7 @@ impl Message {
             "wifi-direct" => Self::WifiDirect(body.deserialized()?),
             "bt-pairing" => Self::BtPairing(body.deserialized()?),
             "mirror-started" => Self::MirrorStarted(body.deserialized()?),
+            "screen-shape" => Self::ScreenShape(body.deserialized()?),
             "mirror-stop" => Self::MirrorStop(body.deserialized()?),
             "mirror-input" => Self::MirrorInput(body.deserialized()?),
             "mirror-data" => Self::MirrorData(body.deserialized()?),
@@ -2213,6 +2255,7 @@ impl Message {
                     && punch.addresses.iter().all(|address| address.parse::<std::net::SocketAddr>().is_ok())
             }
             Self::MirrorStarted(MirrorStarted { width, height }) => mirror_size_valid(*width, *height),
+            Self::ScreenShape(shape) => shape.valid(),
             Self::MirrorData(MirrorData { width, height, gop }) => {
                 mirror_size_valid(*width, *height) && *gop != Some(0)
             }

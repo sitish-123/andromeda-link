@@ -7,6 +7,8 @@ QtObject {
     property int videoWidth: 1080
     property int videoHeight: 2376
     property bool screenOff: false
+    property var corners: []
+    property var cutouts: []
 
     function start() { state = "live" }
     function stop() { state = "idle" }

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::QString;
+use cxx_qt_lib::{QList, QString};
 
 use crate::client::{Command, Event};
 use crate::hub;
@@ -19,6 +19,8 @@ pub mod qobject {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+        include!("cxx-qt-lib/qlist.h");
+        type QList_i32 = cxx_qt_lib::QList<i32>;
         include!("link-desk/src/video.h");
         type QVideoSink;
         #[cxx_name = "showNv12"]
@@ -35,6 +37,11 @@ pub mod qobject {
         #[qproperty(i32, video_width)]
         #[qproperty(i32, video_height)]
         #[qproperty(bool, screen_off)]
+        /// Rounded-corner radii (top-left, top-right, bottom-right, bottom-left) in 1/10000 of the picture's width;
+        /// empty or all 0 when the phone did not say.
+        #[qproperty(QList_i32, corners)]
+        /// Camera cutouts as x, y, width, height after one another, in 1/10000 of the picture.
+        #[qproperty(QList_i32, cutouts)]
         type LinkScreen = super::ScreenRust;
     }
 
@@ -94,6 +101,8 @@ pub struct ScreenRust {
     /// The user stopped the mirror, so its end is no failure.
     stopped: bool,
     screen_off: bool,
+    corners: QList<i32>,
+    cutouts: QList<i32>,
     /// Reopens since the stream last broke.
     tries: u32,
     /// Qt keys down on the phone, with the Android code and meta they went down with.
@@ -123,6 +132,8 @@ impl Default for ScreenRust {
             pending: Arc::default(),
             stopped: false,
             screen_off: false,
+            corners: QList::default(),
+            cutouts: QList::default(),
             tries: 0,
             held: Vec::new(),
             last_frame: None,
@@ -135,7 +146,8 @@ impl cxx_qt::Initialize for qobject::LinkScreen {
     fn initialize(self: Pin<&mut Self>) {
         let thread = self.qt_thread();
         hub::subscribe(move |event| {
-            if let Event::Devices(_) | Event::Phone(_) | Event::MirrorOpened { .. } = event {
+            if let Event::Devices(_) | Event::Phone(_) | Event::MirrorOpened { .. } | Event::ScreenShape { .. } = event
+            {
                 let event = event.clone();
                 let _ = thread.queue(move |screen| screen.apply(event));
             }
@@ -160,9 +172,17 @@ impl qobject::LinkScreen {
             }
             Event::Phone(id) => {
                 self.as_mut().rust_mut().phone = id;
+                self.as_mut().set_corners(QList::default());
+                self.as_mut().set_cutouts(QList::default());
                 self.stop();
             }
             Event::MirrorOpened { device, opened } => self.opened(&device, opened),
+            Event::ScreenShape { device, corners, cutouts } if device == self.phone => {
+                let list = |values: Vec<i32>| values.into_iter().collect::<QList<i32>>();
+                self.as_mut().set_corners(list(corners.into_iter().map(i32::from).collect()));
+                let flat = cutouts.into_iter().flat_map(|(x, y, width, height)| [x, y, width, height]).map(i32::from);
+                self.set_cutouts(list(flat.collect()));
+            }
             _ => {}
         }
     }

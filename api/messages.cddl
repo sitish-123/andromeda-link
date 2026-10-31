@@ -7,7 +7,8 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   media-player-msg / media-gone-msg / media-command-msg / ring-msg / ringing-msg / call-msg / call-action-msg /
   hotspot-request-msg / hotspot-msg / hotspot-joined-msg / hotspot-end-msg / punch-msg /
   wifi-direct-ready-msg / wifi-direct-msg / bt-pairing-msg /
-  mirror-request-msg / mirror-started-msg / mirror-stop-msg / mirror-input-msg / mirror-keyframe-msg / mirror-data-msg /
+  mirror-request-msg / mirror-started-msg / screen-shape-msg / mirror-stop-msg / mirror-input-msg /
+  mirror-keyframe-msg / mirror-data-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg / fs-stat-msg / fs-thumb-msg /
   fs-write-msg / fs-delete-msg / photo-request-msg / photo-taken-msg /
   contacts-list-msg / contacts-msg / contacts-changed-msg /
@@ -225,6 +226,11 @@ bt-pairing-msg = { type: "bt-pairing", id: uint, body: { ? passkey: uint .le 999
 ; for a keyframe after a loss (mirror-keyframe, 0-RTT). Either side ends it (mirror-stop).
 mirror-request-msg = { type: "mirror-request", id: uint, body: {} }
 mirror-started-msg = { type: "mirror-started", id: uint, body: { width: 1..4096, height: 1..4096 } }
+; Phone to desktop after mirror-started and after each rotation, only when the desktop's hello has
+; feature:screen-shape: rounded corners (top-left, top-right, bottom-right, bottom-left) and camera cutouts in the
+; picture, in 1/10000 of its width (x, radii) or height (y).
+screen-shape-msg = { type: "screen-shape", id: uint, body: { corners: [4*4 0..5000],
+  cutouts: [0*4 { x: 0..9999, y: 0..9999, width: 1..10000, height: 1..10000 }] } }
 mirror-stop-msg = { type: "mirror-stop", id: uint, body: { ? reason: tstr .size (1..128) } }
 mirror-input-msg = { type: "mirror-input", id: uint, body: {
   action: "tap" / "long-press" / "swipe" / "scroll" / "back" / "home" / "recents" / "text" / "touch-down" /

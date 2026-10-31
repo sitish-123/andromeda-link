@@ -73,3 +73,12 @@ interface MirrorStream {
 
     suspend fun finish()
 }
+
+/** The screen's rounded-corner radii (top-left, top-right, bottom-right, bottom-left; empty when unknown) and camera
+ * cutouts, in pixels of a [width] by [height] screen as it is turned now. */
+data class ScreenShape(
+    val width: Int,
+    val height: Int,
+    val corners: List<Int>,
+    val cutouts: List<android.graphics.Rect>,
+)

@@ -88,6 +88,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::WifiDirect(_)
         | Message::BtPairing(_)
         | Message::MirrorStarted(_)
+        | Message::ScreenShape(_)
         | Message::FsEntries(_)
         | Message::FsData(_)
         | Message::FsError(_)

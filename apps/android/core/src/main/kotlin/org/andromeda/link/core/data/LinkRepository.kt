@@ -57,6 +57,7 @@ import org.andromeda.link.core.domain.RemoteSource
 import org.andromeda.link.core.domain.RemoteUnit
 import org.andromeda.link.core.domain.RemoteVideo
 import org.andromeda.link.core.domain.SavedFile
+import org.andromeda.link.core.domain.ScreenShape
 import org.andromeda.link.core.domain.ShareKind
 import org.andromeda.link.core.domain.Sharing
 import org.andromeda.link.core.domain.TransferEvent
@@ -75,6 +76,8 @@ import org.andromeda.link.ffi.OutgoingFile
 import org.andromeda.link.ffi.PhoneCamera
 import org.andromeda.link.ffi.PhoneLibrary
 import org.andromeda.link.ffi.PhoneMessages
+import org.andromeda.link.ffi.PixelRect
+import org.andromeda.link.ffi.PixelShape
 import org.andromeda.link.ffi.RemoteView
 import org.andromeda.link.ffi.generateIdentity
 import java.io.ByteArrayOutputStream
@@ -305,6 +308,25 @@ class LinkRepository(
         width: Int,
         height: Int,
     ): Result<MirrorStream> = call { FfiMirror(it.startMirror(desktopId, width.toUInt(), height.toUInt())) }
+
+    /** Tells the mirroring desktop the screen's corners and cutouts, so it can draw the phone's edge. */
+    suspend fun sendScreenShape(
+        desktopId: String,
+        shape: ScreenShape,
+    ): Result<Unit> =
+        call {
+            it.sendScreenShape(
+                desktopId,
+                PixelShape(
+                    shape.width.toUInt(),
+                    shape.height.toUInt(),
+                    shape.corners.map(Int::toUInt),
+                    shape.cutouts.map { rect ->
+                        PixelRect(rect.left.toUInt(), rect.top.toUInt(), rect.width().toUInt(), rect.height().toUInt())
+                    },
+                ),
+            )
+        }
 
     /** Ends mirroring, or refuses a request, with why. */
     suspend fun stopMirror(

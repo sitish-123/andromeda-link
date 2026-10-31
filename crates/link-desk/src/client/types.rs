@@ -172,6 +172,12 @@ pub enum Event {
         device: String,
         address: String,
     },
+    /// The mirroring phone's corner radii and cutouts (x, y, width, height), in 1/10000 of the picture.
+    ScreenShape {
+        device: String,
+        corners: Vec<u16>,
+        cutouts: Vec<(u16, u16, u16, u16)>,
+    },
     /// Device id to its calls, newest first.
     Calls(HashMap<String, Vec<LoggedCall>>),
     /// Device id to why its phone refused the call log.

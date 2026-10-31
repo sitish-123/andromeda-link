@@ -143,6 +143,10 @@ pub enum Event {
         id: DeviceId,
         on: bool,
     },
+    ScreenShape {
+        id: DeviceId,
+        shape: link_core::proto::message::ScreenShape,
+    },
     Call {
         id: DeviceId,
         call: Call,
@@ -808,6 +812,7 @@ impl Hub {
                 self.emit(Event::Call { id: from, call }).await;
             }
             Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
+            Message::ScreenShape(shape) => self.emit(Event::ScreenShape { id: from, shape }).await,
             Message::Hotspot(offered) => self.join_hotspot(from, offered).await,
             Message::WifiDirect(group) => self.join_wifi_direct(from, group).await,
             Message::HotspotEnd(end) => {

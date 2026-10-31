@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -46,12 +45,12 @@ class RemoteViewModel(
         repository.capabilities
             .map { SHORTCUTS in it[desktopId].orEmpty() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** The desktop makes a real touchpad of raw finger contacts, so its own touchpad settings and gestures apply. */
     val touchpad: StateFlow<Boolean> =
         repository.capabilities
             .map { TOUCHPAD in it[desktopId].orEmpty() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
 
     init {
         viewModelScope.launch {
@@ -60,10 +59,8 @@ class RemoteViewModel(
             }
         }
         viewModelScope.launch {
-            for (ignored in wake) {
-                delay(FRAME_MS)
-                flush()
-            }
+            // One send per touch frame: the display rate, with the frame's samples summed.
+            for (ignored in wake) flush()
         }
     }
 
@@ -149,14 +146,13 @@ class RemoteViewModel(
             scrollY -= sy
         }
     }
-        const val TOUCHPAD = "touchpad"
 
     private companion object {
         const val SHORTCUTS = "shortcuts"
+        const val TOUCHPAD = "touchpad"
 
         /** In the order a shortcut names them. */
         val MODIFIERS = listOf("super", "ctrl", "alt", "shift")
-        const val FRAME_MS = 16L
         const val POINTER_SPEED = 1.5f
     }
 }

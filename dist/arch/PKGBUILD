@@ -53,6 +53,7 @@ package() {
     "$pkgdir/usr/lib/firewalld/services/andromeda-link-localsend.xml"
   install -Dm644 "$dist/60-andromeda-link-bluetooth.conf" \
     "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
+  install -Dm644 "$dist/60-andromeda-link-uinput.rules" "$pkgdir/usr/lib/udev/rules.d/60-andromeda-link-uinput.rules"
   install -Dm755 "$dist/andromeda-link-wifi-power-save" "$pkgdir/usr/lib/andromeda-link/wifi-power-save"
   install -Dm644 "$dist/org.andromeda.link.wifi-power-save.policy" \
     "$pkgdir/usr/share/polkit-1/actions/org.andromeda.link.wifi-power-save.policy"

@@ -99,7 +99,7 @@ const BUTTONS: [(&str, u32); 3] = [("left", 0x110), ("right", 0x111), ("middle",
 const RETURN: u32 = 0xff0d;
 const TAB: u32 = 0xff09;
 /// The keys the phone names, as keysyms.
-const KEYS: [(&str, u32); 15] = [
+const KEYS: [(&str, u32); 19] = [
     ("enter", RETURN),
     ("backspace", 0xff08),
     ("delete", 0xffff),
@@ -115,6 +115,11 @@ const KEYS: [(&str, u32); 15] = [
     ("page-up", 0xff55),
     ("page-down", 0xff56),
     ("f5", 0xffc2),
+    // A modifier pressed alone, as a tap on Super opens the launcher.
+    ("super", 0xffeb),
+    ("ctrl", 0xffe3),
+    ("alt", 0xffe9),
+    ("shift", 0xffe1),
 ];
 
 /// A place on a shared monitor, for remote control's direct touch.

@@ -320,6 +320,7 @@
     <string name="home_pause">Pause</string>
     <string name="home_on_app">%1$s, on %2$s</string>
     <string name="key_lock">Lock</string>
+    <string name="home_lock_title">Lock %1$s?</string>
     <string name="key_sleep">Sleep</string>
     <string name="key_screen_off">Screen off</string>
     <string name="key_ring">Ring</string>

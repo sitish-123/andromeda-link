@@ -33,33 +33,33 @@
         <error line="66" column="5" source="compose:lambda-param-in-effect" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/HomeScreen.kt">
-        <error line="122" column="5" source="standard:function-naming" />
-        <error line="122" column="5" source="compose:modifier-missing-check" />
-        <error line="186" column="42" source="compose:vm-forwarding-check" />
-        <error line="212" column="21" source="compose:vm-forwarding-check" />
-        <error line="229" column="25" source="compose:vm-forwarding-check" />
-        <error line="257" column="13" source="standard:function-naming" />
-        <error line="283" column="13" source="standard:function-naming" />
-        <error line="283" column="13" source="compose:multiple-emitters-check" />
-        <error line="362" column="13" source="standard:function-naming" />
-        <error line="381" column="13" source="standard:function-naming" />
-        <error line="404" column="13" source="standard:function-naming" />
-        <error line="423" column="13" source="standard:function-naming" />
-        <error line="444" column="13" source="standard:function-naming" />
-        <error line="499" column="13" source="standard:function-naming" />
-        <error line="516" column="13" source="standard:function-naming" />
-        <error line="534" column="13" source="standard:function-naming" />
-        <error line="609" column="13" source="standard:function-naming" />
-        <error line="680" column="13" source="standard:function-naming" />
-        <error line="807" column="13" source="standard:function-naming" />
-        <error line="811" column="5" source="compose:lambda-param-event-trailing" />
-        <error line="871" column="13" source="standard:function-naming" />
-        <error line="879" column="5" source="compose:lambda-param-event-trailing" />
-        <error line="923" column="13" source="standard:function-naming" />
-        <error line="923" column="13" source="compose:multiple-emitters-check" />
-        <error line="988" column="13" source="standard:function-naming" />
-        <error line="1068" column="13" source="standard:function-naming" />
-        <error line="1100" column="13" source="standard:function-naming" />
+        <error line="124" column="5" source="standard:function-naming" />
+        <error line="124" column="5" source="compose:modifier-missing-check" />
+        <error line="188" column="42" source="compose:vm-forwarding-check" />
+        <error line="214" column="21" source="compose:vm-forwarding-check" />
+        <error line="231" column="25" source="compose:vm-forwarding-check" />
+        <error line="259" column="13" source="standard:function-naming" />
+        <error line="285" column="13" source="standard:function-naming" />
+        <error line="285" column="13" source="compose:multiple-emitters-check" />
+        <error line="364" column="13" source="standard:function-naming" />
+        <error line="383" column="13" source="standard:function-naming" />
+        <error line="406" column="13" source="standard:function-naming" />
+        <error line="425" column="13" source="standard:function-naming" />
+        <error line="446" column="13" source="standard:function-naming" />
+        <error line="501" column="13" source="standard:function-naming" />
+        <error line="518" column="13" source="standard:function-naming" />
+        <error line="536" column="13" source="standard:function-naming" />
+        <error line="611" column="13" source="standard:function-naming" />
+        <error line="682" column="13" source="standard:function-naming" />
+        <error line="827" column="13" source="standard:function-naming" />
+        <error line="831" column="5" source="compose:lambda-param-event-trailing" />
+        <error line="891" column="13" source="standard:function-naming" />
+        <error line="899" column="5" source="compose:lambda-param-event-trailing" />
+        <error line="943" column="13" source="standard:function-naming" />
+        <error line="943" column="13" source="compose:multiple-emitters-check" />
+        <error line="1008" column="13" source="standard:function-naming" />
+        <error line="1088" column="13" source="standard:function-naming" />
+        <error line="1120" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/devices/SettingsScreen.kt">
         <error line="69" column="5" source="standard:function-naming" />

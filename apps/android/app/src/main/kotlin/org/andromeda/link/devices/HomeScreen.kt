@@ -73,6 +73,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -102,6 +103,7 @@ import org.andromeda.link.ui.components.Glyph
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.LinkIcons
 import org.andromeda.link.ui.components.PillButton
+import org.andromeda.link.ui.components.PillKind
 import org.andromeda.link.ui.components.PullRefresh
 import org.andromeda.link.ui.components.Readout
 import org.andromeda.link.ui.components.Screen
@@ -696,6 +698,7 @@ private fun Controls(
     // As on the Device page: a desktop that does not list its capabilities hides nothing.
     val input = capabilities?.contains(CAN_INPUT) ?: true
     val live = desktop.connected
+    var confirmLock by remember { mutableStateOf(false) }
     Column {
         val dim = Modifier.alpha(if (live) 1f else DISABLED)
         volume?.let { volume ->
@@ -718,7 +721,7 @@ private fun Controls(
         val shared = { on: Boolean -> if (on) KeyState.Off else KeyState.NotAllowed }
         val keys =
             listOfNotNull(
-                system("lock")?.let { Key(LinkIcons.Lock, R.string.key_lock, it) { viewModel.lock(desktop) } },
+                system("lock")?.let { Key(LinkIcons.Lock, R.string.key_lock, it) { confirmLock = true } },
                 system("suspend")?.let { Key(LinkIcons.Sleep, R.string.key_sleep, it) { viewModel.sleep(desktop) } },
                 system("screen-off")?.let { Key(LinkIcons.ScreenOff, R.string.key_screen_off, it) { viewModel.screenOff(desktop) } },
                 Key(
@@ -789,6 +792,23 @@ private fun Controls(
                     .clickable(role = Role.Button) { onDesktop(desktop) }
                     .padding(vertical = Space.s8),
             )
+        }
+        if (confirmLock) {
+            Dialog(onDismissRequest = { confirmLock = false }) {
+                DashboardCard(Modifier.fillMaxWidth()) {
+                    Label(stringResource(R.string.home_lock_title, desktop.name), LinkTheme.type.headlineLarge)
+                    PillButton(
+                        stringResource(R.string.key_lock),
+                        {
+                            confirmLock = false
+                            viewModel.lock(desktop)
+                        },
+                        Modifier.fillMaxWidth(),
+                        PillKind.Filled,
+                    )
+                    PillButton(stringResource(R.string.cancel), { confirmLock = false }, Modifier.fillMaxWidth(), PillKind.Quiet)
+                }
+            }
         }
     }
 }

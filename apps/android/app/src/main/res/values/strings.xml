@@ -161,6 +161,11 @@
     <string name="camera_request_text">Tap to open the camera. The photo goes to that computer.</string>
     <string name="camera_take">Take photo</string>
     <string name="screen_decline">Decline</string>
+    <string name="screen_ask_title">%1$s wants to show your screen</string>
+    <string name="screen_ask_text">Screen sharing is off for this computer. Allow turns it on.</string>
+    <string name="screen_ask_not_now">Not now</string>
+    <string name="screen_ask_refused">Not allowed on the phone</string>
+    <string name="screen_ask_switch_off">Screen sharing is off for this computer on the phone. Turn it on in Link on the phone.</string>
     <string name="screen_mirroring">Showing your screen on %1$s</string>
     <string name="screen_stop">Stop</string>
     <string name="screen_input_label">Link: control from the desktop</string>

@@ -276,6 +276,7 @@ fn describe(event: &ClientEvent) -> Value {
             json!({ "event": "received", "desktop": from, "kind": share.kind.as_str(), "text": share.text })
         }
         ClientEvent::Unpaired { id } => json!({ "event": "unpaired", "desktop": id }),
+        ClientEvent::MirrorBlocked { from } => json!({ "event": "mirror-blocked", "desktop": from }),
         ClientEvent::Transfer(event) => files::describe(event),
         ClientEvent::Message { from, message } => held::describe(from, message),
         ClientEvent::SystemCommand { from, id, command } => json!({

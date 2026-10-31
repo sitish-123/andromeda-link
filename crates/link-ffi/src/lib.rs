@@ -157,6 +157,10 @@ pub enum LinkEvent {
     MirrorRequested {
         desktop_id: String,
     },
+    /// The desktop asked to mirror while its Screen switch is off: ask the user, then allow it or refuse it.
+    MirrorBlocked {
+        desktop_id: String,
+    },
     /// Input on the mirrored screen; coordinates are fractions of the video in units of 1/10000, a scroll's x2 and
     /// y2 a signed delta.
     MirrorInput {
@@ -1400,6 +1404,7 @@ fn translate(event: ClientEvent, runtime: &tokio::runtime::Handle) -> Option<Lin
             text: share.text,
         },
         ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
+        ClientEvent::MirrorBlocked { from } => LinkEvent::MirrorBlocked { desktop_id: from.to_string() },
         ClientEvent::Transfer(TransferEvent::Mirror { from, stream }) => {
             let receiver = stream.take()?;
             LinkEvent::RemoteStream {

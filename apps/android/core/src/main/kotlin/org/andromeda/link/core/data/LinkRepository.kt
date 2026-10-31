@@ -131,6 +131,7 @@ class LinkRepository(
     private val _ringingDesktops = MutableStateFlow<Set<String>>(emptySet())
     private val _callActions = MutableSharedFlow<CallAction>(extraBufferCapacity = INCOMING_BUFFER)
     private val _mirrorCommands = MutableSharedFlow<MirrorCommand>(extraBufferCapacity = MIRROR_BUFFER)
+    private val _mirrorBlocked = MutableSharedFlow<String>(extraBufferCapacity = INCOMING_BUFFER)
     private val _remote = MutableSharedFlow<RemoteEvent>(extraBufferCapacity = MIRROR_BUFFER)
     private val _commands = MutableStateFlow<Map<String, List<DesktopCommand>>>(emptyMap())
     private val _capabilities = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
@@ -289,6 +290,13 @@ class LinkRepository(
 
     /** Requests, input, and stops from desktops mirroring this phone's screen. */
     val mirrorCommands: SharedFlow<MirrorCommand> = _mirrorCommands.asSharedFlow()
+
+    /** Desktops that asked to mirror while their Screen switch is off, by id. */
+    val mirrorBlocked: SharedFlow<String> = _mirrorBlocked.asSharedFlow()
+
+    /** Turns [desktopId]'s Screen switch on, then answers its waiting request as if the switch had been on. */
+    suspend fun allowMirror(desktopId: String): Result<Unit> =
+        setSharing(desktopId, Feature.Screen, true).onSuccess { _mirrorCommands.emit(MirrorCommand.Requested(desktopId)) }
 
     /** Tells the desktop that asked the video's size and opens the stream to it. */
     suspend fun startMirror(
@@ -659,6 +667,7 @@ class LinkRepository(
                 is LinkEvent.NotificationDismissed ->
                     _notificationCommands.emit(NotificationCommand.Dismiss(event.desktopId, event.id))
                 is LinkEvent.MirrorRequested -> _mirrorCommands.emit(MirrorCommand.Requested(event.desktopId))
+                is LinkEvent.MirrorBlocked -> _mirrorBlocked.emit(event.desktopId)
                 is LinkEvent.MirrorInput ->
                     _mirrorCommands.emit(
                         MirrorCommand.Input(

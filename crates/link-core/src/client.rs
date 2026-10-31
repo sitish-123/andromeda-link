@@ -47,6 +47,10 @@ const PROBE_EVERY: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
+    /// A desktop asked to mirror while its Screen switch is off; the app asks the user, then allows or refuses.
+    MirrorBlocked {
+        from: DeviceId,
+    },
     Connected {
         desktop: Peer,
         /// None over Bluetooth.
@@ -1441,6 +1445,8 @@ impl ClientActor {
             .map(|peer| DesktopState {
                 peer: peer.clone(),
                 connected: live(&peer.id),
+                } else if matches!(message, Message::MirrorRequest) {
+                    self.emit(ClientEvent::MirrorBlocked { from }).await;
                 bluetooth: live(&peer.id) && self.on_bluetooth.contains(&peer.id),
             })
             .collect()

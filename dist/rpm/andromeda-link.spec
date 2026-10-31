@@ -34,7 +34,6 @@ install -Dm644 %{linkroot}/dist/andromeda-link-localsend.firewalld.xml \
   %{buildroot}%{_prefix}/lib/firewalld/services/andromeda-link-localsend.xml
 install -Dm644 %{linkroot}/dist/60-andromeda-link-bluetooth.conf \
   %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf
-%{_udevrulesdir}/60-andromeda-link-uinput.rules
 install -Dm644 %{linkroot}/dist/60-andromeda-link-uinput.rules %{buildroot}%{_udevrulesdir}/60-andromeda-link-uinput.rules
 install -Dm755 %{linkroot}/dist/andromeda-link-wifi-power-save %{buildroot}%{_prefix}/lib/andromeda-link/wifi-power-save
 install -Dm644 %{linkroot}/dist/org.andromeda.link.wifi-power-save.policy \

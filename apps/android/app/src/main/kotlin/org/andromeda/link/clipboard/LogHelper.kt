@@ -1,6 +1,7 @@
 package org.andromeda.link.clipboard
 
 import android.net.LocalServerSocket
+import org.andromeda.link.screen.InputRelay
 import java.io.IOException
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
@@ -11,8 +12,10 @@ import kotlin.system.exitProcess
  * restarts. SELinux keeps apps from connecting to a shell's socket, so the helper writes to Link instead: a
  * `content write` into [LogLineProvider], which only the shell or root may open.
  *
- * Its limits: it writes only to Link's own provider; it sends only Link's clipboard-denial lines and takes no input,
- * so it is no shell ([follow]); it exits when Link is uninstalled or has not run for [IDLE_MS] ([main]).
+ * Its limits: it writes only to Link's own provider; it sends only Link's clipboard-denial lines ([follow]); its one
+ * input is mirror input from Link's own provider, which [org.andromeda.link.screen.InputRelay] turns into touch, key
+ * and panel-power events and nothing else, so it is no shell; it exits when Link is uninstalled or has not run for
+ * [IDLE_MS] ([main]).
  *
  * Started as `CLASSPATH=<Link's APK> app_process /system/bin org.andromeda.link.clipboard.LogHelper <package>`.
  */
@@ -35,6 +38,12 @@ object LogHelper {
         lock = runCatching { LocalServerSocket(LOCK) }.getOrElse { exit("already running") }
         println("helper for $pkg (uid $appId)")
         thread(isDaemon = true, name = "logcat") { follow(pkg) }
+        thread(isDaemon = true, name = "input") {
+            while (true) {
+                if (running(pkg)) InputRelay.follow(pkg)
+                Thread.sleep(TICK_MS)
+            }
+        }
         var lastRun = System.currentTimeMillis()
         var lastBeat = 0L
         var lastCheck = lastRun

@@ -3,6 +3,7 @@ package org.andromeda.link.fixture
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -11,6 +12,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -25,6 +27,7 @@ import kotlin.random.Random
  */
 class MirrorProbeActivity : Activity() {
     private var white = false
+    private var moves = 0
     private var tone: AudioTrack? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,19 +35,50 @@ class MirrorProbeActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val view = View(this).apply { setBackgroundColor(Color.BLACK) }
         view.setOnTouchListener { touched, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                white = !white
-                touched.setBackgroundColor(if (white) Color.WHITE else Color.BLACK)
-                Log.i(TAG, "flip ${if (white) "white" else "black"}")
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    white = !white
+                    moves = 0
+                    touched.setBackgroundColor(if (white) Color.WHITE else Color.BLACK)
+                    Log.i(TAG, "flip ${if (white) "white" else "black"}")
+                }
+                MotionEvent.ACTION_MOVE -> moves += 1 + event.historySize
+                MotionEvent.ACTION_UP -> Log.i(TAG, "up after $moves moves")
             }
             true
         }
         setContentView(view)
     }
 
+    override fun onKeyDown(
+        keyCode: Int,
+        event: KeyEvent,
+    ): Boolean {
+        Log.i(TAG, "key $keyCode meta ${event.metaState}")
+        return true
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked != MotionEvent.ACTION_SCROLL) return false
+        Log.i(TAG, "wheel ${event.getAxisValue(MotionEvent.AXIS_VSCROLL)}")
+        return true
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra("noise", false)) setContentView(Noise(this))
+        if (intent.hasExtra("landscape")) {
+            requestedOrientation =
+                if (intent.getBooleanExtra(
+                        "landscape",
+                        false,
+                    )
+                ) {
+                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                } else {
+                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                }
+        }
     }
 
     private class Noise(

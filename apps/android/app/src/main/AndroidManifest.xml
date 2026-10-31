@@ -149,6 +149,13 @@
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
+        <!-- The same helper reads mirror input here; InputCommandProvider checks the uid too. -->
+        <provider
+            android:name=".screen.InputCommandProvider"
+            android:authorities="${applicationId}.inputhelper"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <service
             android:name=".clipboard.ClipboardTileService"
             android:exported="true"

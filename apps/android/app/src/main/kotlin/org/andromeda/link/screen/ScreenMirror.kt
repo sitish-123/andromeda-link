@@ -35,7 +35,8 @@ class ScreenMirror(
     private fun on(command: MirrorCommand) {
         when (command) {
             is MirrorCommand.Requested -> ask(command.desktopId)
-            is MirrorCommand.Input -> if (ScreenInput.enabled) ScreenInput.perform(command) else askForControl()
+            is MirrorCommand.Input ->
+                if (ScreenInput.enabled || InputCommandProvider.connected) ScreenInput.perform(command) else askForControl()
             is MirrorCommand.Keyframe -> ScreenCapture.requestKeyframe()
             is MirrorCommand.Stopped -> {
                 notifications.cancel(REQUEST_NOTIFICATION)

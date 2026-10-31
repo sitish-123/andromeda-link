@@ -50,7 +50,7 @@ if [[ -n $APP && -n ${QT_BUNDLE:-} ]]; then
     imageformats multimedia tls wayland-decoration-client wayland-graphics-integration-client wayland-shell-integration; do
     cp -a "$QT_BUNDLE/plugins/$dir" "$A$QT_DIR/plugins/"
   done
-  for module in QtQml QtQuick QtMultimedia; do cp -a "$QT_BUNDLE/qml/$module" "$A$QT_DIR/qml/"; done
+  (cd "$QT_BUNDLE/qml" && cp -a --parents QtQml QtQuick QtMultimedia Qt/labs/platform "$A$QT_DIR/qml/")
   # Every library of the Qt prefix that the app, a plugin or a QML module needs, until none is missing.
   while :; do
     missing=$(find "$A/usr/lib/andromeda-link" -type f \( -name '*.so*' -o -name andromeda-link \) -print0 \

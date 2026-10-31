@@ -11,6 +11,7 @@ name = "andromeda-link-session"
 path = "src/main.rs"
 
 [dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 anyhow.workspace = true
 env_logger.workspace = true
 futures-util.workspace = true

@@ -13,6 +13,7 @@ mod macos;
 mod notify;
 #[cfg(target_os = "linux")]
 mod portal;
+mod prefetch;
 mod ring;
 #[cfg(target_os = "linux")]
 mod screen;
@@ -113,7 +114,12 @@ async fn report_status(link: &link::Link, volume: Option<&volume::Volume>, syste
 
 /// Gives a new selection to the daemon, which sends it to phones now or on connect, or serves a paste of `remote`,
 /// the phone clip the selection holds as (device id, clip id). A phone clip's own selection never comes back here.
-fn on_clipboard(link: &link::Link, event: clipboard::Event, remote: Option<(String, u64)>) {
+fn on_clipboard(
+    link: &link::Link,
+    event: clipboard::Event,
+    remote: Option<(String, u64)>,
+    prefetch: Option<prefetch::Prefetch>,
+) {
     match event {
         clipboard::Event::Local { types } => {
             // In a task: a large offer must not hold up a paste the loop has to serve meanwhile.
@@ -123,9 +129,13 @@ fn on_clipboard(link: &link::Link, event: clipboard::Event, remote: Option<(Stri
         clipboard::Event::Paste { mime, sink, done } => {
             let link = link.clone();
             tokio::spawn(async move {
-                let pulled = match remote {
-                    Some((device, id)) => link.pull_clipboard(&device, id, &mime, sink).await,
-                    None => false,
+                let pulled = match (remote, prefetch) {
+                    (Some(remote), Some(prefetch)) => match prefetch.serve(&remote, &mime, sink).await {
+                        Ok(written) => written,
+                        Err(sink) => link.pull_clipboard(&remote.0, remote.1, &mime, sink).await,
+                    },
+                    (Some((device, id)), None) => link.pull_clipboard(&device, id, &mime, sink).await,
+                    (None, _) => false,
                 };
                 if let Some(done) = done {
                     let _ = done.send(pulled);
@@ -231,6 +241,7 @@ async fn main() -> anyhow::Result<()> {
     report(&link, &capabilities, volume.as_ref(), &system).await;
     // The phone clip the selection serves, as (device id, clip id).
     let mut remote: Option<(String, u64)> = None;
+    let mut prefetch: Option<prefetch::Prefetch> = None;
     log::info!("running");
     loop {
         tokio::select! {
@@ -265,14 +276,22 @@ async fn main() -> anyhow::Result<()> {
                 let (device, id) = (args.device_id.to_owned(), args.id);
                 let mimes: Vec<String> = args.mimes.iter().map(|&mime| mime.to_owned()).collect();
                 if let Some(backend) = clipboard.as_mut() {
-                    match backend.offer_remote(&mimes).await {
-                        Ok(()) => remote = Some((device, id)),
+                    match backend.offer_remote(&prefetch::offered(&mimes)).await {
+                        Ok(()) => {
+                            prefetch = prefetch::Prefetch::start(&link, &device, id, &mimes, args.size);
+                            remote = Some((device, id));
+                        }
                         Err(error) => log::warn!("taking the selection for {device}'s clip: {error}"),
                     }
                 }
             }
             event = next_clipboard(&mut clipboard) => match event {
-                Ok(event) => on_clipboard(&link, event, remote.clone()),
+                Ok(event) => {
+                    if matches!(event, clipboard::Event::Local { .. }) {
+                        prefetch = None;
+                    }
+                    on_clipboard(&link, event, remote.clone(), prefetch.clone());
+                }
                 // The unit restarts the service, which connects the backends again.
                 Err(error) => return Err(error.context("the clipboard backend stopped")),
             },

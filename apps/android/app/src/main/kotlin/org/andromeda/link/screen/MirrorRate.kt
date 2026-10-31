@@ -48,8 +48,8 @@ class MirrorRate(
         if (worst > CALM_LAG_US) calmSinceUs = nowUs
         val next =
             when {
-                worst > BEHIND_LAG_US && nowUs - lastChangeUs > HOLD_US -> maxOf(min, bitrate * DOWN_PERCENT / 100)
-                nowUs - calmSinceUs > CALM_US && nowUs - lastChangeUs > CALM_US -> minOf(max, bitrate * UP_PERCENT / 100)
+                worst > BEHIND_LAG_US && nowUs - lastChangeUs > HOLD_US -> maxOf(min, (bitrate.toLong() * DOWN_PERCENT / 100).toInt())
+                nowUs - calmSinceUs > CALM_US && nowUs - lastChangeUs > CALM_US -> minOf(max, (bitrate.toLong() * UP_PERCENT / 100).toInt())
                 else -> return null
             }
         if (next == bitrate) return null

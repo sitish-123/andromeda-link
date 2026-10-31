@@ -94,7 +94,8 @@
     <!-- Asks a connected phone to mirror its screen and returns the viewer's end of the video with its size once the
          phone's user allowed capture (up to 60 s). The socket carries H.264 access units, each a big-endian u32 length,
          u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration, 4 audio: an Opus
-         packet of 48 kHz stereo), then the bytes; closing it tells the phone to stop. On Bluetooth the request first
+         packet of 48 kHz stereo, 8 end: an empty last unit when the phone ended mirroring on purpose; a socket that
+         closes without it lost the stream), then the bytes; closing it tells the phone to stop. On Bluetooth the request first
          waits up to 60 s for the session to move to the phone's hotspot. Errors: .NotConnected, .Refused with the
          phone's reason (its screen switch is off, declined on the phone), .Failed when the hotspot did not come up
          ("mirroring needs Wi-Fi"), a phone already mirroring, or no answer in time. -->
@@ -105,8 +106,14 @@
       <arg name="height" type="u" direction="out"/>
     </method>
     <!-- Input on the mirrored screen. action: tap, long-press (x, y, ms?), swipe (x, y, x2, y2, ms?), scroll (x, y and
-         a signed delta x2, y2), back, home, recents, text (text; U+0008 deletes, "\n" presses Enter). Coordinates are
-         int32 in 1/10000 of the video's width and height; ms is uint32. Errors: .Rejected for anything out of range. -->
+         a signed delta x2, y2), back, home, recents, text (text; U+0008 deletes, "\n" presses Enter); touch-down,
+         touch-move, touch-up (x, y: one finger that follows the pointer); wheel (x, y, and x2, y2 the wheel's turn in
+         1/100 of a step, positive right and down); key-down, key-up (code: an Android KeyEvent key code 1..400, meta?:
+         its meta state); screen-off, screen-on (the phone's own panel; mirroring goes on). Coordinates are int32 in
+         1/10000 of the video's width and height; ms, code and meta are int32 or uint32. The phone's shell helper, when
+         it runs, injects these as real events; without it touch and wheel become gestures, keys map to the few
+         Accessibility actions (Back, Home, Recents, Enter, Backspace, volume, power as lock), and screen-off does
+         nothing. Errors: .Rejected for anything out of range. -->
     <method name="MirrorInput">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="action" type="s" direction="in"/>

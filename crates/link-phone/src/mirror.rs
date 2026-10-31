@@ -27,7 +27,7 @@ pub struct Source {
 pub async fn stream(client: Client, desktop: DeviceId, source: Source) -> anyhow::Result<()> {
     let units = units(&std::fs::read(&source.file).context("reading --mirror-file")?);
     anyhow::ensure!(!units.is_empty(), "--mirror-file holds no access unit delimiters");
-    let mut sender = client.start_mirror(desktop, source.width, source.height).await?;
+    let sender = client.start_mirror(desktop, source.width, source.height).await?;
     let mut ticker = tokio::time::interval(FRAME);
     for (index, unit) in units.iter().cycle().enumerate() {
         ticker.tick().await;

@@ -19,6 +19,8 @@ sealed interface MirrorCommand {
         val y2: Int?,
         val ms: Int?,
         val text: String?,
+        val code: Int? = null,
+        val meta: Int? = null,
     ) : MirrorCommand
 
     /** The desktop lost a frame: encode a keyframe next. */
@@ -32,7 +34,24 @@ sealed interface MirrorCommand {
     ) : MirrorCommand
 }
 
-enum class MirrorAction { Tap, LongPress, Swipe, Scroll, Back, Home, Recents, Text }
+enum class MirrorAction {
+    Tap,
+    LongPress,
+    Swipe,
+    Scroll,
+    Back,
+    Home,
+    Recents,
+    Text,
+    TouchDown,
+    TouchMove,
+    TouchUp,
+    Wheel,
+    KeyDown,
+    KeyUp,
+    ScreenOff,
+    ScreenOn,
+}
 
 const val MIRROR_UNIT = 10_000
 

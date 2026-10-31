@@ -425,6 +425,12 @@ impl Link {
         let action: MirrorAction = serde_json::from_value(serde_json::Value::String(action))
             .map_err(|_| LinkError::Rejected("not a mirror action".to_owned()))?;
         let int = |key: &str| args.get(key).and_then(|value| i32::try_from(value.clone()).ok());
+        let unsigned = |key: &str| {
+            let value = args.get(key)?;
+            u32::try_from(value.clone())
+                .ok()
+                .or_else(|| i32::try_from(value.clone()).ok().and_then(|v| u32::try_from(v).ok()))
+        };
         let input = MirrorInput {
             action,
             x: int("x"),
@@ -433,6 +439,8 @@ impl Link {
             y2: int("y2"),
             ms: args.get("ms").and_then(|value| u32::try_from(value.clone()).ok()),
             text: args.get("text").and_then(|value| String::try_from(value.clone()).ok()),
+            code: unsigned("code"),
+            meta: unsigned("meta"),
         };
         self.send(&device_id, Message::MirrorInput(input)).await
     }

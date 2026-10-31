@@ -670,6 +670,8 @@ class LinkRepository(
                             event.y2,
                             event.ms?.toInt(),
                             event.text,
+                            event.code?.toInt(),
+                            event.meta?.toInt(),
                         ),
                     )
                 is LinkEvent.MirrorKeyframeRequested -> _mirrorCommands.emit(MirrorCommand.Keyframe(event.desktopId))
@@ -918,6 +920,14 @@ private fun FfiMirrorAction.toDomain(): MirrorAction =
         FfiMirrorAction.HOME -> MirrorAction.Home
         FfiMirrorAction.RECENTS -> MirrorAction.Recents
         FfiMirrorAction.TEXT -> MirrorAction.Text
+        FfiMirrorAction.TOUCH_DOWN -> MirrorAction.TouchDown
+        FfiMirrorAction.TOUCH_MOVE -> MirrorAction.TouchMove
+        FfiMirrorAction.TOUCH_UP -> MirrorAction.TouchUp
+        FfiMirrorAction.WHEEL -> MirrorAction.Wheel
+        FfiMirrorAction.KEY_DOWN -> MirrorAction.KeyDown
+        FfiMirrorAction.KEY_UP -> MirrorAction.KeyUp
+        FfiMirrorAction.SCREEN_OFF -> MirrorAction.ScreenOff
+        FfiMirrorAction.SCREEN_ON -> MirrorAction.ScreenOn
     }
 
 private class FfiRemote(

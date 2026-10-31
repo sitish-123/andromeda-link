@@ -194,17 +194,18 @@ hotspot-msg = { type: "hotspot", id: uint, body: {
 hotspot-joined-msg = { type: "hotspot-joined", id: uint, body: { address: tstr } }  ; host:port
 hotspot-end-msg = { type: "hotspot-end", id: uint, body: { ? reason: tstr .size (1..128) } }
 
-; Wi-Fi Direct, tried before the hotspot so the desktop keeps its own network. On connect, a desktop that can join a
-; group says so with the name it shows while looking (wifi-direct-ready), and its P2P device address for a phone whose
-; hello listed "feature:wifi-direct-address" (wpa_supplicant shows no name by default; older phones close a session on
-; the unknown field). The phone forms the group, in either role, and sends its own name (wifi-direct) in place of
-; hotspot credentials; the desktop answers as for a hotspot, with hotspot-joined (its own address on the group) or
-; hotspot-end, and a failed group falls back to the hotspot.
+; Wi-Fi Direct, tried before the hotspot so the desktop may keep its own network. A desktop whose hello lists
+; "feature:wifi-direct-join" gets the credentials of a group the phone owns (wifi-direct) in place of hotspot ones,
+; and answers as for a hotspot, with hotspot-joined (its own address on the group) or hotspot-end; a failed group
+; falls back to the hotspot. Older desktops send wifi-direct-ready, which phones ignore.
 wifi-direct-ready-msg = {
   type: "wifi-direct-ready", id: uint,
   body: { name: tstr .size (1..32), ? address: tstr .regexp "[0-9a-f]{2}(:[0-9a-f]{2}){5}" },
 }
-wifi-direct-msg = { type: "wifi-direct", id: uint, body: { name: tstr .size (1..32) } }
+wifi-direct-msg = { type: "wifi-direct", id: uint, body: {
+  ssid: tstr .size (1..32),
+  passphrase: tstr .size (8..63),  ; printable ASCII
+} }
 
 ; Pairing Bluetooth, which the desktop needs before it accepts a phone's connections over it. Phone to desktop,
 ; only when the desktop's hello listed "feature:bt-pairing": without passkey before Android starts pairing, so the
@@ -216,21 +217,26 @@ bt-pairing-msg = { type: "bt-pairing", id: uint, body: { ? passkey: uint .le 999
 ; (mirror-request, 0-RTT); the phone shows Android's capture prompt, then says the size (mirror-started) and opens a
 ; unidirectional stream whose header is mirror-data, followed by H.264 access units: u32 length, u64 presentation
 ; time in microseconds, a flags byte (1 keyframe, 2 codec configuration, 4 audio: one 48 kHz stereo Opus packet
-; instead of video), then the bytes, at most 4 MiB. The
+; instead of video), then the bytes, at most 4 MiB. When the desktop's hello has feature:mirror-streams, that first
+; stream carries only the sound, and each keyframe (codec configuration in front) opens a new stream whose mirror-data
+; has gop, counting up from 1, with the video after it. The newest gop is the one shown: the phone finishes the one
+; before (resetting it unless acknowledged within 250 ms) and the desktop stops reading older ones. The
 ; desktop sends input (coordinates in 1/10000 of the width and height; a scroll's x2, y2 is a signed delta) and asks
 ; for a keyframe after a loss (mirror-keyframe, 0-RTT). Either side ends it (mirror-stop).
 mirror-request-msg = { type: "mirror-request", id: uint, body: {} }
 mirror-started-msg = { type: "mirror-started", id: uint, body: { width: 1..4096, height: 1..4096 } }
 mirror-stop-msg = { type: "mirror-stop", id: uint, body: { ? reason: tstr .size (1..128) } }
 mirror-input-msg = { type: "mirror-input", id: uint, body: {
-  action: "tap" / "long-press" / "swipe" / "scroll" / "back" / "home" / "recents" / "text",
+  action: "tap" / "long-press" / "swipe" / "scroll" / "back" / "home" / "recents" / "text" / "touch-down" /
+    "touch-move" / "touch-up" / "wheel" / "key-down" / "key-up" / "screen-off" / "screen-on",
   ? x: 0..10000, ? y: 0..10000,
   ? x2: -10000..10000, ? y2: -10000..10000,
   ? ms: 0..10000,
   ? text: tstr .size (1..4096),
+  ? code: 1..400, ? meta: uint,
 } }
 mirror-keyframe-msg = { type: "mirror-keyframe", id: uint, body: {} }
-mirror-data-msg = { type: "mirror-data", id: uint, body: { width: 1..4096, height: 1..4096 } }
+mirror-data-msg = { type: "mirror-data", id: uint, body: { width: 1..4096, height: 1..4096, ? gop: uint .ge 1 } }
 
 ; Phone to desktop, before dialling it from a Bluetooth session: the phone's own host:port pairs, which the desktop
 ; sends one UDP byte to so its firewall takes the dial for a reply.

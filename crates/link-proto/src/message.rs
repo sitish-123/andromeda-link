@@ -22,10 +22,9 @@ pub struct Hello {
 /// Bluetooth skip it, since it is not a socket address.
 pub const BLUETOOTH_SCHEME: &str = "bt:";
 
-/// A phone's hello carries this among its `addresses` when it finds a desktop over Wi-Fi Direct by the `address` of a
-/// `wifi-direct-ready`; a desktop sends that field only then, since older phones close a session on an unknown field.
-/// Older desktops ignore a phone's addresses.
-pub const WIFI_DIRECT_BY_ADDRESS: &str = "feature:wifi-direct-address";
+/// A desktop's hello carries this among its `addresses` when it joins a phone's Wi-Fi Direct group by the credentials
+/// in `wifi-direct`; phones send that message only then, since older desktops expect a different body.
+pub const WIFI_DIRECT_JOIN: &str = "feature:wifi-direct-join";
 
 /// A desktop's hello carries this among its `addresses` when it takes `bt-pairing`; older desktops close a session on
 /// the unknown type, and phones skip entries that are not socket addresses.
@@ -59,6 +58,10 @@ pub const NOTIFICATION_SYNC: &str = "feature:notification-sync";
 /// Both hellos carry this when the peer takes `clip-offer`'s `sizes`, `origin`, and `at`, and serves each type's own
 /// bytes; older peers close a session on those fields.
 pub const CLIP_ITEMS: &str = "feature:clip-items";
+
+/// A desktop's hello carries this when it takes a mirror's video as one stream per keyframe (`mirror-data`'s `gop`);
+/// phones send older desktops video and sound on one stream.
+pub const MIRROR_STREAMS: &str = "feature:mirror-streams";
 
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
@@ -412,8 +415,8 @@ pub struct HotspotEnd {
     pub reason: Option<String>,
 }
 
-/// Desktop to phone: it can join a Wi-Fi Direct group, and shows as `name` while looking for one. `address` is its
-/// P2P device address, which the phone matches on since `wpa_supplicant` leaves the name blank unless configured.
+/// Desktop to phone, from older desktops only: it could join a Wi-Fi Direct group the phone negotiated with it. Phones
+/// ignore it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WifiDirectReady {
@@ -431,14 +434,6 @@ pub struct WifiDirectReady {
 pub struct BtPairing {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passkey: Option<u32>,
-}
-
-/// Phone to desktop, instead of the hotspot: the phone, shown as `name`, is forming a Wi-Fi Direct group with the
-/// desktop as its client. The desktop answers like a hotspot: `hotspot-joined` or `hotspot-end`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WifiDirect {
-    pub name: String,
 }
 
 /// Phone to desktop, once the user allowed capture: the video that follows on a `mirror-data` stream is this size.
@@ -471,6 +466,18 @@ pub enum MirrorAction {
     Recents,
     /// `text` into the focused field.
     Text,
+    /// One finger at (x, y) that follows the pointer until `touch-up`.
+    TouchDown,
+    TouchMove,
+    TouchUp,
+    /// A wheel turn at (x, y): (x2, y2) in 1/[`WHEEL_STEP`] of a step, positive right and down.
+    Wheel,
+    /// An Android `KeyEvent` key `code` with its `meta` state.
+    KeyDown,
+    KeyUp,
+    /// The phone's own panel off or on; mirroring goes on.
+    ScreenOff,
+    ScreenOn,
 }
 
 /// Desktop to phone: input on the mirrored screen. Coordinates are fractions of the video's width and height in
@@ -491,6 +498,10 @@ pub struct MirrorInput {
     pub ms: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<u32>,
 }
 
 /// The header of the phone's video stream: H.264 access units follow, each a big-endian u32 length, a big-endian u64
@@ -501,6 +512,10 @@ pub struct MirrorInput {
 pub struct MirrorData {
     pub width: u32,
     pub height: u32,
+    /// Absent on the mirror's first stream, which carries everything, or only the sound under [`MIRROR_STREAMS`].
+    /// From 1 up on each later stream: one keyframe and the video after it, until a stream with a higher number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gop: Option<u64>,
 }
 
 /// The whole width or height in [`MirrorInput`] coordinates.
@@ -510,12 +525,18 @@ pub const MIRROR_KEYFRAME: u8 = 1;
 pub const MIRROR_CONFIG: u8 = 2;
 /// One Opus packet of the phone's sound, 48 kHz stereo, instead of video.
 pub const MIRROR_AUDIO: u8 = 4;
+/// The desktop daemon's last, empty unit to a viewer when the phone ended mirroring on purpose; never on the wire.
+pub const MIRROR_END: u8 = 8;
 /// A 1080p access unit stays well under this.
 pub const MAX_MIRROR_UNIT: usize = 4 * 1024 * 1024;
 pub const MAX_MIRROR_SIDE: u32 = 4096;
 pub const MAX_MIRROR_TEXT_LEN: usize = 4096;
 /// A swipe or long press held longer than this is refused.
 pub const MAX_GESTURE_MS: u32 = 10_000;
+/// One wheel step in a `wheel` input's (x2, y2).
+pub const WHEEL_STEP: i32 = 100;
+/// Android's `KeyEvent` codes stay under this.
+pub const MAX_KEY_CODE: u32 = 400;
 
 impl MirrorInput {
     fn valid(&self) -> bool {
@@ -524,11 +545,22 @@ impl MirrorInput {
         let delta = |value: Option<i32>| value.is_some_and(|value| (-MIRROR_UNIT..=MIRROR_UNIT).contains(&value));
         let held = self.ms.is_none_or(|ms| ms <= MAX_GESTURE_MS);
         held && match self.action {
-            MirrorAction::Tap | MirrorAction::LongPress => point,
+            MirrorAction::Tap
+            | MirrorAction::LongPress
+            | MirrorAction::TouchDown
+            | MirrorAction::TouchMove
+            | MirrorAction::TouchUp => point,
             MirrorAction::Swipe => point && fraction(self.x2) && fraction(self.y2),
-            MirrorAction::Scroll => point && delta(self.x2) && delta(self.y2),
-            MirrorAction::Back | MirrorAction::Home | MirrorAction::Recents => true,
+            MirrorAction::Scroll | MirrorAction::Wheel => point && delta(self.x2) && delta(self.y2),
+            MirrorAction::Back
+            | MirrorAction::Home
+            | MirrorAction::Recents
+            | MirrorAction::ScreenOff
+            | MirrorAction::ScreenOn => true,
             MirrorAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
+            MirrorAction::KeyDown | MirrorAction::KeyUp => {
+                self.code.is_some_and(|code| (1..=MAX_KEY_CODE).contains(&code))
+            }
         }
     }
 }
@@ -1749,7 +1781,9 @@ pub enum Message {
     HotspotEnd(HotspotEnd),
     Punch(Punch),
     WifiDirectReady(WifiDirectReady),
-    WifiDirect(WifiDirect),
+    /// Phone to desktop, instead of the hotspot: the credentials of a Wi-Fi Direct group the phone owns. The desktop
+    /// answers like a hotspot: `hotspot-joined` or `hotspot-end`.
+    WifiDirect(Hotspot),
     BtPairing(BtPairing),
     MirrorRequest,
     MirrorStarted(MirrorStarted),
@@ -1920,12 +1954,11 @@ impl Message {
             Self::ClipOffer(body) => Value::serialized(body),
             Self::ClipPull(body) | Self::ClipData(body) => Value::serialized(body),
             Self::Status(body) => Value::serialized(body),
-            Self::Hotspot(body) => Value::serialized(body),
+            Self::Hotspot(body) | Self::WifiDirect(body) => Value::serialized(body),
             Self::HotspotJoined(body) => Value::serialized(body),
             Self::HotspotEnd(body) => Value::serialized(body),
             Self::Punch(body) => Value::serialized(body),
             Self::WifiDirectReady(body) => Value::serialized(body),
-            Self::WifiDirect(body) => Value::serialized(body),
             Self::BtPairing(body) => Value::serialized(body),
             Self::MirrorStarted(body) => Value::serialized(body),
             Self::MirrorStop(body) | Self::RemoteStop(body) => Value::serialized(body),
@@ -2135,15 +2168,16 @@ impl Message {
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),
             Self::ResumeAt(at) => unique(at.offsets.iter().map(|offset| offset.file)),
-            Self::Hotspot(hotspot) => hotspot.valid(),
+            Self::Hotspot(hotspot) | Self::WifiDirect(hotspot) => hotspot.valid(),
             Self::HotspotJoined(joined) => joined.address.parse::<std::net::SocketAddr>().is_ok(),
             Self::HotspotEnd(end) => end.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN)),
             Self::Punch(punch) => {
                 punch.addresses.len() <= MAX_PUNCH_ADDRESSES
                     && punch.addresses.iter().all(|address| address.parse::<std::net::SocketAddr>().is_ok())
             }
-            Self::MirrorStarted(MirrorStarted { width, height }) | Self::MirrorData(MirrorData { width, height }) => {
-                mirror_size_valid(*width, *height)
+            Self::MirrorStarted(MirrorStarted { width, height }) => mirror_size_valid(*width, *height),
+            Self::MirrorData(MirrorData { width, height, gop }) => {
+                mirror_size_valid(*width, *height) && *gop != Some(0)
             }
             Self::MirrorStop(stop) | Self::RemoteStop(stop) => {
                 stop.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN))
@@ -2156,7 +2190,6 @@ impl Message {
             Self::WifiDirectReady(WifiDirectReady { name, address }) => {
                 sized(name, 1, MAX_P2P_NAME_LEN) && address.as_ref().is_none_or(|address| hardware_address(address))
             }
-            Self::WifiDirect(WifiDirect { name }) => sized(name, 1, MAX_P2P_NAME_LEN),
             Self::BtPairing(BtPairing { passkey }) => passkey.is_none_or(|passkey| passkey <= 999_999),
             Self::FsList(list) => fs_path_valid(&list.path),
             Self::FsEntries(page) => {

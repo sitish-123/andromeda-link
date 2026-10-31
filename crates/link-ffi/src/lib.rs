@@ -168,6 +168,8 @@ pub enum LinkEvent {
         y2: Option<i32>,
         ms: Option<u32>,
         text: Option<String>,
+        code: Option<u32>,
+        meta: Option<u32>,
     },
     /// The desktop lost a frame: encode a keyframe next.
     MirrorKeyframeRequested {
@@ -516,6 +518,14 @@ pub enum MirrorAction {
     Home,
     Recents,
     Text,
+    TouchDown,
+    TouchMove,
+    TouchUp,
+    Wheel,
+    KeyDown,
+    KeyUp,
+    ScreenOff,
+    ScreenOn,
 }
 
 impl From<message::MirrorAction> for MirrorAction {
@@ -529,6 +539,14 @@ impl From<message::MirrorAction> for MirrorAction {
             message::MirrorAction::Home => Self::Home,
             message::MirrorAction::Recents => Self::Recents,
             message::MirrorAction::Text => Self::Text,
+            message::MirrorAction::TouchDown => Self::TouchDown,
+            message::MirrorAction::TouchMove => Self::TouchMove,
+            message::MirrorAction::TouchUp => Self::TouchUp,
+            message::MirrorAction::Wheel => Self::Wheel,
+            message::MirrorAction::KeyDown => Self::KeyDown,
+            message::MirrorAction::KeyUp => Self::KeyUp,
+            message::MirrorAction::ScreenOff => Self::ScreenOff,
+            message::MirrorAction::ScreenOn => Self::ScreenOn,
         }
     }
 }
@@ -586,7 +604,7 @@ impl RemoteView {
 #[derive(uniffi::Object)]
 pub struct MirrorSession {
     runtime: tokio::runtime::Handle,
-    sender: Arc<tokio::sync::Mutex<Option<link_core::mirror::MirrorSender>>>,
+    sender: Arc<link_core::mirror::MirrorSender>,
 }
 
 #[uniffi::export]
@@ -596,23 +614,13 @@ impl MirrorSession {
     pub async fn send_unit(&self, pts_us: u64, flags: u8, data: Vec<u8>) -> Result<(), LinkError> {
         let unit = link_core::mirror::Unit { pts_us, flags, data };
         let sender = self.sender.clone();
-        let sent = self
-            .runtime
-            .spawn(async move {
-                match sender.lock().await.as_mut() {
-                    Some(stream) => stream.send(&unit).await,
-                    None => Err(link_core::Error::Stopped),
-                }
-            })
-            .await
-            .map_err(|_| stopped())?;
+        let sent = self.runtime.spawn(async move { sender.send(&unit).await }).await.map_err(|_| stopped())?;
         Ok(sent?)
     }
 
     pub async fn finish(&self) {
-        if let Some(sender) = self.sender.lock().await.take() {
-            sender.finish();
-        }
+        let sender = self.sender.clone();
+        drop(self.runtime.spawn(async move { sender.finish().await }).await);
     }
 }
 
@@ -857,30 +865,21 @@ impl link_core::hotspot::HotspotProvider for Hotspots {
     }
 }
 
-/// How the app forms a Wi-Fi Direct group with a desktop as its client, tried before the hotspot so the desktop keeps
-/// its own network. Blocking, called off the main thread: `name` is what peers see (None without the Nearby devices
-/// permission); `connect` finds `peer` (a device address, else a name), forms the group in either role, and returns
-/// whether it came up.
+/// How the app creates a Wi-Fi Direct group it owns, tried before the hotspot so the desktop may keep its own network.
+/// `start` blocks until the group is up and returns its credentials, or None when Android refused it. Called off the
+/// main thread.
 #[uniffi::export(with_foreign)]
 pub trait PhoneWifiDirect: Send + Sync {
-    fn name(&self) -> Option<String>;
-    fn connect(&self, peer: String) -> bool;
+    fn start(&self) -> Option<HotspotCredentials>;
     fn stop(&self);
 }
 
 struct WifiDirects(Arc<dyn PhoneWifiDirect>);
 
 impl link_core::hotspot::WifiDirectProvider for WifiDirects {
-    fn name(&self) -> std::io::Result<String> {
-        self.0.name().ok_or_else(|| std::io::Error::other("no Wi-Fi Direct name"))
-    }
-
-    fn connect(&self, peer: &str) -> std::io::Result<()> {
-        if self.0.connect(peer.to_owned()) {
-            Ok(())
-        } else {
-            Err(std::io::Error::other("Android did not form the group"))
-        }
+    fn start(&self) -> std::io::Result<link_core::proto::message::Hotspot> {
+        let group = self.0.start().ok_or_else(|| std::io::Error::other("Android did not create the group"))?;
+        Ok(link_core::proto::message::Hotspot { ssid: group.ssid, passphrase: group.passphrase })
     }
 
     fn stop(&self) {
@@ -1178,10 +1177,7 @@ impl LinkClient {
     ) -> Result<Arc<MirrorSession>, LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
         let sender = self.run(async move { client.start_mirror(id, width, height).await }).await?;
-        Ok(Arc::new(MirrorSession {
-            runtime: self.runtime.handle().clone(),
-            sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
-        }))
+        Ok(Arc::new(MirrorSession { runtime: self.runtime.handle().clone(), sender: Arc::new(sender) }))
     }
 
     /// Ends mirroring, or refuses the desktop's request, with a reason when it failed.
@@ -1445,6 +1441,8 @@ fn translate(event: ClientEvent, runtime: &tokio::runtime::Handle) -> Option<Lin
                     y2: input.y2,
                     ms: input.ms,
                     text: input.text,
+                    code: input.code,
+                    meta: input.meta,
                 },
                 Message::MirrorKeyframe => LinkEvent::MirrorKeyframeRequested { desktop_id },
                 Message::Commands(list) => LinkEvent::CommandsChanged {

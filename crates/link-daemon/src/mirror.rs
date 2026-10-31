@@ -7,9 +7,10 @@ use std::time::Duration;
 
 use link_core::identity::DeviceId;
 use link_core::mirror::{MirrorReceiver, MirrorStream};
+use link_core::proto::message::MIRROR_END;
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::oneshot;
-use tokio::task::{AbortHandle, JoinSet};
+use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 /// Android asks the user every time; they may take a while to find the phone.
@@ -38,7 +39,8 @@ pub type Reply = oneshot::Sender<Result<Opened, Failure>>;
 #[derive(Default)]
 pub struct Mirrors {
     waiting: HashMap<DeviceId, (Reply, Instant)>,
-    running: HashMap<DeviceId, AbortHandle>,
+    /// Each running pump's stop, which ends it with [`MIRROR_END`].
+    running: HashMap<DeviceId, oneshot::Sender<()>>,
     pumps: JoinSet<DeviceId>,
 }
 
@@ -80,8 +82,8 @@ impl Mirrors {
     /// The phone stopped: a waiting request is refused with its reason, a running mirror ends.
     pub fn stopped(&mut self, id: &DeviceId, reason: Option<String>) {
         self.fail(id, Failure::Refused(reason.unwrap_or_else(|| "the phone stopped mirroring".to_owned())));
-        if let Some(pump) = self.running.remove(id) {
-            pump.abort();
+        if let Some(stop) = self.running.remove(id) {
+            let _ = stop.send(());
         }
     }
 
@@ -107,14 +109,15 @@ impl Mirrors {
         }
         log::info!("{from}: mirroring at {width}x{height}");
         let id = from.clone();
-        let pump = self.pumps.spawn(async move {
-            if let Err(error) = pump(&mut receiver, ours).await {
+        let (stop, stopped) = oneshot::channel();
+        self.pumps.spawn(async move {
+            if let Err(error) = pump(&mut receiver, ours, stopped).await {
                 log::info!("{id}: mirroring ended: {error}");
             }
             receiver.stop();
             id
         });
-        self.running.insert(from, pump);
+        self.running.insert(from, stop);
     }
 
     /// The next pump to end, with its phone, which is told to stop in case the viewer closed first.
@@ -133,14 +136,30 @@ impl Mirrors {
     }
 }
 
-async fn pump(receiver: &mut MirrorReceiver, mut viewer: tokio::net::UnixStream) -> anyhow::Result<()> {
-    while let Some(unit) = receiver.next().await? {
-        let mut header = [0; 13];
-        header[..4].copy_from_slice(&u32::try_from(unit.data.len())?.to_be_bytes());
-        header[4..12].copy_from_slice(&unit.pts_us.to_be_bytes());
-        header[12] = unit.flags;
-        viewer.write_all(&header).await?;
+/// Copies the phone's units to the viewer. When the phone ends the stream or stops mirroring, a last empty unit
+/// flagged [`MIRROR_END`] follows; a viewer whose socket closes without it lost the stream and may open it again.
+async fn pump(
+    receiver: &mut MirrorReceiver,
+    mut viewer: tokio::net::UnixStream,
+    mut stopped: oneshot::Receiver<()>,
+) -> anyhow::Result<()> {
+    loop {
+        let unit = tokio::select! {
+            unit = receiver.next() => unit?,
+            _ = &mut stopped => None,
+        };
+        let Some(unit) = unit else { break };
+        viewer.write_all(&header(unit.data.len(), unit.pts_us, unit.flags)?).await?;
         viewer.write_all(&unit.data).await?;
     }
+    viewer.write_all(&header(0, 0, MIRROR_END)?).await?;
     Ok(())
+}
+
+fn header(len: usize, pts_us: u64, flags: u8) -> anyhow::Result<[u8; 13]> {
+    let mut header = [0; 13];
+    header[..4].copy_from_slice(&u32::try_from(len)?.to_be_bytes());
+    header[4..12].copy_from_slice(&pts_us.to_be_bytes());
+    header[12] = flags;
+    Ok(header)
 }

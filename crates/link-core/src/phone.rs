@@ -161,9 +161,17 @@ impl Phone {
                     return Err(ip);
                 };
                 log::info!("pairing: no IP path ({ip}); trying Bluetooth");
-                let fd = tokio::task::spawn_blocking(move || opener.open(&address, true))
+                let fd = match tokio::task::spawn_blocking(move || opener.open(&address, true))
                     .await
-                    .map_err(|_| Error::Stopped)??;
+                    .map_err(|_| Error::Stopped)?
+                {
+                    Ok(fd) => fd,
+                    Err(bluetooth) => {
+                        let tried: Vec<String> = candidates.iter().map(ToString::to_string).collect();
+                        let ip = if tried.is_empty() { "no address".to_owned() } else { tried.join(", ") };
+                        return Err(Error::PairUnreached { ip, bluetooth: bluetooth.to_string() });
+                    }
+                };
                 let (mux, server) = self.stream_dialer.connect(FdStream::new(fd)?, fingerprint, None).await?;
                 (Connection::Stream(mux), server, None)
             }

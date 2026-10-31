@@ -637,7 +637,8 @@ pub struct LinkClient {
 }
 
 /// How the app reaches a desktop over Bluetooth: connect RFCOMM to `address` at Link's service UUID and return one
-/// end of a socket pair the app pumps that connection through, detached. -1 when it cannot connect. With `pair`, it
+/// end of a socket pair the app pumps that connection through, detached. Negative when it cannot connect: -2 without
+/// the Bluetooth permission, -3 with Bluetooth off, -4 when Bluetooth pairing failed, else -1. With `pair`, it
 /// first pairs Bluetooth with the desktop if they are not paired, which Link pairing alone asks for. Called off the
 /// main thread, and may block.
 #[uniffi::export(with_foreign)]
@@ -650,8 +651,15 @@ struct Opener(Arc<dyn BluetoothLink>);
 impl link_core::stream::BluetoothOpener for Opener {
     fn open(&self, address: &str, pair: bool) -> std::io::Result<OwnedFd> {
         let fd = self.0.open(address.to_owned(), pair);
-        if fd < 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "Bluetooth did not connect"));
+        let reason = match fd {
+            0.. => None,
+            -2 => Some("the Nearby devices permission is off"),
+            -3 => Some("Bluetooth is off on the phone"),
+            -4 => Some("the Bluetooth pairing was not accepted"),
+            _ => Some("the desktop did not answer"),
+        };
+        if let Some(reason) = reason {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, reason));
         }
         // SAFETY: the app hands over a descriptor it detached and no longer uses, so nothing else owns or closes it.
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })

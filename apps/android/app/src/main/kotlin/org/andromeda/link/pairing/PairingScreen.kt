@@ -2,6 +2,7 @@ package org.andromeda.link.pairing
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -23,7 +24,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -87,8 +87,12 @@ fun PairingScreen(
                     PillButton(stringResource(R.string.scan_action), { typing = false }, kind = PillKind.Quiet)
                 }
                 else -> {
-                    // A failed attempt re-arms the scanner, which reports one code per composition.
-                    key(state.failure) { Scan(viewModel::pairScanned) }
+                    // After a failure the scanner waits for a tap, so a code still in view does not pair again at once.
+                    if (state.failure == null) {
+                        Scan(viewModel::pairScanned)
+                    } else {
+                        PillButton(stringResource(R.string.scan_again), viewModel::scanAgain, modifier = Modifier.fillMaxWidth())
+                    }
                     PillButton(stringResource(R.string.scan_code_instead), { typing = true }, kind = PillKind.Quiet)
                 }
             }
@@ -112,8 +116,21 @@ private fun Scan(onPairingUri: (String) -> Unit) {
     var granted by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
-    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
-    LaunchedEffect(Unit) { if (!granted) ask.launch(Manifest.permission.CAMERA) }
+    // Pairing falls back to Bluetooth when no IP path answers, which needs Nearby devices from Android 12.
+    val wanted =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.CAMERA, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.CAMERA)
+        }
+    val ask =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            granted = it[Manifest.permission.CAMERA] ?: granted
+        }
+    LaunchedEffect(Unit) {
+        val missing = wanted.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) ask.launch(missing.toTypedArray())
+    }
     Box(
         Modifier
             .padding(top = Space.s8)
@@ -137,7 +154,7 @@ private fun Scan(onPairingUri: (String) -> Unit) {
                     colors.textSecondary,
                     textAlign = TextAlign.Center,
                 )
-                PillButton(stringResource(R.string.scan_camera_allow), { ask.launch(Manifest.permission.CAMERA) })
+                PillButton(stringResource(R.string.scan_camera_allow), { ask.launch(wanted) })
             }
         }
     }

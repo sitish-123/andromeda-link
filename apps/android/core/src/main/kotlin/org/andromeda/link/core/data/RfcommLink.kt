@@ -33,13 +33,13 @@ class RfcommLink(
         address: String,
         pair: Boolean,
     ): Int {
-        if (!allowed()) return NOT_CONNECTED
-        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter ?: return NOT_CONNECTED
-        if (!adapter.isEnabled) return NOT_CONNECTED
+        if (!allowed()) return NO_PERMISSION.also { Log.i(TAG, "RFCOMM to $address: no BLUETOOTH_CONNECT permission") }
+        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+        if (adapter == null || !adapter.isEnabled) return BLUETOOTH_OFF.also { Log.i(TAG, "RFCOMM to $address: Bluetooth is off") }
         val device = adapter.getRemoteDevice(address)
         val socket =
             try {
-                if (pair && !bonded(device)) return NOT_CONNECTED
+                if (pair && !bonded(device)) return NOT_BONDED
                 connect(device) ?: return NOT_CONNECTED
             } catch (error: SecurityException) {
                 Log.w(TAG, "RFCOMM to $address: ${error.message}")
@@ -137,6 +137,9 @@ class RfcommLink(
         const val BOND_TIMEOUT_MS = 60_000L
         const val POLL_MS = 250L
         const val NOT_CONNECTED = -1
+        const val NO_PERMISSION = -2
+        const val BLUETOOTH_OFF = -3
+        const val NOT_BONDED = -4
         const val BUFFER = 16 * 1024
 
         /** The desktop's `bluetooth::SERVICE_UUID`. */

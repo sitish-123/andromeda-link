@@ -54,6 +54,7 @@
     <string name="failure_unpaired">The desktop removed this phone. Pair again to reconnect.</string>
     <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network and the desktop\'s firewall allows Andromeda Link (on the desktop: sudo ufw allow \"Andromeda Link\").</string>
     <string name="failure_rejected">Can\'t send this: %1$s</string>
+    <string name="scan_again">Scan again</string>
     <string name="failure_other">Something went wrong: %1$s</string>
     <string name="back">Back</string>
     <string name="cancel">Cancel</string>

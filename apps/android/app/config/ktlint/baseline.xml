@@ -118,12 +118,12 @@
         <error line="68" column="5" source="compose:parameter-naming" />
         <error line="84" column="39" source="compose:vm-forwarding-check" />
         <error line="86" column="21" source="compose:vm-forwarding-check" />
-        <error line="109" column="13" source="standard:function-naming" />
-        <error line="109" column="13" source="compose:multiple-emitters-check" />
-        <error line="154" column="13" source="standard:function-naming" />
-        <error line="176" column="13" source="standard:function-naming" />
-        <error line="176" column="13" source="compose:multiple-emitters-check" />
-        <error line="194" column="13" source="standard:function-naming" />
+        <error line="113" column="13" source="standard:function-naming" />
+        <error line="113" column="13" source="compose:multiple-emitters-check" />
+        <error line="171" column="13" source="standard:function-naming" />
+        <error line="193" column="13" source="standard:function-naming" />
+        <error line="193" column="13" source="compose:multiple-emitters-check" />
+        <error line="211" column="13" source="standard:function-naming" />
     </file>
     <file name="src/main/kotlin/org/andromeda/link/pairing/QrScanner.kt">
         <error line="37" column="5" source="standard:function-naming" />

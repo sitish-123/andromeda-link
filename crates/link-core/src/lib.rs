@@ -74,6 +74,9 @@ pub enum Error {
     BadCode,
     #[error("no desktop is pairing")]
     NoPairingDesktop,
+    /// Pairing reached the desktop neither over IP nor over Bluetooth: what was tried, and why each failed.
+    #[error("the desktop did not answer over Wi-Fi ({ip}), and Bluetooth failed: {bluetooth}")]
+    PairUnreached { ip: String, bluetooth: String },
     #[error("more than one desktop is pairing")]
     ManyPairingDesktops,
     #[error("not paired with that device")]

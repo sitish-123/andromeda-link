@@ -14,6 +14,7 @@ mod ifaddrs;
 mod iwd;
 mod listener;
 mod localsend;
+mod low_delay;
 mod media;
 mod messages;
 mod mirror;

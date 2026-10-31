@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use link_core::identity::DeviceId;
 use link_core::mirror::{MirrorReceiver, MirrorStream};
-use link_core::proto::message::MIRROR_END;
+use link_core::proto::message::{MIRROR_CONFIG, MIRROR_END};
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -148,7 +148,10 @@ async fn pump(
             unit = receiver.next() => unit?,
             _ = &mut stopped => None,
         };
-        let Some(unit) = unit else { break };
+        let Some(mut unit) = unit else { break };
+        if unit.flags & MIRROR_CONFIG != 0 {
+            crate::low_delay::rewrite(&mut unit.data);
+        }
         viewer.write_all(&header(unit.data.len(), unit.pts_us, unit.flags)?).await?;
         viewer.write_all(&unit.data).await?;
     }

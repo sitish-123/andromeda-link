@@ -91,7 +91,7 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             }
             event = next_clipboard(&mut clipboard) => match event {
-                Ok(event) => on_clipboard(&link, event, remote.clone()),
+                Ok(event) => on_clipboard(&link, event, remote.clone(), None),
                 Err(error) => return Err(error.context("the clipboard backend stopped")),
             },
             Some(signal) = remote_input.next() => {

@@ -8,7 +8,7 @@ use std::os::unix::fs::{FileExt, FileTypeExt};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use link_proto::clip::{ClipState, Serve};
+use link_proto::clip::{ClipRefused, ClipState, Serve};
 use link_proto::message::{ClipOffer, ClipPull, MAX_CLIP_SIZE, MAX_SHARE_LEN, Message, is_text_mime};
 use link_proto::transfer::Budget;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -221,6 +221,13 @@ impl TransferActor {
             text: offer.text.clone(),
         };
         self.clips.peers.entry(peer.clone()).or_default().on_offer(offer);
+        // The new offer drops the peer's state for pulls not yet answered, so their answers would be refused: end them.
+        let (stale, kept): (Vec<Pull>, Vec<Pull>) =
+            self.clips.pulls.drain(..).partition(|pull| pull.peer == *peer && pull.sink.is_some());
+        self.clips.pulls = kept;
+        for pull in stale {
+            drop(pull.reply.send(Err(Error::ClipRefused(ClipRefused::Stale))));
+        }
         self.emit(event);
     }
 

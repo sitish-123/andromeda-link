@@ -1,4 +1,4 @@
-//! Joining a phone's hotspot through `NetworkManager`, for transfers too large for Bluetooth. The profile is volatile:
+//! Joining a phone's hotspot through `NetworkManager`, or iwd without it, for transfers too large for Bluetooth. The profile is volatile:
 //! `NetworkManager` deletes it once it deactivates, and autoconnects the desktop's usual network again by itself.
 
 use std::collections::HashMap;
@@ -19,7 +19,11 @@ const ACTIVATED: u32 = 2;
 const DEACTIVATED: u32 = 4;
 
 /// The `NetworkManager` connection a join activated.
-pub type Active = OwnedObjectPath;
+pub enum Active {
+    /// A `NetworkManager` active connection.
+    Manager(OwnedObjectPath),
+    Iwd(crate::iwd::Left),
+}
 
 /// An active hotspot connection and the address the desktop got on it.
 pub struct Joined {
@@ -29,6 +33,10 @@ pub struct Joined {
 
 pub async fn join(ssid: &str, passphrase: &str) -> Result<Joined, String> {
     let bus = zbus::Connection::system().await.map_err(text)?;
+    if !manager_runs(&bus).await {
+        let (left, address) = crate::iwd::join(&bus, ssid, passphrase, SCAN_TIMEOUT, JOIN_TIMEOUT).await?;
+        return Ok(Joined { active: Active::Iwd(left), address });
+    }
     let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await.map_err(text)?;
     let user = std::env::var("USER").unwrap_or_default();
     let settings: HashMap<&str, HashMap<&str, Variant<'_>>> = HashMap::from([
@@ -137,15 +145,28 @@ pub async fn activated(bus: &zbus::Connection, active: OwnedObjectPath) -> Resul
         .iter()
         .find_map(|entry| String::try_from(entry.get("address")?.clone()).ok()?.parse().ok())
         .ok_or_else(|| "no address on the hotspot".to_owned())?;
-    Ok(Joined { active, address })
+    Ok(Joined { active: Active::Manager(active), address })
+}
+
+async fn manager_runs(bus: &zbus::Connection) -> bool {
+    let (Ok(dbus), Ok(name)) = (zbus::fdo::DBusProxy::new(bus).await, NM.try_into()) else { return false };
+    dbus.name_has_owner(name).await.unwrap_or(false)
 }
 
 /// Leaves the hotspot; `NetworkManager` then deletes the profile and returns to the usual network.
 pub async fn leave(active: &Active) {
     let left = async {
         let bus = zbus::Connection::system().await?;
-        let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await?;
-        manager.call::<_, _, ()>("DeactivateConnection", &(active,)).await
+        match active {
+            Active::Manager(active) => {
+                let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await?;
+                manager.call::<_, _, ()>("DeactivateConnection", &(active,)).await
+            }
+            Active::Iwd(left) => {
+                crate::iwd::leave(&bus, left).await;
+                Ok(())
+            }
+        }
     };
     if let Err(error) = left.await {
         log::info!("leaving the hotspot: {error}");

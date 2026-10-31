@@ -9,6 +9,9 @@ mod desktop_media;
 #[cfg_attr(target_os = "macos", path = "hotspot_mac.rs")]
 mod hotspot;
 mod hub;
+mod ifaddrs;
+#[cfg(target_os = "linux")]
+mod iwd;
 mod listener;
 mod localsend;
 mod media;

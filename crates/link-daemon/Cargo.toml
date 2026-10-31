@@ -28,10 +28,10 @@ rustls.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["process"] }
 tokio-rustls.workspace = true
+libc = "0.2"
 zbus.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
 objc2 = "0.6"
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFFileDescriptor", "CFRunLoop"] }
 objc2-core-wlan = { version = "0.3", default-features = false, features = ["std", "CWInterface", "CWNetwork", "CWWiFiClient"] }

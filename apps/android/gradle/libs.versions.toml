@@ -1,4 +1,5 @@
 [versions]
+# 6.2 needs compileSdk 37.
 hiddenapibypass = "6.1"
 agp = "8.11.1"
 kotlin = "2.2.20"

@@ -175,6 +175,10 @@ impl Listener {
                 return;
             }
         };
+        // The phone's data is written without waiting only while the pair can hold every stream's credit window.
+        if let Err(error) = hold_windows(&ours, &theirs) {
+            log::warn!("Bluetooth: sizing the socket pair: {error}");
+        }
         let pump = Pump::new(channel, ours);
         let delegate: &AnyObject = &pump;
         // SAFETY: `pump` stays in `pumps` while the channel can call it.
@@ -321,4 +325,30 @@ unsafe extern "C-unwind" fn readable(_descriptor: *mut CFFileDescriptor, _flags:
     // SAFETY: `info` is the pump that created the descriptor, alive until `finish` invalidates it.
     let pump = unsafe { &*info.cast::<Pump>() };
     pump.forward();
+}
+
+/// Every stream's credit window plus room for control frames: 10 x 256 KiB.
+#[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap, reason = "constants far below 2^31")]
+const PIPE_BUFFER: libc::c_int =
+    ((link_core::proto::mux::MAX_PEER_STREAMS as u32 + 1) * link_core::proto::mux::WINDOW) as libc::c_int;
+
+fn hold_windows(ours: &UnixStream, theirs: &UnixStream) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let size = PIPE_BUFFER;
+    for (socket, option) in [(ours, libc::SO_SNDBUF), (theirs, libc::SO_RCVBUF)] {
+        // SAFETY: a valid socket and a c_int option value of the size passed.
+        let status = unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&raw const size).cast(),
+                libc::socklen_t::try_from(std::mem::size_of::<libc::c_int>()).unwrap_or(4),
+            )
+        };
+        if status != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }

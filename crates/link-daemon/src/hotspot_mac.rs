@@ -3,13 +3,14 @@
 
 #![allow(unsafe_code, reason = "FFI to CoreWLAN and getifaddrs")]
 
-use std::ffi::CStr;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
 use objc2_core_wlan::{CWInterface, CWNetwork, CWWiFiClient};
 use objc2_foundation::NSString;
+
+use crate::ifaddrs::ipv4_addresses;
 
 /// Joining includes DHCP.
 const JOIN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -44,8 +45,12 @@ fn join_blocking(ssid: &str, passphrase: &str) -> Result<Joined, String> {
     unsafe { interface.associateToNetwork_password_error(&network, Some(&NSString::from_str(passphrase))) }
         .map_err(|error| format!("macOS could not join it: {}", error.localizedDescription()))?;
     let deadline = Instant::now() + JOIN_TIMEOUT;
+    let target = NSString::from_str(ssid);
     loop {
-        if let Some(address) = ipv4_addresses(&name).into_iter().find(|address| !before.contains(address)) {
+        // SAFETY: as above. Without Location Services the SSID reads as none, so only a different one is refused.
+        let on_hotspot = unsafe { interface.ssid() }.is_none_or(|current| *current == *target);
+        if let Some(address) = ipv4_addresses(&name).into_iter().find(|address| on_hotspot && !before.contains(address))
+        {
             return Ok(Joined { active: name, address: IpAddr::V4(address) });
         }
         if Instant::now() >= deadline {
@@ -78,37 +83,6 @@ fn scanned(interface: &CWInterface, ssid: &str) -> Result<Retained<CWNetwork>, S
         std::thread::sleep(POLL);
     }
     Err("the hotspot never showed up in a Wi-Fi scan".to_owned())
-}
-
-/// The interface's routable IPv4 addresses; a self-assigned 169.254 one means DHCP has not answered yet.
-fn ipv4_addresses(interface: &str) -> Vec<Ipv4Addr> {
-    let mut list = std::ptr::null_mut();
-    // SAFETY: `list` receives a list that is freed below.
-    if unsafe { libc::getifaddrs(&raw mut list) } != 0 {
-        return Vec::new();
-    }
-    let mut found = Vec::new();
-    let mut next = list;
-    // SAFETY: each entry and its name and address are valid until `freeifaddrs`.
-    while let Some(entry) = unsafe { next.as_ref() } {
-        next = entry.ifa_next;
-        // SAFETY: as above; an AF_INET address is a `sockaddr_in`.
-        let address = unsafe {
-            if entry.ifa_addr.is_null()
-                || i32::from((*entry.ifa_addr).sa_family) != libc::AF_INET
-                || CStr::from_ptr(entry.ifa_name).to_bytes() != interface.as_bytes()
-            {
-                continue;
-            }
-            Ipv4Addr::from(u32::from_be((*entry.ifa_addr.cast::<libc::sockaddr_in>()).sin_addr.s_addr))
-        };
-        if !address.is_link_local() {
-            found.push(address);
-        }
-    }
-    // SAFETY: `list` came from `getifaddrs`.
-    unsafe { libc::freeifaddrs(list) };
-    found
 }
 
 /// Leaves the hotspot.

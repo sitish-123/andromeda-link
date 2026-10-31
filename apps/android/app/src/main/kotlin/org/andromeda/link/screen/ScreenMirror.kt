@@ -9,9 +9,11 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.andromeda.link.LinkApplication
 import org.andromeda.link.R
+import org.andromeda.link.clipboard.LogAccess
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.domain.MirrorCommand
 import org.andromeda.link.notifications.Channels
@@ -34,7 +36,10 @@ class ScreenMirror(
 
     private fun on(command: MirrorCommand) {
         when (command) {
-            is MirrorCommand.Requested -> ask(command.desktopId)
+            is MirrorCommand.Requested -> {
+                scope.launch(Dispatchers.IO) { LogAccess.startHelper(context) }
+                ask(command.desktopId)
+            }
             is MirrorCommand.Input ->
                 if (ScreenInput.enabled || InputCommandProvider.connected) ScreenInput.perform(command) else askForControl()
             is MirrorCommand.Keyframe -> ScreenCapture.requestKeyframe()

@@ -89,6 +89,24 @@ object LogAccess {
 
     fun helperRunning(): Boolean = helper()
 
+    /** Whether [startHelper] can start the helper, or it runs already, so input needs no accessibility service. */
+    fun helperPossible(): Boolean = helper() || shizuku() || root == true
+
+    /**
+     * Starts [LogHelper] through Shizuku or root when it does not run, as the desktop does over adb; it then relays
+     * mirror input. Blocks like [logcat].
+     */
+    fun startHelper(context: Context) {
+        if (helper()) return
+        val command =
+            "CLASSPATH=${context.applicationInfo.sourceDir} app_process /system/bin ${LogHelper::class.java.name} " +
+                "${context.packageName} > /dev/null 2>&1 &"
+        when {
+            shizuku() -> runCatching { (newProcess.invoke(null, arrayOf("sh", "-c", command), null, null) as Process).waitFor() }
+            hasSu() && rootShell() -> su(command)
+        }
+    }
+
     fun readLogs(context: Context): Boolean =
         context.checkSelfPermission(Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
 

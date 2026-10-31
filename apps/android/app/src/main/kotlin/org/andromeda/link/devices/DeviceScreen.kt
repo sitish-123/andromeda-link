@@ -40,6 +40,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.andromeda.link.R
+import org.andromeda.link.clipboard.LogAccess
 import org.andromeda.link.core.domain.Feature
 import org.andromeda.link.files.PhoneFiles
 import org.andromeda.link.screen.ScreenInput
@@ -71,11 +72,11 @@ fun DeviceScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val unpaired by viewModel.unpaired.collectAsStateWithLifecycle()
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
-    var controlEnabled by rememberSaveable { mutableStateOf(ScreenInput.enabled) }
+    var controlEnabled by rememberSaveable { mutableStateOf(ScreenInput.enabled || LogAccess.helperPossible()) }
     val context = LocalContext.current
     var allFiles by rememberSaveable { mutableStateOf(PhoneFiles.allFiles(context)) }
     LifecycleResumeEffect(Unit) {
-        controlEnabled = ScreenInput.enabled
+        controlEnabled = ScreenInput.enabled || LogAccess.helperPossible()
         allFiles = PhoneFiles.allFiles(context)
         onPauseOrDispose {}
     }

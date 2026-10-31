@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds two .debs from release binaries already built on the target release (Ubuntu 24.04 or later, Debian 13), with
-# the same files as pkg/PKGBUILD's andromeda-link-git: andromeda-link (daemon, session, mount, mirror, apps) and
-# andromeda-link-app (the Qt app, which needs Qt 6.7; on older releases the app comes as a Flatpak). The daemon and the
+# Builds one .deb from release binaries already built on the target release (Ubuntu 24.04 or later, Debian 13), with
+# the same files as pkg/PKGBUILD's andromeda-link-git: the daemon, session, mount, mirror, apps, and, when built, the
+# Qt app (which needs Qt 6.7, or QT_BUNDLE). The daemon and the
 # mount start with the graphical session here, since only Andromeda has andromeda-session.target.
 # Usage: build-deb.sh TARGET_RELEASE_DIR OUT_DIR
 set -euo pipefail
@@ -12,7 +12,7 @@ VERSION="0~r$(git -C "$ROOT" rev-list --count HEAD).g$(git -C "$ROOT" rev-parse 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 P=$STAGE/andromeda-link
-A=$STAGE/andromeda-link-app
+A=$P
 
 for b in andromeda-linkd andromeda-link-mount andromeda-link-mirror andromeda-link-apps andromeda-link-session; do
   install -Dm755 "$BIN/$b" "$P/usr/bin/$b"
@@ -64,16 +64,28 @@ elif [[ -n $APP ]]; then
 fi
 install -Dm644 "$ROOT/dist/org.andromeda.Link.desktop" "$A/usr/share/applications/org.andromeda.Link.desktop"
 cp -r "$ROOT/dist/icons" "$A/usr/share/"
-install -Dm644 "$ROOT/LICENSE" "$A/usr/share/doc/andromeda-link-app/copyright"
 
-install -d "$P/DEBIAN" "$A/DEBIAN"
+install -d "$P/DEBIAN"
+if [[ -n ${QT_BUNDLE:-} ]]; then
+  APP_DEPENDS="libc6, libstdc++6, libgl1, libegl1, libfontconfig1, libfreetype6, libdbus-1-3, libxkbcommon0,
+ libxkbcommon-x11-0, libxcb-cursor0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libwayland-client0,
+ libwayland-cursor0, libwayland-egl1, libglib2.0-0t64 | libglib2.0-0, libpulse0"
+else
+  APP_DEPENDS="libqt6core6t64 (>= 6.7) | libqt6core6 (>= 6.7), libqt6qml6, libqt6quick6,
+ libqt6multimedia6, qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-templates,
+ qml6-module-qtquick-layouts, qml6-module-qtquick-dialogs, qml6-module-qtquick-shapes, qml6-module-qtquick-effects,
+ qml6-module-qtmultimedia, qml6-module-qtqml-workerscript"
+fi
 cat > "$P/DEBIAN/control" << EOF
 Package: andromeda-link
 Version: $VERSION
 Architecture: amd64
 Maintainer: Andromeda <sitish@akintechnologies.com>
-Depends: libc6, libgcc-s1, dbus, fuse3, libgtk-4-1, gstreamer1.0-plugins-base, gstreamer1.0-plugins-bad
-Recommends: andromeda-link-app, gstreamer1.0-gtk4, xdg-desktop-portal-gnome | xdg-desktop-portal-kde
+Depends: libc6, libgcc-s1, dbus, fuse3, libgtk-4-1, gstreamer1.0-plugins-base, gstreamer1.0-plugins-bad${APP:+,
+ $APP_DEPENDS}
+Replaces: andromeda-link-app
+Breaks: andromeda-link-app
+Recommends: gstreamer1.0-gtk4, xdg-desktop-portal-gnome | xdg-desktop-portal-kde
 Suggests: bluez, network-manager, gstreamer1.0-vaapi, gstreamer1.0-libav, scrcpy, adb
 Description: Andromeda Link: phone and desktop continuity
  Clipboard, notifications, media, files, texts, and screen mirroring between an Android phone and the desktop.
@@ -93,25 +105,5 @@ if command -v firewall-cmd > /dev/null && firewall-cmd --state > /dev/null 2>&1;
 fi
 EOF
 chmod 755 "$P/DEBIAN/postinst"
-if [[ -n ${QT_BUNDLE:-} ]]; then
-  APP_DEPENDS="libc6, libstdc++6, libgl1, libegl1, libfontconfig1, libfreetype6, libdbus-1-3, libxkbcommon0,
- libxkbcommon-x11-0, libxcb-cursor0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libwayland-client0,
- libwayland-cursor0, libwayland-egl1, libglib2.0-0t64 | libglib2.0-0, libpulse0"
-else
-  APP_DEPENDS="libqt6core6t64 (>= 6.7) | libqt6core6 (>= 6.7), libqt6qml6, libqt6quick6,
- libqt6multimedia6, qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-templates,
- qml6-module-qtquick-layouts, qml6-module-qtquick-dialogs, qml6-module-qtquick-shapes, qml6-module-qtquick-effects,
- qml6-module-qtmultimedia, qml6-module-qtqml-workerscript"
-fi
-cat > "$A/DEBIAN/control" << EOF
-Package: andromeda-link-app
-Version: $VERSION
-Architecture: amd64
-Maintainer: Andromeda <sitish@akintechnologies.com>
-Depends: andromeda-link (= $VERSION), $APP_DEPENDS
-Description: Andromeda Link app
- The desktop app for Andromeda Link: pairing, the phone's media, texts, photos, files, and screen.
-EOF
 mkdir -p "$OUT"
 dpkg-deb --root-owner-group --build "$P" "$OUT/andromeda-link_${VERSION}_amd64.deb"
-[[ -z $APP ]] || dpkg-deb --root-owner-group --build "$A" "$OUT/andromeda-link-app_${VERSION}_amd64.deb"

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds every Link package for a release into target/dist: the Android APK (signed when
-# ~/.config/andromeda-link/signing.env exists), the macOS app zip, Ubuntu 24.04 .debs and Fedora RPMs (each built in
+# ~/.config/andromeda-link/signing.env exists), the macOS app zip, the Ubuntu 24.04 .deb and Fedora RPM (each built in
 # its distrobox, ubuntu-link and fedora-link, so they link the target's libraries), and the Flatpak bundle of the app.
 # Usage: release.sh [android macos deb rpm flatpak]; no argument builds them all.
 set -euo pipefail

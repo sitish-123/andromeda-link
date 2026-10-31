@@ -7,19 +7,15 @@ Release:        1%{?dist}
 Summary:        Andromeda Link: phone and desktop continuity
 License:        MIT
 Requires:       dbus fuse3 gtk4 gstreamer1-plugins-base gstreamer1-plugins-bad-free
-Recommends:     andromeda-link-app gstreamer1-plugin-gtk4 (xdg-desktop-portal-gnome or xdg-desktop-portal-kde)
+Requires:       qt6-qtbase >= 6.7 qt6-qtdeclarative qt6-qtmultimedia
+Obsoletes:      andromeda-link-app < %{version}-%{release}
+Provides:       andromeda-link-app = %{version}-%{release}
+Recommends:     gstreamer1-plugin-gtk4 (xdg-desktop-portal-gnome or xdg-desktop-portal-kde)
 Suggests:       bluez NetworkManager scrcpy android-tools
 %global debug_package %{nil}
 
 %description
 Clipboard, notifications, media, files, texts, and screen mirroring between an Android phone and the desktop.
-
-%package app
-Summary:        Andromeda Link app
-Requires:       andromeda-link = %{version}-%{release} qt6-qtbase >= 6.7 qt6-qtdeclarative qt6-qtmultimedia
-
-%description app
-The desktop app for Andromeda Link: pairing, the phone's media, texts, photos, files, and screen.
 
 %install
 for b in andromeda-linkd andromeda-link-mount andromeda-link-mirror andromeda-link-apps andromeda-link-session andromeda-link; do
@@ -68,8 +64,6 @@ fi
 %config(noreplace) %{_sysconfdir}/ufw/applications.d/andromeda-link
 %{_prefix}/lib/firewalld/services/andromeda-link*.xml
 %{_datadir}/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf
-
-%files app
 %{_bindir}/andromeda-link
 %{_datadir}/applications/org.andromeda.Link.desktop
 %{_datadir}/icons/hicolor/*/apps/org.andromeda.Link*

@@ -57,7 +57,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y protobuf-compiler pkg-config libdbus-1-dev libfuse3-dev
           libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev
           libgl-dev libegl-dev libxkbcommon-dev
-      # Ubuntu 24.04's Qt is too old for the app, so the app .deb carries this Qt (see dist/deb/build-deb.sh).
+      # Ubuntu 24.04's Qt is too old for the app, so the .deb carries this Qt (see dist/deb/build-deb.sh).
       - uses: jurplel/install-qt-action@v4
         with: { version: "6.12.0", modules: qtmultimedia, cache: true }
       - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror

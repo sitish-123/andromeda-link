@@ -217,6 +217,7 @@ Item {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.maximumWidth: 360
                     text: page.api.error !== "" && page.api.state === "idle" ? page.api.error
+                        : page.api.state === "reconnecting" ? "The picture stopped. Waiting for " + page.phoneName + "…"
                         : page.phoneName + " asks for permission on its screen. Tap Start now there."
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap

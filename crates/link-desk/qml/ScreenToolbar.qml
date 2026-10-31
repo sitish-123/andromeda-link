@@ -22,7 +22,7 @@ Rectangle {
         Divider {}
         Key { iconName: "vol-down"; text: "Volume down"; iconOnly: true; onClicked: bar.api.press(25) }
         Key { iconName: "vol-up"; text: "Volume up"; iconOnly: true; onClicked: bar.api.press(24) }
-        Key { iconName: "power"; text: "Power"; iconOnly: true; onClicked: bar.api.press(26) }
+        Key { iconName: "power"; text: "Power"; iconOnly: true; onClicked: lockConfirm.open() }
         Key {
             iconName: "screen"
             text: bar.api.screenOff ? "Turn phone screen on" : "Turn phone screen off"
@@ -32,6 +32,48 @@ Rectangle {
         }
         Divider {}
         Key { iconName: "stop"; text: "Stop"; stop: true; onClicked: bar.api.stop() }
+    }
+
+    Popup {
+        id: lockConfirm
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        padding: 24
+        width: 380
+        background: Rectangle {
+            radius: 20
+            color: Theme.elev
+            border.width: 1
+            border.color: Theme.b2
+        }
+        Overlay.modal: Rectangle { color: Qt.alpha("black", 0.4) }
+        contentItem: Column {
+            spacing: 20
+            Label {
+                width: parent.width
+                text: "Lock the phone?"
+                font.pixelSize: Theme.title
+                font.weight: Font.DemiBold
+                color: Theme.t1
+            }
+            Row {
+                anchors.right: parent.right
+                spacing: 8
+                TonalButton {
+                    text: "Cancel"
+                    onClicked: lockConfirm.close()
+                }
+                TonalButton {
+                    kind: "warn"
+                    text: "Lock"
+                    onClicked: {
+                        bar.api.press(26)
+                        lockConfirm.close()
+                    }
+                }
+            }
+        }
     }
 
     component Divider: Rectangle {

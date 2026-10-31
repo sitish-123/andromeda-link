@@ -37,6 +37,19 @@ QtObject {
     readonly property int name: 17
     readonly property int title: 20
 
+    // A browse error as the user can act on it: the service's refusal codes, else its own words.
+    function browseError(phone, error) {
+        switch (error) {
+        case "not-allowed": return "Browse files is off for this computer. Turn it on in Link on " + phone + "."
+        case "denied": return phone + " does not let Link read this. Allow photos and files for Link in the phone's settings."
+        case "busy": return phone + " is busy with other requests. Try again in a moment."
+        case "not-found": return "This is no longer on " + phone + "."
+        case "the phone did not answer in time":
+            return phone + " did not answer. Open Link on the phone; if it then works, the phone stops Link in the background."
+        default: return phone + " said: " + error
+        }
+    }
+
     function since(unixS) {
         if (unixS <= 0)
             return ""

@@ -15,12 +15,14 @@ ApplicationWindow {
     property var settings: typeof LinkSettings !== "undefined" ? LinkSettings : null
     property var pairing: typeof LinkPairing !== "undefined" ? LinkPairing : null
     property bool pairOpen: false
+    // The phone just paired, whose setup shows; empty when none does.
+    property string setupPhone: ""
     property alias page: sidebar.page
     property alias replyKey: notes.replyKey
     property alias replyDraft: notes.draft
     property alias body: body
     property bool sheetOpen: false
-    readonly property bool home: page === 0 && !pairOpen
+    readonly property bool home: page === 0 && !pairOpen && setupPhone === ""
     readonly property bool narrow: width < 1100
     readonly property bool sheet: narrow && sheetOpen
     readonly property int unreadCount: link ? link.notifications.count : 0
@@ -57,6 +59,14 @@ ApplicationWindow {
         function onFailed(message) { toast.show(message) }
         function onRaiseRequested() { window.show(); window.raise(); window.requestActivate() }
     }
+    Loader {
+        active: Qt.platform.os === "osx" && window.link !== null
+        sourceComponent: MenuBarIcon {
+            link: window.link
+            phoneName: window.phoneName
+            onOpenRequested: { window.show(); window.raise(); window.requestActivate() }
+        }
+    }
     Connections {
         target: window.photos
         function onSaved(count, folder) { toast.show("Saved " + count + " to " + folder) }
@@ -82,7 +92,7 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 Layout.preferredWidth: Theme.sidebarWidth
                 link: window.link
-                onPageChanged: window.pairOpen = false
+                onPageChanged: { window.pairOpen = false; window.setupPhone = "" }
             }
 
             StackLayout {
@@ -90,7 +100,7 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 Layout.fillWidth: !window.home
                 Layout.preferredWidth: window.home ? Math.min(Theme.homeWidth, window.width - Theme.sidebarWidth - (window.narrow ? 0 : Theme.notesMinWidth)) : -1
-                currentIndex: window.pairOpen ? 8 : sidebar.page
+                currentIndex: window.setupPhone !== "" ? 9 : window.pairOpen ? 8 : sidebar.page
 
                 HomePage {
                     link: window.link
@@ -144,7 +154,17 @@ ApplicationWindow {
                 PairPage {
                     api: window.pairing
                     active: window.pairOpen
-                    onClosed: window.pairOpen = false
+                    onClosed: {
+                        if (window.pairing.state === "paired")
+                            window.setupPhone = window.pairing.pairedName
+                        window.pairOpen = false
+                    }
+                }
+                SetupPage {
+                    link: window.link
+                    api: window.settings
+                    phoneName: window.setupPhone
+                    onClosed: window.setupPhone = ""
                 }
             }
 
@@ -236,6 +256,8 @@ ApplicationWindow {
               state: () => ({ grants: window.settings.grants[window.link.currentPhone] || [] }), dark: true },
             { name: "screen", index: 5, ready: () => window.mirror.state === "idle",
               state: () => ({ state: window.mirror.state, error: window.mirror.error }) },
+            { name: "setup", index: 0, setup: true, ready: () => (window.settings.grants[window.link.currentPhone] || []).length > 0,
+              state: () => ({ capabilities: window.settings.sessionCapabilities }) },
             { name: "pairing", index: 7, pair: true, ready: () => window.pairing.state === "waiting" && window.pairing.code.length === 6,
               state: () => ({ state: window.pairing.state, codeLength: window.pairing.code.length }) }
         ]
@@ -245,6 +267,7 @@ ApplicationWindow {
             pageTicks = 0
             window.pairOpen = false
             window.page = p.index
+            window.setupPhone = p.setup ? window.phoneName : ""
             if (p.pair) {
                 window.pairOpen = true
                 window.pairing.start()
@@ -262,6 +285,7 @@ ApplicationWindow {
             pageNo = -2
             const done = () => {
                 if (p.pair) window.pairing.cancel()
+                window.setupPhone = ""
                 if (pagesDone + 1 < pageList.length) enter(++pagesDone)
                 else { window.pairOpen = false; window.page = 0; console.log("SHOT pages done"); step = 3 }
             }

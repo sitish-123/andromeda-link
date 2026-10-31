@@ -155,6 +155,8 @@ pub enum Event {
     QuickShare(bool),
     NotifyLocked(bool),
     NotificationsOff(Vec<String>),
+    /// What link-session can do now; empty when it does not run.
+    SessionCapabilities(Vec<String>),
     /// (name, command line)
     Commands(Vec<(String, String)>),
     /// Device id to its texts, newest first.

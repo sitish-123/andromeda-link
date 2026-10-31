@@ -66,6 +66,8 @@ pub mod qobject {
 
 /// The phone's root of albums, one folder each.
 const ROOT: &str = "/Photos";
+/// Each album listing is a media-store query on the phone; a slow phone answers a few at a time within the timeout.
+const ALBUMS_AT_ONCE: usize = 2;
 /// Thumbnail pixels on the longer side. A cell crops to the shorter side, up to 400 px at scale 2; a 640 x 480 RGB PNG
 /// stays under `MAX_FS_READ` even with no compression.
 const THUMB: u16 = 640;
@@ -101,6 +103,10 @@ pub struct PhotosRust {
     index: HashMap<String, usize>,
     /// Albums listed but not answered yet.
     pending: usize,
+    /// Albums not asked for yet; [`ALBUMS_AT_ONCE`] are asked at a time.
+    albums_left: Vec<String>,
+    /// Whether an album answered, so one failed album does not fail the page.
+    any_album: bool,
     /// Paths on screen without a thumbnail request yet, the next one last.
     queue: Vec<String>,
     /// Paths asked for, so a cell scrolled past twice asks once.
@@ -131,6 +137,8 @@ impl Default for PhotosRust {
             all: Vec::new(),
             index: HashMap::new(),
             pending: 0,
+            albums_left: Vec::new(),
+            any_album: false,
             queue: Vec::new(),
             asked_thumbs: HashSet::new(),
             in_flight: 0,
@@ -184,6 +192,12 @@ fn thumbs(all: &[Photo], photos: &[usize]) -> QVariant {
 
 impl PhotosRust {
     /// Drops the photo list and every row index into it.
+    fn ask_next_album(&mut self) {
+        if let Some(path) = self.albums_left.pop() {
+            hub::send(Command::List { device: self.phone.clone(), path });
+        }
+    }
+
     fn forget(&mut self) {
         self.all.clear();
         self.index.clear();
@@ -259,26 +273,32 @@ impl qobject::LinkPhotos {
         let mut state = self.as_mut().rust_mut();
         let entries = match entries {
             Ok(entries) => entries,
-            Err(reason) => {
-                state.pending = state.pending.saturating_sub(1);
-                if path == ROOT || state.pending == 0 {
-                    state.pending = 0;
-                    self.as_mut().set_error(QString::from(&reason));
-                    self.as_mut().set_loading(false);
-                }
+            Err(reason) if path == ROOT || (state.pending == 1 && !state.any_album) => {
+                state.pending = 0;
+                state.albums_left.clear();
+                self.as_mut().set_error(QString::from(&reason));
+                self.as_mut().set_loading(false);
                 return;
+            }
+            Err(reason) => {
+                log::info!("{path}: {reason}");
+                Vec::new()
             }
         };
         let (albums, files): (Vec<Entry>, Vec<Entry>) = entries.into_iter().partition(|entry| entry.folder);
         if path == ROOT {
             state.forget();
             state.pending = albums.len();
-            for album in &albums {
-                let (path, phone) = (format!("{ROOT}/{}", album.name), state.phone.clone());
-                hub::send(Command::List { device: phone, path });
+            state.any_album = false;
+            // Asked from the end, so the phone's first albums come first.
+            state.albums_left = albums.iter().rev().map(|album| format!("{ROOT}/{}", album.name)).collect();
+            for _ in 0..ALBUMS_AT_ONCE {
+                state.ask_next_album();
             }
         } else {
             state.pending = state.pending.saturating_sub(1);
+            state.any_album |= !files.is_empty();
+            state.ask_next_album();
         }
         for file in files {
             let path = format!("{path}/{}", file.name);
@@ -442,6 +462,8 @@ mod tests {
             index: all.iter().enumerate().map(|(at, photo)| (photo.path.clone(), at)).collect(),
             all,
             pending: 0,
+            albums_left: Vec::new(),
+            any_album: false,
             queue: Vec::new(),
             asked_thumbs: HashSet::new(),
             in_flight: 0,

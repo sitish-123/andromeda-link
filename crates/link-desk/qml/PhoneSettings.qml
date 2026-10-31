@@ -9,6 +9,8 @@ ColumnLayout {
     required property var api
     required property var phone
     readonly property var granted: api.grants[phone.id] || []
+    // The session reports "input" only once it can post events; on macOS, after the Accessibility permission.
+    readonly property bool inputBlocked: granted.indexOf("input") >= 0 && (api.sessionCapabilities || []).indexOf("input") < 0
     readonly property var here: [
         { f: "clipboard", name: "Clipboard", icon: "clip" },
         { f: "files", name: "Files", icon: "file" },
@@ -86,6 +88,29 @@ ColumnLayout {
         font.pixelSize: Theme.small
         color: Theme.t2
         background: Rectangle { radius: 12; color: Qt.alpha(Theme.warn, 0.12) }
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.topMargin: 16
+        visible: tab.inputBlocked
+        text: Qt.platform.os === "osx"
+              ? "Input needs the Accessibility permission. In System Settings, open Privacy & Security, then Accessibility, and turn on Andromeda Link Helper."
+              : "Input does not work in this desktop session, so " + tab.phone.name + " cannot use the touchpad or keyboard."
+        leftPadding: 16
+        rightPadding: 16
+        topPadding: 10
+        bottomPadding: 10
+        wrapMode: Text.WordWrap
+        font.pixelSize: Theme.small
+        color: Theme.t2
+        background: Rectangle { radius: 12; color: Qt.alpha(Theme.warn, 0.12) }
+    }
+    PillButton {
+        Layout.topMargin: 8
+        visible: tab.inputBlocked && Qt.platform.os === "osx"
+        text: "Open Accessibility settings"
+        onClicked: Qt.openUrlExternally("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
 
     Heading { text: "What " + tab.phone.name + " can do here" }

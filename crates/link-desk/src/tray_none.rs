@@ -1,4 +1,4 @@
-//! No tray icon on platforms without `StatusNotifierItem`.
+//! No `StatusNotifierItem` tray off Linux; on macOS the menu bar item is QML (`MenuBarIcon.qml`).
 
 use cxx_qt::CxxQtThread;
 
@@ -15,9 +15,15 @@ pub struct State {
 }
 
 pub fn wanted() -> bool {
-    false
+    cfg!(target_os = "macos")
 }
 
-pub fn start(_link: CxxQtThread<Link>) {}
+/// On macOS, closing the window keeps the app in the menu bar.
+#[expect(clippy::needless_pass_by_value, reason = "the same signature as tray.rs, which keeps the thread")]
+pub fn start(link: CxxQtThread<Link>) {
+    if cfg!(target_os = "macos") {
+        let _ = link.queue(|_| crate::desktop::ffi::keep_running_without_windows());
+    }
+}
 
 pub fn show(_state: State) {}

@@ -113,7 +113,7 @@ Item {
                     wrapMode: Text.WordWrap
                 }
                 Step { n: 1; title: "Open Link on the phone" }
-                Step { n: 2; title: "Tap Pair a desktop"; detail: "Both devices must be on the same network." }
+                Step { n: 2; title: "Tap Pair a desktop"; detail: "On the same network, or near with Bluetooth on." }
                 Step { n: 3; title: "Point the camera at this code" }
                 Label {
                     Layout.topMargin: 36

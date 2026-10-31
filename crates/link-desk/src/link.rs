@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "macos", allow(dead_code, reason = "the Linux tray asks for a raise"))]
+
 //! The `Link` `QObject` QML binds to, and the list models it owns; state comes from the client thread.
 
 mod commands;

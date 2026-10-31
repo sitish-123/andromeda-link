@@ -206,7 +206,7 @@ Item {
             visible: page.ready && page.api.error !== ""
             iconName: "folder"
             title: "This folder did not open"
-            text: page.phoneName + " said: " + page.api.error
+            text: Theme.browseError(page.phoneName, page.api.error)
             action: "Try again"
             primary: false
             onTriggered: page.api.reload()

@@ -17,12 +17,13 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 pub use signals::cache;
 pub use types::*;
 
-use player::{PLAYER_PREFIX, watch_player};
+use player::{send_players, tick};
 use signals::{send_calls, send_controls, send_devices, send_info, send_status, send_texts, signal};
 
 static RUNTIME: OnceLock<tokio::runtime::Handle> = OnceLock::new();
 
 /// The client thread's runtime, for other D-Bus services of the app; None before `start` or when it failed.
+#[cfg_attr(target_os = "macos", allow(dead_code, reason = "only the Linux tray uses it"))]
 pub fn runtime() -> Option<&'static tokio::runtime::Handle> {
     RUNTIME.get()
 }
@@ -63,6 +64,8 @@ async fn run(mut commands: UnboundedReceiver<Command>, events: UnboundedSender<E
     if let Err(error) = install_agents() {
         let _ = events.send(Event::Failed(format!("Could not set up the Link service: {error}")));
     }
+    #[cfg(target_os = "linux")]
+    start_session_units();
     loop {
         match session(&mut commands, &events).await {
             Ok(()) => return,
@@ -90,23 +93,45 @@ async fn run(mut commands: UnboundedReceiver<Command>, events: UnboundedSender<E
     }
 }
 
-/// Loads the service and link-session as launchd agents on the app's first start, from the bundle's installer.
+/// Loads the service and link-session as launchd agents from the bundle's installer, when they are missing or name
+/// another copy of the app.
 #[cfg(target_os = "macos")]
 fn install_agents() -> std::io::Result<()> {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
-    if home.join("Library/LaunchAgents/org.andromeda.linkd.plist").exists() {
-        return Ok(());
-    }
     // The binary is Andromeda Link.app/Contents/MacOS/andromeda-link.
     let exe = std::env::current_exe()?;
     let contents = exe.parent().and_then(std::path::Path::parent).ok_or(std::io::ErrorKind::NotFound)?;
     let app = contents.parent().ok_or(std::io::ErrorKind::NotFound)?;
+    // Gatekeeper runs a downloaded app from a random read-only copy until the user moves it; agents there break.
+    if app.to_string_lossy().contains("/AppTranslocation/") {
+        return Err(std::io::Error::other("move Andromeda Link to Applications, then open it again"));
+    }
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+    let installed = std::fs::read_to_string(home.join("Library/LaunchAgents/org.andromeda.link-session.plist"));
+    let helper = format!("{}/Contents/Library/LoginItems/Andromeda Link Helper.app/", app.display());
+    if installed.is_ok_and(|plist| plist.contains(&helper)) {
+        return Ok(());
+    }
     let status = std::process::Command::new(contents.join("Resources/install-agents.sh")).arg(app).status()?;
     if status.success() { Ok(()) } else { Err(std::io::Error::other(format!("install-agents.sh: {status}"))) }
 }
 
+/// Starts link-session and the mount, which their units start only with graphical-session.target: so not after a
+/// package install until the next login, and never on a compositor without that target.
+#[cfg(target_os = "linux")]
+fn start_session_units() {
+    let started = std::process::Command::new("systemctl")
+        .args(["--user", "--no-block", "start", "andromeda-link-session", "andromeda-link-mount"])
+        .status();
+    match started {
+        Ok(status) if status.success() => {}
+        Ok(status) => log::warn!("systemctl start of the session units: {status}"),
+        Err(error) => log::info!("systemctl: {error}"),
+    }
+}
+
 /// launchd keeps the daemon alive; this starts it when the user stopped it.
 #[cfg(target_os = "macos")]
+#[expect(clippy::unused_async, reason = "the same signature as the D-Bus start elsewhere")]
 async fn start_service() -> zbus::Result<()> {
     let status = std::process::Command::new("launchctl").args(["start", "org.andromeda.linkd"]).status()?;
     if status.success() { Ok(()) } else { Err(zbus::Error::Failure(format!("launchctl start: {status}"))) }
@@ -122,7 +147,7 @@ async fn start_service() -> zbus::Result<()> {
 /// One connection to the service; returns Ok when the app closes, Err when the service is gone.
 async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSender<Event>) -> zbus::Result<()> {
     let bus = link_api::connect().await?;
-    // On the socket there are no names: the daemon is there when the connection is, and exports no MPRIS players.
+    // On the socket there are no names: the daemon is there when the connection is.
     let mut owner = None;
     if bus.is_bus() {
         let names = zbus::fdo::DBusProxy::new(&bus).await?;
@@ -131,11 +156,6 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
             return Err(zbus::Error::Failure("the service is not running".into()));
         }
         owner = Some(names.receive_name_owner_changed().await?);
-        for name in names.list_names().await? {
-            if name.starts_with(PLAYER_PREFIX) {
-                tokio::spawn(watch_player(bus.clone(), name.to_string(), events.clone()));
-            }
-        }
     }
     let proxy = Link1Proxy::new(&bus).await?;
     let quick_share = QuickShareProxy::new(&bus).await?;
@@ -143,6 +163,10 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     let _ = events.send(Event::Service(true));
     snapshot(&proxy, &quick_share, events).await?;
 
+    let mut players = std::collections::HashMap::new();
+    send_players(events, &mut players, proxy.phone_players().await?);
+    let mut player_changes = proxy.receive_phone_players_changed().await;
+    let mut ticks = tokio::time::interval(Duration::from_secs(1));
     let mut devices = proxy.receive_devices_changed().await;
     let mut info = proxy.receive_device_info_changed().await;
     let mut status = proxy.receive_device_status_changed().await;
@@ -153,6 +177,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     let mut quick_share_visible = quick_share.receive_visible_changed().await;
     let mut notify_locked = proxy.receive_notifications_while_locked_changed().await;
     let mut notifications_off = proxy.receive_notifications_off_changed().await;
+    let mut session_capabilities = proxy.receive_session_capabilities_changed().await;
     let mut stored = proxy.receive_commands_changed().await;
     let mut texts = proxy.receive_texts_changed().await;
     let mut contacts = proxy.receive_contacts_changed().await;
@@ -162,6 +187,8 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
     loop {
         tokio::select! {
             Some(change) = devices.next() => send_devices(events, change.get().await?),
+            Some(change) = player_changes.next() => send_players(events, &mut players, change.get().await?),
+            _ = ticks.tick(), if players.values().any(|player| player.5) => tick(events, &players),
             Some(change) = info.next() => send_info(events, change.get().await?),
             Some(change) = status.next() => send_status(events, change.get().await?),
             Some(change) = controls.next() => send_controls(events, change.get().await?),
@@ -172,6 +199,9 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
             Some(change) = notify_locked.next() => drop(events.send(Event::NotifyLocked(change.get().await?))),
             Some(change) = notifications_off.next() => {
                 drop(events.send(Event::NotificationsOff(change.get().await?)));
+            }
+            Some(change) = session_capabilities.next() => {
+                drop(events.send(Event::SessionCapabilities(change.get().await?)));
             }
             Some(change) = stored.next() => drop(events.send(Event::Commands(change.get().await?))),
             Some(change) = texts.next() => send_texts(events, change.get().await?),
@@ -189,13 +219,6 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
                 if args.name() == SERVICE && args.new_owner().is_none() {
                     return Err(zbus::Error::Failure("the service stopped".into()));
                 }
-                if let Some(device) = args.name().strip_prefix(PLAYER_PREFIX) {
-                    if args.new_owner().is_some() {
-                        tokio::spawn(watch_player(bus.clone(), args.name().to_string(), events.clone()));
-                    } else {
-                        let _ = events.send(Event::Player { device: device.to_owned(), player: None });
-                    }
-                }
             }
             command = commands.recv() => match command {
                 Some(Command::Resync) => snapshot(&proxy, &quick_share, events).await?,
@@ -205,7 +228,7 @@ async fn session(commands: &mut UnboundedReceiver<Command>, events: &UnboundedSe
                         command => execute::execute(&proxy, events, command).await,
                     };
                     if let Err(error) = result {
-                        let _ = events.send(Event::Failed(error.to_string()));
+                        let _ = events.send(Event::Failed(execute::reason(&error)));
                     }
                 }
                 None => return Ok(()),
@@ -230,6 +253,7 @@ async fn snapshot(
     let _ = events.send(Event::QuickShare(quick_share.visible().await?));
     let _ = events.send(Event::NotifyLocked(proxy.notifications_while_locked().await?));
     let _ = events.send(Event::NotificationsOff(proxy.notifications_off().await?));
+    let _ = events.send(Event::SessionCapabilities(proxy.session_capabilities().await?));
     let _ = events.send(Event::Commands(proxy.commands().await?));
     send_texts(events, proxy.texts().await?);
     let _ = events.send(Event::Contacts(proxy.contacts().await?));

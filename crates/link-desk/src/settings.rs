@@ -34,6 +34,7 @@ pub mod qobject {
         #[qproperty(bool, quick_share_visible, READ, NOTIFY)]
         #[qproperty(bool, notifications_while_locked, READ, NOTIFY)]
         #[qproperty(QStringList, notifications_off)]
+        #[qproperty(QStringList, session_capabilities)]
         #[qproperty(QList_QVariant, commands, READ, NOTIFY)]
         #[qproperty(QString, helper_status, READ, NOTIFY)]
         type LinkSettings = super::SettingsRust;
@@ -71,6 +72,7 @@ pub struct SettingsRust {
     quick_share_visible: bool,
     notifications_while_locked: bool,
     notifications_off: QStringList,
+    session_capabilities: QStringList,
     commands: QList<QVariant>,
     helper_status: QString,
 }
@@ -91,6 +93,7 @@ impl cxx_qt::Initialize for qobject::LinkSettings {
                     | Event::QuickShare(_)
                     | Event::NotifyLocked(_)
                     | Event::NotificationsOff(_)
+                    | Event::SessionCapabilities(_)
                     | Event::Commands(_)
             ) {
                 let event = event.clone();
@@ -127,6 +130,7 @@ impl qobject::LinkSettings {
                 self.as_mut().notifications_while_locked_changed();
             }
             Event::NotificationsOff(ids) => self.as_mut().set_notifications_off(strings(&ids)),
+            Event::SessionCapabilities(can) => self.as_mut().set_session_capabilities(strings(&can)),
             Event::Commands(commands) => {
                 let mut list = QList::default();
                 for (name, command) in commands {

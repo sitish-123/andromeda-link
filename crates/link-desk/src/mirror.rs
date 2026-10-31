@@ -1,18 +1,13 @@
 //! The daemon's mirror socket decoded into NV12 pictures for the Screen page, and the phone's sound to the speakers.
-//! The socket's framing: a big-endian u32 length and u64 presentation time in microseconds, a flags byte, then H.264 in
-//! Annex B form, or with the audio flag one Opus packet of 48 kHz stereo.
 
-use std::io::Read as _;
 use std::os::unix::net::UnixStream;
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 
-const UNIT_HEADER: usize = 13;
-const MAX_UNIT: usize = 4 * 1024 * 1024;
-const KEYFRAME: u8 = 1;
-const AUDIO: u8 = 4;
+use crate::mirror_unit::{AUDIO, KEYFRAME, read_unit};
+
 const CAPS: &str = "video/x-h264,stream-format=byte-stream,alignment=au";
 const AUDIO_CAPS: &str = "audio/x-opus,channel-mapping-family=(int)0,channels=(int)2,rate=(int)48000";
 
@@ -90,23 +85,6 @@ fn picture(sample: &gst::Sample) -> Option<Frame> {
     let data = sample.buffer_owned()?.into_mapped_buffer_readable().ok()?;
     let needed = usize::try_from(stride * (height + (height + 1) / 2)).ok()?;
     (data.len() >= needed).then_some(Frame { width, height, stride, data })
-}
-
-fn read_unit(socket: &mut UnixStream) -> std::io::Result<Option<(u64, u8, Vec<u8>)>> {
-    let mut header = [0; UNIT_HEADER];
-    match socket.read_exact(&mut header) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(error) => return Err(error),
-    }
-    let [a, b, c, d, pts @ .., flags] = header;
-    let len = u32::from_be_bytes([a, b, c, d]) as usize;
-    if len > MAX_UNIT {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "an access unit over 4 MiB"));
-    }
-    let mut data = vec![0; len];
-    socket.read_exact(&mut data)?;
-    Ok(Some((u64::from_be_bytes(pts), flags, data)))
 }
 
 /// Pushes the socket's units into the video and sound pipelines until it ends.

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use link_api::Link1Proxy;
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::player::{PLAYER_INTERFACE, PLAYER_PATH, PLAYER_PREFIX, number};
 use super::signals::{cache, hashed};
 use super::{Command, Entry, Event, PlayerAction};
 
@@ -16,10 +15,10 @@ const CHUNK: u32 = 1 << 20;
 /// What one `WriteFile` takes.
 const WRITE_CHUNK: usize = 48 * 1024;
 
-/// The phone's reason from an `.Refused` error, else the error's text.
-fn reason(error: &zbus::Error) -> String {
+/// The service's own words for a failed call, without the D-Bus error name the user cannot act on.
+pub(super) fn reason(error: &zbus::Error) -> String {
     match error {
-        zbus::Error::MethodError(name, Some(text), _) if name.as_str().ends_with(".Refused") => text.clone(),
+        zbus::Error::MethodError(_, Some(text), _) => text.clone(),
         other => other.to_string(),
     }
 }
@@ -46,18 +45,19 @@ pub(super) async fn execute(
         }
         Command::System { device, command, value } => proxy.send_system_command(&device, command, value).await,
         Command::Player { device, action } => {
-            let name = format!("{PLAYER_PREFIX}{device}");
-            let player = zbus::Proxy::new(proxy.inner().connection(), name, PLAYER_PATH, PLAYER_INTERFACE).await?;
-            match action {
-                PlayerAction::PlayPause => player.call("PlayPause", &()).await,
-                PlayerAction::Next => player.call("Next", &()).await,
-                PlayerAction::Previous => player.call("Previous", &()).await,
-                PlayerAction::SetPosition(target) => {
-                    let current = number(Some(&player.get_property::<zbus::OwnedVariant>("Position").await?));
-                    player.call("Seek", &(target - current.unwrap_or(0))).await
-                }
-                PlayerAction::SetVolume(volume) => player.set_property("Volume", volume).await.map_err(Into::into),
-            }
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "0.0..=1.0 rounds into 0..=100"
+            )]
+            let (command, value) = match action {
+                PlayerAction::PlayPause => ("play-pause", 0),
+                PlayerAction::Next => ("next", 0),
+                PlayerAction::Previous => ("previous", 0),
+                PlayerAction::SetPosition(target) => ("seek", u64::try_from(target / 1000).unwrap_or(0)),
+                PlayerAction::SetVolume(volume) => ("volume", (volume.clamp(0.0, 1.0) * 100.0).round() as u64),
+            };
+            proxy.phone_player_command(&device, command, value).await
         }
         Command::StartService | Command::Resync | Command::SetQuickShare(_) => Ok(()),
         Command::Accept(transfer) => proxy.accept_transfer(&transfer).await,

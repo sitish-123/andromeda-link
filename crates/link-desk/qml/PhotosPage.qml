@@ -173,7 +173,7 @@ Item {
                 visible: page.ready && !page.api.loading && (page.api.error !== "" || grid.count === 0)
                 iconName: "photo"
                 title: page.api.error !== "" ? "Photos did not load" : "No photos yet"
-                text: page.api.error !== "" ? page.phoneName + " said: " + page.api.error
+                text: page.api.error !== "" ? Theme.browseError(page.phoneName, page.api.error)
                                             : "Photos you take with " + page.phoneName + " appear here."
                 action: page.api.error !== "" ? "Try again" : "Refresh"
                 primary: false

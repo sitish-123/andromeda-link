@@ -8,8 +8,11 @@ mod history;
 mod hub;
 mod link;
 mod messages;
-#[cfg_attr(not(target_os = "linux"), path = "mirror_none.rs")]
+#[cfg_attr(target_os = "macos", path = "mirror_mac.rs")]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), path = "mirror_none.rs")]
 mod mirror;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod mirror_unit;
 mod pairing;
 mod photos;
 mod screen;

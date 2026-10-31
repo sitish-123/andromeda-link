@@ -11,6 +11,7 @@ QtObject {
     property bool quickShareVisible: false
     property bool notificationsWhileLocked: false
     property var notificationsOff: []
+    property var sessionCapabilities: ["clipboard", "input", "volume"]
     property var commands: [
         { name: "Lock screen", command: "loginctl lock-session" },
         { name: "Suspend", command: "systemctl suspend" }

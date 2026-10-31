@@ -42,9 +42,9 @@ Rectangle {
         }
         Label {
             Layout.fillWidth: true
-            text: card.ok ? "It connects to this computer whenever both are on the same network."
+            text: card.ok ? "It connects to this computer on the same network, or over Bluetooth when it is near."
                           : (card.api.failure ? card.api.failure + ". " : "")
-                            + "Check that the phone is on the same network as this computer, then try again."
+                            + "Check that the phone is on the same network as this computer, or near it with Bluetooth on, then try again."
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
             font.pixelSize: 16

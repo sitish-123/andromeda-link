@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "macos", allow(dead_code, reason = "the Linux tray quits the app"))]
+
 //! The desktop's clipboard, default apps, and folders, through Qt.
 
 #[cxx_qt::bridge]

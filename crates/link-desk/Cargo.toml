@@ -28,6 +28,9 @@ gstreamer = "0.25"
 gstreamer-app = "0.25"
 ksni = "0.3"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFDictionary", "CFNumber", "CFString"] }
+
 [build-dependencies]
 cxx-qt-build = "0.10"
 qt-build-utils = "0.10"

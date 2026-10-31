@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use link_core::identity::DeviceId;
 use link_core::proto::message::{MediaGone, MediaPlayer, Message, PlaybackState};
@@ -10,16 +11,30 @@ use link_core::session::SessionHandle;
 
 use crate::desktop_media::{DesktopMediaHandle, Request};
 use crate::hub::HubHandle;
-use crate::mpris::Exported;
+use crate::mpris::{Exported, write_art};
 
 /// Players kept per phone; a new one beyond this drops the least recently updated.
 const MAX_PHONE_PLAYERS: usize = 8;
 
+/// `(player, app, title, artist, art URL, playing, position ms, length ms or 0, volume or -1, when the position was
+/// true in ms since the Unix epoch, commands it takes)`, a phone's lead player in the D-Bus `PhonePlayers` property.
+pub type PhonePlayer = (String, String, String, String, String, bool, u64, u64, i32, i64, Vec<String>);
+
 #[derive(Default)]
 struct PhonePlayers {
-    /// Least recently updated first; the last playing one is exported, else the last.
-    players: Vec<MediaPlayer>,
+    /// Least recently updated first, each with when it reported in ms since the Unix epoch.
+    players: Vec<(MediaPlayer, i64)>,
     exported: Option<Exported>,
+    /// The lead player's artwork file and its file:// URL.
+    art: Option<(PathBuf, String)>,
+}
+
+impl PhonePlayers {
+    /// The newest playing player leads; a paused one that reports later does not take its place.
+    fn lead(&self) -> Option<&(MediaPlayer, i64)> {
+        let mut players = self.players.iter().rev();
+        players.clone().find(|(player, _)| player.state == PlaybackState::Playing).or_else(|| players.next())
+    }
 }
 
 pub struct Media {
@@ -60,24 +75,35 @@ impl Media {
         let phone = self.phones.entry(device.clone()).or_default();
         match message {
             Message::MediaPlayer(player) => {
-                phone.players.retain(|known| known.player != player.player);
+                phone.players.retain(|(known, _)| known.player != player.player);
                 if phone.players.len() >= MAX_PHONE_PLAYERS {
                     phone.players.remove(0);
                 }
-                phone.players.push(player);
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis());
+                phone.players.push((player, i64::try_from(now).unwrap_or(i64::MAX)));
             }
-            Message::MediaGone(gone) => phone.players.retain(|known| known.player != gone.player),
+            Message::MediaGone(gone) => phone.players.retain(|(known, _)| known.player != gone.player),
             Message::MediaCommand(command) => return self.requests.request(Request::Command(command)).await,
             other => return log::warn!("{device}: {} is not media", other.kind()),
         }
-        // The newest playing player leads; a paused one that reports later does not take its place.
-        let lead = phone.players.iter().rev().find(|player| player.state == PlaybackState::Playing);
-        let Some(latest) = lead.or_else(|| phone.players.last()).cloned() else {
+        let Some((latest, _)) = phone.lead().cloned() else {
+            if let Some((file, _)) = phone.art.take() {
+                drop(std::fs::remove_file(file));
+            }
             if let Some(exported) = phone.exported.take() {
                 exported.close().await;
             }
             return;
         };
+        let (file, url) = write_art(&self.art, device, &latest);
+        if let Some((old, _)) = phone.art.take_if(|(old, _)| Some(&*old) != file.as_ref()) {
+            drop(std::fs::remove_file(old));
+        }
+        phone.art = file.zip(url);
+        // MPRIS needs a session bus; macOS has none, and the app reads `PhonePlayers` there.
+        if cfg!(target_os = "macos") {
+            return;
+        }
         let result = match &mut phone.exported {
             Some(exported) => exported.update(device, &latest).await,
             None => match Exported::start(hub.clone(), device.clone(), device_name, &latest, &self.art).await {
@@ -95,9 +121,42 @@ impl Media {
 
     /// The phone's players go with its session.
     pub async fn disconnected(&mut self, device: &DeviceId) {
-        if let Some(PhonePlayers { exported: Some(exported), .. }) = self.phones.remove(device) {
+        let Some(phone) = self.phones.remove(device) else { return };
+        if let Some((file, _)) = phone.art {
+            drop(std::fs::remove_file(file));
+        }
+        if let Some(exported) = phone.exported {
             exported.close().await;
         }
+    }
+
+    /// Each phone's lead player, sorted by device id.
+    pub fn players(&self) -> Vec<(String, PhonePlayer)> {
+        let mut players: Vec<_> = self
+            .phones
+            .iter()
+            .filter_map(|(device, phone)| {
+                let (player, at) = phone.lead()?;
+                let can =
+                    player.can.iter().filter_map(|kind| serde_json::to_value(kind).ok()?.as_str().map(str::to_owned));
+                let value = (
+                    player.player.clone(),
+                    player.name.clone(),
+                    player.title.clone(),
+                    player.artist.clone(),
+                    phone.art.as_ref().map(|(_, url)| url.clone()).unwrap_or_default(),
+                    player.state == PlaybackState::Playing,
+                    player.position_ms,
+                    player.length_ms.unwrap_or(0),
+                    player.volume.map_or(-1, i32::from),
+                    *at,
+                    can.collect(),
+                );
+                Some((device.to_string(), value))
+            })
+            .collect();
+        players.sort_by(|a, b| a.0.cmp(&b.0));
+        players
     }
 }
 

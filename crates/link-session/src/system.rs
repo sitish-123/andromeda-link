@@ -109,6 +109,18 @@ pub struct System {
 
 impl System {
     /// Each part whose service answers now; the shell's on the session bus `bus`, the rest on the system bus.
+    pub fn has_shell(&self) -> bool {
+        self.shell.is_some()
+    }
+
+    /// Whether the Andromeda shell answers now.
+    pub async fn shell_ready(bus: &zbus::Connection) -> bool {
+        match ShellProxy::new(bus).await {
+            Ok(proxy) => proxy.do_not_disturb().await.is_ok(),
+            Err(_) => false,
+        }
+    }
+
     pub async fn connect(bus: &zbus::Connection) -> Self {
         let system = zbus::Connection::system().await.inspect_err(|error| log::info!("system bus: {error}")).ok();
         let mut changes = Changes::new();

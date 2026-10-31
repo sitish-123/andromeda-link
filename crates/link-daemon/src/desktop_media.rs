@@ -42,6 +42,156 @@ struct Watched {
     player: MediaPlayer,
 }
 
+/// On macOS, the Mac's own player for phones: what plays, from the now-playing adapter (crates/link-nowplaying) that
+/// Apple's perl loads. Media keys when the adapter does not run.
+pub async fn now_playing(hub: HubHandle, mut requests: mpsc::Receiver<Request>) -> anyhow::Result<()> {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+    const PERL: &str = "use DynaLoader; my $l = DynaLoader::dl_load_file($ARGV[0], 0) or die DynaLoader::dl_error(); \
+        my $s = DynaLoader::dl_find_symbol($l, 'link_now_playing') or die DynaLoader::dl_error(); \
+        DynaLoader::dl_install_xsub('main::run', $s); run();";
+    let library = std::env::current_exe()?.with_file_name("../Frameworks/liblink_nowplaying.dylib");
+    let child = tokio::process::Command::new("/usr/bin/perl")
+        .args(["-e", PERL])
+        .arg(&library)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
+    let (mut child, mut stdin, stdout) = match child {
+        Ok(mut child) => match (child.stdin.take(), child.stdout.take()) {
+            (Some(stdin), Some(stdout)) => (child, stdin, stdout),
+            _ => return keys(hub, requests).await,
+        },
+        Err(error) => {
+            log::warn!("the now-playing adapter did not start: {error}; media keys only");
+            return keys(hub, requests).await;
+        }
+    };
+    let mut lines = tokio::io::BufReader::new(stdout).lines();
+    let (mut shown, mut playing, mut paused_for_call) = (false, false, false);
+    loop {
+        tokio::select! {
+            line = lines.next_line() => {
+                let Ok(Some(line)) = line else {
+                    log::warn!("the now-playing adapter stopped ({:?}); media keys only", child.try_wait());
+                    if shown {
+                        hub.desktop_player_gone(MAC_PLAYER.to_owned()).await;
+                    }
+                    return keys(hub, requests).await;
+                };
+                match mac_player(&line) {
+                    Some(player) => {
+                        playing = player.state == PlaybackState::Playing;
+                        hub.desktop_player(player).await;
+                        shown = true;
+                    }
+                    None if shown => {
+                        hub.desktop_player_gone(MAC_PLAYER.to_owned()).await;
+                        (shown, playing) = (false, false);
+                    }
+                    None => {}
+                }
+            }
+            request = requests.recv() => {
+                let Some(request) = request else { return Ok(()) };
+                let line = match request {
+                    Request::Command(command) => match command.command {
+                        MediaCommandKind::Play => "play".to_owned(),
+                        MediaCommandKind::Pause => "pause".to_owned(),
+                        MediaCommandKind::PlayPause => "play-pause".to_owned(),
+                        MediaCommandKind::Next => "next".to_owned(),
+                        MediaCommandKind::Previous => "previous".to_owned(),
+                        MediaCommandKind::Seek => format!("seek {}", command.value.unwrap_or(0)),
+                        MediaCommandKind::Volume => continue,
+                    },
+                    Request::PauseAll if playing => {
+                        paused_for_call = true;
+                        "pause".to_owned()
+                    }
+                    Request::ResumePaused if std::mem::take(&mut paused_for_call) => "play".to_owned(),
+                    Request::PauseAll | Request::ResumePaused => continue,
+                };
+                if let Err(error) = stdin.write_all(format!("{line}\n").as_bytes()).await {
+                    log::warn!("telling the now-playing adapter {line}: {error}");
+                }
+            }
+        }
+    }
+}
+
+const MAC_PLAYER: &str = "mac";
+
+/// The adapter's JSON line as the phone's player; None for `{}`, nothing playing.
+fn mac_player(line: &str) -> Option<MediaPlayer> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    let text =
+        |key: &str| truncate(value.get(key).and_then(serde_json::Value::as_str).unwrap_or_default(), MAX_METADATA_LEN);
+    let number = |key: &str| value.get(key).and_then(serde_json::Value::as_u64);
+    let title = text("title");
+    if title.is_empty() {
+        return None;
+    }
+    let artwork = value
+        .get("artwork")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|path| std::fs::read(path).ok())
+        .filter(|bytes| bytes.len() <= MAX_ARTWORK_LEN);
+    Some(MediaPlayer {
+        player: MAC_PLAYER.to_owned(),
+        name: truncate(&text("app"), MAX_PLAYER_LEN),
+        state: if value.get("playing").and_then(serde_json::Value::as_bool) == Some(true) {
+            PlaybackState::Playing
+        } else {
+            PlaybackState::Paused
+        },
+        title,
+        artist: text("artist"),
+        album: text("album"),
+        length_ms: number("duration_ms").filter(|ms| *ms > 0),
+        position_ms: number("position_ms").unwrap_or(0),
+        volume: None,
+        artwork,
+        can: vec![
+            MediaCommandKind::Play,
+            MediaCommandKind::Pause,
+            MediaCommandKind::PlayPause,
+            MediaCommandKind::Next,
+            MediaCommandKind::Previous,
+            MediaCommandKind::Seek,
+        ],
+    })
+}
+
+/// On a desktop without MPRIS (macOS), the one player phones see: its commands press the media keys through
+/// `link-session`. Its state is unknown, so it shows as paused.
+pub async fn keys(hub: HubHandle, mut requests: mpsc::Receiver<Request>) -> anyhow::Result<()> {
+    hub.desktop_player(MediaPlayer {
+        player: "media-keys".to_owned(),
+        name: "Media keys".to_owned(),
+        state: PlaybackState::Paused,
+        title: "Media keys".to_owned(),
+        artist: String::new(),
+        album: String::new(),
+        length_ms: None,
+        position_ms: 0,
+        volume: None,
+        artwork: None,
+        can: vec![MediaCommandKind::PlayPause, MediaCommandKind::Next, MediaCommandKind::Previous],
+    })
+    .await;
+    while let Some(request) = requests.recv().await {
+        let Request::Command(command) = request else { continue };
+        let key = match command.command {
+            MediaCommandKind::Play | MediaCommandKind::Pause | MediaCommandKind::PlayPause => "play-pause",
+            MediaCommandKind::Next => "next",
+            MediaCommandKind::Previous => "previous",
+            MediaCommandKind::Seek | MediaCommandKind::Volume => continue,
+        };
+        hub.media_key(key).await;
+    }
+    Ok(())
+}
+
 pub fn channel() -> (DesktopMediaHandle, mpsc::Receiver<Request>) {
     let (sender, receiver) = mpsc::channel(16);
     (DesktopMediaHandle(sender), receiver)

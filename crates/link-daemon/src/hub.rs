@@ -33,7 +33,6 @@ const DESKTOP_STATUS_EVERY: Duration = Duration::from_millis(150);
 const SYSTEM_TIMEOUT: Duration = Duration::from_secs(5);
 use tokio::task::JoinSet;
 use tokio::time::Instant;
-use zbus::OwnedObjectPath;
 
 use crate::browse;
 use crate::desktop_media::{DesktopMediaHandle, Request};
@@ -95,6 +94,8 @@ pub struct Snapshot {
     pub commands: Vec<(String, String)>,
     /// What `link-session` can do now, the D-Bus `SessionCapabilities` property.
     pub capabilities: Vec<String>,
+    /// Device id to its lead player, the D-Bus `PhonePlayers` property.
+    pub players: Vec<(String, crate::media::PhonePlayer)>,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +150,10 @@ pub enum Event {
     Hotspot {
         id: DeviceId,
         ssid: Option<String>,
+    },
+    /// A phone's command for the media keys player, on a desktop without MPRIS: play-pause, next, or previous.
+    MediaKey {
+        key: &'static str,
     },
     /// The phone's touchpad or keyboard.
     RemoteInput {
@@ -226,6 +231,7 @@ enum Command {
     ClipboardPeers { reply: oneshot::Sender<Vec<DeviceId>> },
     DesktopPlayer { player: MediaPlayer },
     DesktopPlayerGone { player: String },
+    MediaKey { key: &'static str },
     Browse { id: DeviceId, request: browse::Request, reply: browse::Reply },
     SendText { id: DeviceId, to: String, body: String, reply: crate::messages::SendReply },
     Dial { id: DeviceId, number: String, reply: crate::messages::SendReply },
@@ -283,7 +289,7 @@ pub struct Hub {
     /// Which backend each open transfer belongs to, for consent and cancelling.
     open: HashMap<TransferId, Backend>,
     /// Phones whose hotspot this desktop joined, and the `NetworkManager` connection it joined with.
-    hotspots: HashMap<DeviceId, OwnedObjectPath>,
+    hotspots: HashMap<DeviceId, hotspot::Active>,
     /// Each join's phone, the hotspot's SSID (None for a Wi-Fi Direct group), and the outcome.
     joining: JoinSet<(DeviceId, Option<String>, Result<hotspot::Joined, String>)>,
     /// Phones whose hotspot this desktop is joining now.
@@ -456,6 +462,7 @@ impl Hub {
         }
     }
 
+    #[expect(clippy::too_many_lines, reason = "one arm per command")]
     async fn handle(&mut self, command: Command) {
         match command {
             Command::StartPairing { reply } => drop(reply.send(self.start_pairing())),
@@ -467,8 +474,8 @@ impl Hub {
             }
             Command::Unpair { id, reply } => {
                 let unpaired = self.unpair(&id);
-                self.forget_notifications(&id).await;
                 self.media.disconnected(&id).await;
+                self.forget_notifications(&id).await;
                 let _ = reply.send(unpaired);
             }
             Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
@@ -505,6 +512,7 @@ impl Hub {
             Command::Ping { id, message, reply } => drop(reply.send(self.ping(&id, message).await)),
             Command::DesktopPlayer { player } => self.media.desktop_player(player, self.sessions.values()),
             Command::DesktopPlayerGone { player } => self.media.desktop_gone(player, self.sessions.values()),
+            Command::MediaKey { key } => self.emit(Event::MediaKey { key }).await,
             Command::Session { id, reply } => {
                 drop(reply.send(self.sessions.get(&id).filter(|session| session.is_live()).cloned()));
             }
@@ -656,8 +664,8 @@ impl Hub {
                 self.messages.forget(&from);
                 self.save();
                 self.refresh();
-                self.forget_notifications(&from).await;
                 self.media.disconnected(&from).await;
+                self.forget_notifications(&from).await;
             }
             SessionEvent::Message {
                 from,
@@ -770,6 +778,7 @@ impl Hub {
             media @ (Message::MediaPlayer(_) | Message::MediaGone(_) | Message::MediaCommand(_)) => {
                 let name = self.store.peer(&from).map(|peer| peer.name.clone()).unwrap_or_default();
                 self.media.on_phone_message(&self.me, &from, &name, media).await;
+                self.publish();
             }
             Message::Ring(ring) => self.emit(Event::RingRequested { id: from, on: ring.on }).await,
             Message::Call(call) => {
@@ -1371,8 +1380,8 @@ impl Hub {
             self.leave_hotspot(&id).await;
             self.status.remove(&id);
             self.presenting.remove(&id);
-            self.publish();
             self.media.disconnected(&id).await;
+            self.publish();
             self.set_in_call(&id, false).await;
         }
     }
@@ -1654,6 +1663,7 @@ impl Hub {
                 keep_awake: self.mirrors.active() || !self.presenting.is_empty(),
                 commands,
                 capabilities,
+                players: self.media.players(),
             };
             let changed = *current != next;
             *current = next;
@@ -1907,6 +1917,10 @@ impl HubHandle {
 
     pub async fn desktop_player_gone(&self, player: String) {
         self.tell(Command::DesktopPlayerGone { player }).await;
+    }
+
+    pub async fn media_key(&self, key: &'static str) {
+        self.tell(Command::MediaKey { key }).await;
     }
 
     pub async fn disconnected(&self, id: DeviceId, stable_id: usize) {

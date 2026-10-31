@@ -1,18 +1,26 @@
 //! Link over Bluetooth, desktop side: an RFCOMM profile registered with `BlueZ`, whose connections arrive as
 //! descriptors for the listener to run like QUIC connections. See "Bluetooth" in `ARCHITECTURE.md`.
 
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
 use std::os::fd::OwnedFd;
 
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
+#[cfg(target_os = "linux")]
 use zbus::{OwnedObjectPath, OwnedVariant, Variant};
+
+#[cfg(target_os = "macos")]
+#[path = "bluetooth_mac.rs"]
+mod mac;
 
 /// The Link service in SDP, which the phone looks up to find the RFCOMM channel.
 pub const SERVICE_UUID: &str = "5c3b1e5a-7d2f-4a8e-9b61-3f0c2d4e8a17";
+#[cfg(target_os = "linux")]
 const PROFILE_PATH: &str = "/org/andromeda/Link1/Bluetooth";
 /// The RFCOMM channel the service record names; fixed, since the record must name the channel it listens on.
 const CHANNEL: u16 = 22;
+#[cfg(target_os = "linux")]
 /// The SDP record: `BlueZ`'s own for a custom UUID lacks what Android needs to accept it ("Bad Service Class ID list
 /// attribute"), so the phone would never find the channel.
 const SERVICE_RECORD: &str = r#"<?xml version="1.0" encoding="UTF-8" ?>
@@ -27,6 +35,7 @@ const SERVICE_RECORD: &str = r#"<?xml version="1.0" encoding="UTF-8" ?>
   <attribute id="0x0005"><sequence><uuid value="0x1002" /></sequence></attribute>
   <attribute id="0x0100"><text value="Andromeda Link" /></attribute>
 </record>"#;
+#[cfg(target_os = "linux")]
 const ADAPTER: &str = "/org/bluez/hci0";
 /// E2E only: a Unix socket stands in for RFCOMM, so the stream path runs without radios.
 const TEST_SOCKET: &str = "ANDROMEDA_LINK_TEST_BLUETOOTH_SOCKET";
@@ -38,40 +47,58 @@ const BACKLOG: usize = 4;
 pub struct Bluetooth {
     pub address: Option<String>,
     pub incoming: mpsc::Receiver<OwnedFd>,
-    /// The profile lives as long as this connection to the system bus; None for the test socket.
-    bus: Option<zbus::Connection>,
+    /// What keeps the service registered; None for the test socket.
+    #[cfg_attr(target_os = "macos", expect(dead_code, reason = "the service lives on its run loop thread"))]
+    registration: Option<Registration>,
 }
+
+/// The profile lives as long as this connection to the system bus.
+#[cfg(target_os = "linux")]
+type Registration = zbus::Connection;
+#[cfg(target_os = "macos")]
+type Registration = ();
 
 impl Bluetooth {
     /// Opens the adapter to pairing during each window; the test socket needs no radio.
+    #[cfg_attr(target_os = "macos", expect(clippy::unused_self, reason = "macOS needs no pairing window"))]
     pub fn pairing_window(&self) -> watch::Sender<Option<Instant>> {
-        if self.bus.is_some() { open_for_pairing() } else { watch::channel(None).0 }
+        #[cfg(target_os = "linux")]
+        if self.registration.is_some() {
+            return open_for_pairing();
+        }
+        // macOS asks the user itself when an unpaired device connects.
+        watch::channel(None).0
     }
 
     pub async fn start() -> Self {
         let (tx, incoming) = mpsc::channel(BACKLOG);
         if let Some(path) = std::env::var_os(TEST_SOCKET) {
             return match test_socket(path.as_ref(), tx) {
-                Ok(()) => Self { address: Some(TEST_ADDRESS.to_owned()), incoming, bus: None },
+                Ok(()) => Self { address: Some(TEST_ADDRESS.to_owned()), incoming, registration: None },
                 Err(error) => {
                     log::error!("the test Bluetooth socket: {error}");
-                    Self { address: None, incoming, bus: None }
+                    Self { address: None, incoming, registration: None }
                 }
             };
         }
-        match register(tx).await {
-            Ok((bus, address)) => {
+        #[cfg(target_os = "linux")]
+        let registered = register(tx).await.map_err(|error| error.to_string());
+        #[cfg(target_os = "macos")]
+        let registered = mac::register(tx).await.map(|address| ((), address));
+        match registered {
+            Ok((registration, address)) => {
                 log::info!("Bluetooth: listening on {address}");
-                Self { address: Some(address), incoming, bus: Some(bus) }
+                Self { address: Some(address), incoming, registration: Some(registration) }
             }
             Err(error) => {
                 log::info!("Bluetooth unavailable: {error}");
-                Self { address: None, incoming, bus: None }
+                Self { address: None, incoming, registration: None }
             }
         }
     }
 }
 
+#[cfg(target_os = "linux")]
 async fn register(tx: mpsc::Sender<OwnedFd>) -> zbus::Result<(zbus::Connection, String)> {
     let bus = zbus::Connection::system().await?;
     let adapter = zbus::Proxy::new(&bus, "org.bluez", ADAPTER, "org.bluez.Adapter1").await?;
@@ -93,10 +120,12 @@ async fn register(tx: mpsc::Sender<OwnedFd>) -> zbus::Result<(zbus::Connection, 
     Ok((bus, address.to_ascii_uppercase()))
 }
 
+#[cfg(target_os = "linux")]
 struct Profile {
     incoming: mpsc::Sender<OwnedFd>,
 }
 
+#[cfg(target_os = "linux")]
 // zbus hands methods owned arguments and needs `&self` on each, even where the body uses neither.
 #[allow(clippy::unused_self, clippy::needless_pass_by_value)]
 #[zbus::interface(name = "org.bluez.Profile1")]
@@ -123,6 +152,7 @@ impl Profile {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// Keeps the adapter accepting connections from devices it is not paired with while a pairing window is open, so a
 /// phone with no IP path can pair over Bluetooth; `BlueZ` otherwise accepts only paired devices. Each send is the
 /// latest window's deadline. Restores the setting only if it was the one to change it.
@@ -154,6 +184,7 @@ pub fn open_for_pairing() -> watch::Sender<Option<Instant>> {
     tx
 }
 
+#[cfg(target_os = "linux")]
 /// Sets whether the adapter accepts new connections and returns what it was.
 async fn connectable(on: bool) -> zbus::Result<bool> {
     let bus = zbus::Connection::system().await?;

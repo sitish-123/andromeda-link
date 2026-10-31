@@ -6,11 +6,12 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use objc2_application_services::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
+use objc2_application_services::{AXIsProcessTrusted, AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt};
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFRetained, CGPoint, CGRect};
 use objc2_core_graphics::{
-    CGDirectDisplayID, CGDisplayBounds, CGEvent, CGEventField, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
-    CGEventType, CGGetActiveDisplayList, CGMouseButton, CGScrollEventUnit,
+    CGDirectDisplayID, CGDisplayBounds, CGEvent, CGEventField, CGEventFlags, CGEventSource, CGEventSourceStateID,
+    CGEventTapLocation, CGEventType, CGGetActiveDisplayList, CGMouseButton, CGScrollEventUnit,
 };
 
 use super::{Action, RETURN, TAB, keysym};
@@ -80,6 +81,12 @@ pub struct Mac {
     last_press: Option<(u32, Instant, i64)>,
 }
 
+/// Whether the user has given the Accessibility permission, without the system's prompt.
+pub fn trusted() -> bool {
+    // SAFETY: the call takes no arguments.
+    unsafe { AXIsProcessTrusted() }
+}
+
 impl Mac {
     /// `None` until the user gives the Accessibility permission; without it, the call shows the system's prompt.
     pub fn connect() -> anyhow::Result<Option<Self>> {
@@ -87,7 +94,7 @@ impl Mac {
         let options = CFDictionary::from_slices(&[unsafe { kAXTrustedCheckOptionPrompt }], &[CFBoolean::new(true)]);
         // SAFETY: the options are as the call documents them.
         if !unsafe { AXIsProcessTrustedWithOptions(Some(options.as_ref())) } {
-            log::warn!("remote input needs the Accessibility permission; give it, then restart link-session");
+            log::warn!("remote input needs the Accessibility permission; it starts when the user gives it");
             return Ok(None);
         }
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).context("creating an event source")?;
@@ -223,6 +230,47 @@ impl Mac {
         }
         Ok(())
     }
+}
+
+/// Presses and releases a media key ("play-pause", "next", or "previous") as the keyboard's own key does.
+pub fn media_key(key: &str) -> anyhow::Result<()> {
+    // NX_KEYTYPE_PLAY, NX_KEYTYPE_NEXT, and NX_KEYTYPE_PREVIOUS from IOKit's ev_keymap.h.
+    let code: isize = match key {
+        "play-pause" => 16,
+        "next" => 17,
+        "previous" => 18,
+        _ => anyhow::bail!("no media key {key}"),
+    };
+    // A system-defined event of subtype 8 carries the key in data1: code << 16, then 0xa down or 0xb up << 8.
+    for state in [0xa, 0xb] {
+        let event =
+            NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
+                NSEventType::SystemDefined,
+                CGPoint::ZERO,
+                NSEventModifierFlags(usize::try_from(state << 8).unwrap_or(0)),
+                0.0,
+                0,
+                None,
+                8,
+                (code << 16) | (state << 8),
+                -1,
+            );
+        let event = event.and_then(|event| event.CGEvent()).context("making a media key event")?;
+        post(&event);
+    }
+    Ok(())
+}
+
+/// Presses Control-Command-Q, the system's Lock Screen shortcut: macOS has no public call to lock.
+pub fn lock_screen() -> anyhow::Result<()> {
+    // kVK_ANSI_Q.
+    const Q: u16 = 0x0C;
+    for down in [true, false] {
+        let event = CGEvent::new_keyboard_event(None, Q, down).context("creating a key event")?;
+        CGEvent::set_flags(Some(&event), CGEventFlags::MaskControl | CGEventFlags::MaskCommand);
+        post(&event);
+    }
+    Ok(())
 }
 
 fn post(event: &CGEvent) {

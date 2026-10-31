@@ -6,6 +6,7 @@ mod browse;
 mod control;
 mod dbus;
 mod desktop_media;
+#[cfg_attr(target_os = "macos", path = "hotspot_mac.rs")]
 mod hotspot;
 mod hub;
 mod listener;
@@ -19,6 +20,7 @@ mod paths;
 mod quickshare;
 mod remote;
 mod socket;
+#[cfg_attr(target_os = "macos", path = "wifi_direct_none.rs")]
 mod wifi_direct;
 
 use std::net::{Ipv6Addr, SocketAddr};
@@ -91,8 +93,11 @@ async fn run() -> anyhow::Result<()> {
     let listener =
         listener::Listener::new(endpoint.clone(), bluetooth, acceptor, handle.clone(), identity.spki().clone(), name);
     let mut terminate = signal(SignalKind::terminate())?;
+    #[cfg(not(target_os = "linux"))]
+    let replaced = std::future::pending::<()>;
     let result = tokio::select! {
         result = hub.run() => result,
+        () = replaced() => Err(anyhow::anyhow!("an upgrade replaced andromeda-linkd; exiting to run the new one")),
         () = transfer_actor.run() => Ok(()),
         result = listener.run() => result,
         result = serve_api(transport, api, (events, qs_events), media_requests) => result,
@@ -111,7 +116,7 @@ enum Transport {
     Socket(PathBuf),
 }
 
-/// Forwards state and events to the API's clients; desktop media control needs MPRIS on the bus.
+/// Forwards state and events to the API's clients; desktop media control is MPRIS on the bus, media keys otherwise.
 async fn serve_api(
     transport: Transport,
     api: socket::Api,
@@ -119,7 +124,13 @@ async fn serve_api(
     media_requests: mpsc::Receiver<desktop_media::Request>,
 ) -> anyhow::Result<()> {
     match transport {
-        Transport::Socket(path) => socket::serve(&path, api, events, qs_events).await,
+        Transport::Socket(path) => {
+            let hub = api.hub.clone();
+            tokio::select! {
+                result = socket::serve(&path, api, events, qs_events) => result,
+                result = desktop_media::now_playing(hub, media_requests) => result,
+            }
+        }
         Transport::Bus(bus) => tokio::select! {
             result = dbus::forward(&bus, api.snapshots, events, api.nearby) => result,
             result = quickshare::forward(&bus, api.quick_share_watches, qs_events) => result,
@@ -146,4 +157,16 @@ fn bind(identity: &Identity, last: u16) -> anyhow::Result<(quinn::Endpoint, Punc
         })
         .or_else(|_| transport::punchable_server_endpoint(identity, addr(0)))
         .context("binding the QUIC endpoint")
+}
+
+/// Resolves when a package upgrade replaced this program's file, so the service manager restarts it into the new one.
+#[cfg(target_os = "linux")]
+async fn replaced() {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+    loop {
+        tick.tick().await;
+        if std::fs::read_link("/proc/self/exe").is_ok_and(|exe| exe.to_string_lossy().ends_with(" (deleted)")) {
+            return;
+        }
+    }
 }

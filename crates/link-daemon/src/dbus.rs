@@ -11,9 +11,9 @@ use link_core::Error;
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
     CallAction, CallActionKind, DesktopStatus, InputAction, MAX_CAPABILITIES, MAX_CAPABILITY_LEN, MAX_NAME_LEN,
-    MAX_NUMBER_LEN, MAX_SHARE_LEN, MAX_TEXT_BODY, Message, MirrorAction, MirrorInput, NotificationAction,
-    NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring, Ringing, Share, ShareKind, SystemCommand,
-    SystemCommandKind, TransferId, dialable, is_text_mime,
+    MAX_NUMBER_LEN, MAX_SHARE_LEN, MAX_TEXT_BODY, MediaCommand, MediaCommandKind, Message, MirrorAction, MirrorInput,
+    NotificationAction, NotificationDismiss, NotificationPosted, Ping, RemoteInput, Ring, Ringing, Share, ShareKind,
+    SystemCommand, SystemCommandKind, TransferId, dialable, is_text_mime,
 };
 use link_core::store::StoredCommand;
 use link_core::transfer::{ClipBytes, LocalClip, Source};
@@ -656,6 +656,27 @@ impl Link {
         self.snapshots.borrow().capabilities.clone()
     }
 
+    #[zbus(property)]
+    fn phone_players(&self) -> HashMap<String, crate::media::PhonePlayer> {
+        self.snapshots.borrow().players.iter().cloned().collect()
+    }
+
+    /// Sends the lead player of phone `device_id` a media command; `value` counts only for seek and volume.
+    async fn phone_player_command(&self, device_id: String, command: String, value: u64) -> Result<(), LinkError> {
+        let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
+        let kind: MediaCommandKind = serde_json::from_value(serde_json::Value::String(command.clone()))
+            .map_err(|_| LinkError::Rejected(format!("unknown command {command}")))?;
+        let player =
+            self.snapshots.borrow().players.iter().find(|(device, _)| *device == device_id).map(|(_, p)| p.0.clone());
+        let player = player.ok_or_else(|| LinkError::Rejected(format!("{id} has no player")))?;
+        let value = matches!(kind, MediaCommandKind::Seek | MediaCommandKind::Volume).then_some(value);
+        let Some(session) = self.hub.session(id.clone()).await else {
+            return Err(LinkError::NotConnected(format!("{id} is not connected")));
+        };
+        let message = Message::MediaCommand(MediaCommand { player, command: kind, value });
+        session.send(message).await.map_err(|error| LinkError::Failed(error.to_string()))
+    }
+
     /// Shows `message`, or a plain ping when empty, on the phone.
     async fn ping(&self, device_id: String, message: String) -> Result<(), LinkError> {
         let id = DeviceId::parse(&device_id).map_err(|_| LinkError::Rejected("not a device id".to_owned()))?;
@@ -723,6 +744,10 @@ impl Link {
     /// The phone's touchpad and keyboard: `move` and `scroll` by (dx, dy) logical pixels; `press`, `release`, and
     /// `click` of the `left`, `right`, or `middle` button in `detail`; `key` with a key name in `detail`; `text` with
     /// the text in `detail`.
+    /// A phone pressed play-pause, next, or previous on the media keys player; link-session on macOS presses the key.
+    #[zbus(signal)]
+    async fn media_key(emitter: &SignalEmitter<'_>, key: &str) -> zbus::Result<()>;
+
     #[zbus(signal)]
     async fn remote_input(
         emitter: &SignalEmitter<'_>,
@@ -976,6 +1001,9 @@ pub async fn forward(
                 if next.capabilities != last.capabilities {
                     link.get().await.session_capabilities_changed(emitter).await?;
                 }
+                if next.players != last.players {
+                    link.get().await.phone_players_changed(emitter).await?;
+                }
                 last = next;
             }
             changed = nearby.changed() => {
@@ -1008,6 +1036,7 @@ pub async fn forward(
                     Link::pinged(emitter, id.as_str(), &message.unwrap_or_default()).await?;
                 }
                 Event::RemoteInput { id, input } => emit_input(emitter, &id, input).await?,
+                Event::MediaKey { key } => Link::media_key(emitter, key).await?,
                 Event::SystemCommand { id, serial, command } => {
                     let name = wire_name(&command.command);
                     let value = u32::from(command.value.unwrap_or(0));

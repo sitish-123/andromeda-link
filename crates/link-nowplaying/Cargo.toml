@@ -1,0 +1,20 @@
+[package]
+name = "link-nowplaying"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Loaded by /usr/bin/perl on macOS, whose Apple identity MediaRemote still serves; see src/lib.rs.
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFData", "CFDate", "CFDictionary", "CFNumber", "CFString"] }
+serde_json.workspace = true
+
+[lints.rust]
+unsafe_code = "allow"

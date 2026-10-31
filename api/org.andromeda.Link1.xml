@@ -310,6 +310,11 @@
          by (dx, dy) logical pixels, positive down and right; "press", "release", or "click" with "left", "right", or
          "middle" in detail; "point" to (dx, dy) in 1/10000 of the remote-control picture; "key" with enter, backspace, delete, escape, tab, space, left, right, up, down, home,
          end, page-up, page-down, or f5 in detail; "text" with the text in detail. The shell injects it. -->
+    <!-- On a desktop without MPRIS (macOS), a phone pressed play-pause, next, or previous on the "media-keys" player.
+         link-session presses that media key. -->
+    <signal name="MediaKey">
+      <arg name="key" type="s"/>
+    </signal>
     <signal name="RemoteInput">
       <arg name="device_id" type="s"/>
       <arg name="action" type="s"/>
@@ -353,6 +358,17 @@
     </method>
     <!-- What link-session can do now: clipboard, input, notifications, volume. Empty while no link-session runs. -->
     <property name="SessionCapabilities" type="as" access="read"/>
+    <!-- Connected device id to its lead player: (player, app, title, artist, art file:// URL or "", playing,
+         position ms, length ms or 0, volume 0 to 100 or -1, when the position was true in ms since the Unix epoch,
+         commands it takes). Works over the socket too, where MPRIS does not. -->
+    <property name="PhonePlayers" type="a{s(sssssbttixas)}" access="read"/>
+    <!-- Sends the phone's lead player play, pause, play-pause, next, previous, seek (value: position ms), or volume
+         (value: 0 to 100). -->
+    <method name="PhonePlayerCommand">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="command" type="s" direction="in"/>
+      <arg name="value" type="t" direction="in"/>
+    </method>
     <!-- Called by link-session: replaces SessionCapabilities until the caller calls again or leaves the bus, and
          sends phones the new set. Errors: InvalidArgs past 16 entries, or for an entry not 1 to 32 bytes. -->
     <method name="SetSessionCapabilities">

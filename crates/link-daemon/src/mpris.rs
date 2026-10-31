@@ -338,12 +338,13 @@ impl Exported {
 const SEEK_TOLERANCE_MS: u64 = 2000;
 
 /// Writes the artwork under a name derived from its bytes, so a changed image gets a new URL and caches refresh.
-fn write_art(dir: &Path, device: &DeviceId, player: &MediaPlayer) -> (Option<PathBuf>, Option<String>) {
+pub fn write_art(dir: &Path, device: &DeviceId, player: &MediaPlayer) -> (Option<PathBuf>, Option<String>) {
     let Some(art) = &player.artwork else { return (None, None) };
     let extension = if art.starts_with(b"\x89PNG") { "png" } else { "jpg" };
     let hash = hex_prefix(digest::digest(&digest::SHA256, art).as_ref());
     let file = dir.join(format!("{device}-{hash}.{extension}"));
-    let written = std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&file, art));
+    let written =
+        if file.exists() { Ok(()) } else { std::fs::create_dir_all(dir).and_then(|()| std::fs::write(&file, art)) };
     match written {
         Ok(()) => {
             let url = format!("file://{}", file.display());

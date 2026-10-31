@@ -18,9 +18,12 @@ pub const WIRELESS: &str = "org.freedesktop.NetworkManager.Device.Wireless";
 const ACTIVATED: u32 = 2;
 const DEACTIVATED: u32 = 4;
 
+/// The `NetworkManager` connection a join activated.
+pub type Active = OwnedObjectPath;
+
 /// An active hotspot connection and the address the desktop got on it.
 pub struct Joined {
-    pub active: OwnedObjectPath,
+    pub active: Active,
     pub address: IpAddr,
 }
 
@@ -138,7 +141,7 @@ pub async fn activated(bus: &zbus::Connection, active: OwnedObjectPath) -> Resul
 }
 
 /// Leaves the hotspot; `NetworkManager` then deletes the profile and returns to the usual network.
-pub async fn leave(active: &OwnedObjectPath) {
+pub async fn leave(active: &Active) {
     let left = async {
         let bus = zbus::Connection::system().await?;
         let manager = zbus::Proxy::new(&bus, NM, NM_PATH, NM).await?;

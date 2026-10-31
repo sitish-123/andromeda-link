@@ -13,6 +13,7 @@ mod macos;
 mod notify;
 #[cfg(target_os = "linux")]
 mod portal;
+mod ring;
 #[cfg(target_os = "linux")]
 mod screen;
 #[cfg_attr(target_os = "macos", path = "macos/system.rs")]
@@ -167,6 +168,9 @@ async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,zbus=warn,tracing=warn"))
         .format_timestamp(None)
         .init();
+    if std::env::args().nth(1).as_deref() == Some(macos::PERMISSIONS_FLAG) {
+        std::process::exit(macos::permissions());
+    }
     macos::run().await
 }
 
@@ -191,13 +195,22 @@ async fn main() -> anyhow::Result<()> {
     let mut remote_requested = link.proxy.receive_remote_control_requested().await?;
     let mut remote_stopped = link.proxy.receive_remote_control_stopped().await?;
     let mut system_commands = link.proxy.receive_system_command().await?;
+    let mut ring_requests = link.proxy.receive_ring_requested().await?;
+    let mut ring = ring::Ring::default();
+    let ring_wanted = ring::wanted();
+    // At login the portal and the shell may start after this; their capabilities need a restart to be reported.
+    let mut late_check = tokio::time::interval(std::time::Duration::from_secs(10));
     let mut terminate = signal(SignalKind::terminate())?;
     let mut daemon_owner = link.proxy.inner().receive_owner_changed().await?;
     let (mut lock_changed, mut show_locked_changed, mut access_off) = notifications.watch(&bus).await?;
     let mut keep_awake = link.proxy.receive_keep_awake_changed().await;
     let mut awake = awake::Awake::connect(&bus).await?;
     awake.set(link.proxy.keep_awake().await.unwrap_or(false)).await;
-    let (mut clipboard, mut input) = backends(&bus).await;
+    // The portal dialog can wait for minutes; a stop must not wait for it.
+    let (mut clipboard, mut input) = tokio::select! {
+        backends = backends(&bus) => backends,
+        _ = terminate.recv() => return Ok(()),
+    };
     let mut volume = attempt("WirePlumber volume", volume::Volume::connect().await);
     let mut system = system::System::connect(&bus).await;
     // Remote control needs input too: the phone without it would only watch.
@@ -259,6 +272,19 @@ async fn main() -> anyhow::Result<()> {
                 // The unit restarts the service, which connects the backends again.
                 Err(error) => return Err(error.context("the clipboard backend stopped")),
             },
+            Some(signal) = ring_requests.next(), if ring_wanted => {
+                let Ok(args) = signal.args() else { continue };
+                ring.set(&link, args.device_id, args.on).await;
+            }
+            () = ring.timed_out() => ring.stop(&link).await,
+            _ = late_check.tick(), if (input.is_some() && !screen) || !system.has_shell() => {
+                if (input.is_some() && !screen && screen::available(&bus).await)
+                    || (!system.has_shell() && system::System::shell_ready(&bus).await)
+                {
+                    anyhow::bail!("the screen-sharing portal or the shell started after link-session; restarting to use it");
+                }
+            }
+            () = replaced() => anyhow::bail!("an upgrade replaced andromeda-link-session; exiting to run the new one"),
             Some(signal) = remote_input.next() => {
                 // The daemon sends it only from devices holding the input grant.
                 let Ok(args) = signal.args() else { continue };
@@ -312,6 +338,18 @@ async fn main() -> anyhow::Result<()> {
             },
             _ = terminate.recv() => return Ok(()),
             _ = tokio::signal::ctrl_c() => return Ok(()),
+        }
+    }
+}
+
+/// Resolves when a package upgrade replaced this program's file, so the service manager restarts it into the new one.
+#[cfg(target_os = "linux")]
+async fn replaced() {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+    loop {
+        tick.tick().await;
+        if std::fs::read_link("/proc/self/exe").is_ok_and(|exe| exe.to_string_lossy().ends_with(" (deleted)")) {
+            return;
         }
     }
 }

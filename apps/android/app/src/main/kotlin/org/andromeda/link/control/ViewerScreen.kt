@@ -46,11 +46,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -82,7 +84,7 @@ import kotlin.math.roundToInt
 
 /**
  * A desktop's screen, full screen: direct touch clicks and drags where the finger is, or the picture works as a
- * touchpad. Two fingers scroll; a pinch zooms. A round button, which can be dragged aside, opens the menu.
+ * touchpad. Two fingers scroll; a pinch zooms the picture. A round button, which can be dragged aside, opens the menu.
  */
 @Composable
 fun ViewerScreen(
@@ -92,6 +94,8 @@ fun ViewerScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val haptic = LocalHapticFeedback.current
+    LaunchedEffect(input) { input.ticks.collect { haptic.performHapticFeedback(HapticFeedbackType.ContextClick) } }
     val leave = {
         viewModel.leave()
         onBack()
@@ -110,6 +114,7 @@ fun ViewerScreen(
     }
     var menu by remember { mutableStateOf(false) }
     var typing by remember { mutableStateOf(false) }
+    var bar by remember { mutableStateOf(false) }
     Box(modifier.fillMaxSize().background(Color.Black)) {
         if (stream != null) {
             Picture(stream.width, stream.height, state.direct, input) { surface = it }
@@ -133,8 +138,12 @@ fun ViewerScreen(
                 if (shortcuts) ShortcutBar(input)
                 Typing(input, Modifier.focusRequester(focus))
             }
+        } else if (bar) {
+            val shortcuts by input.shortcuts.collectAsStateWithLifecycle()
+            if (shortcuts) ShortcutBar(input, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(Space.s12))
         }
         if (menu) {
+            val shortcuts by input.shortcuts.collectAsStateWithLifecycle()
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = SCRIM)).clickable { menu = false })
             Menu(
                 state,
@@ -144,6 +153,15 @@ fun ViewerScreen(
                     typing = !typing
                     menu = false
                 },
+                onShortcuts =
+                    if (shortcuts) {
+                        {
+                            bar = !bar
+                            menu = false
+                        }
+                    } else {
+                        null
+                    },
                 onSource = {
                     viewModel.select(it)
                     menu = false
@@ -239,10 +257,17 @@ private fun Picture(
         val description = stringResource(R.string.viewer_picture)
         // A desktop with a real touchpad gets the raw fingers in touchpad mode; its own settings and gestures apply.
         val raw by input.touchpad.collectAsStateWithLifecycle()
+        val context = LocalContext.current
+        DisposableEffect(raw, direct) {
+            val restore = if (raw && !direct) keepMultiFingerTouches(context) else null
+            onDispose { restore?.invoke() }
+        }
         val area = Modifier.fillMaxSize().semantics { contentDescription = description }
         Box(
             if (raw && !direct) {
-                area.rawTouchpad(LocalContext.current.resources.displayMetrics) { input.send(RemoteInput.Touch(it)) }
+                area.rawTouchpad(LocalContext.current.resources.displayMetrics, view::pinch, input::tick) {
+                    input.send(RemoteInput.Touch(it))
+                }
             } else {
                 area.pointerInput(direct, view) { if (direct) directTouch(view, input) else touchpad(view, input) }
             },
@@ -444,6 +469,7 @@ private fun Menu(
     state: ViewerState,
     onTouchpad: (Boolean) -> Unit,
     onKeyboard: () -> Unit,
+    onShortcuts: (() -> Unit)?,
     onSource: (Int) -> Unit,
     onMute: () -> Unit,
     onDisconnect: () -> Unit,
@@ -485,6 +511,9 @@ private fun Menu(
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.s8)) {
             PillButton(stringResource(R.string.viewer_keyboard), onKeyboard, Modifier.weight(1f), PillKind.Tonal)
+            if (onShortcuts != null) {
+                PillButton(stringResource(R.string.viewer_shortcuts), onShortcuts, Modifier.weight(1f), PillKind.Tonal)
+            }
             PillButton(
                 stringResource(if (state.muted) R.string.viewer_unmute else R.string.viewer_mute),
                 onMute,

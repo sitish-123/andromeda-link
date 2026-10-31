@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
@@ -41,6 +42,7 @@ import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -67,6 +69,8 @@ fun RemoteScreen(
     onBack: () -> Unit,
 ) {
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val haptic = LocalHapticFeedback.current
+    LaunchedEffect(viewModel) { viewModel.ticks.collect { haptic.performHapticFeedback(HapticFeedbackType.ContextClick) } }
     val resources = LocalContext.current.resources
     Screen(
         title = stringResource(R.string.remote_title),
@@ -110,7 +114,12 @@ fun RemoteScreen(
                     "Home" to RemoteKey.Home,
                     "End" to RemoteKey.End,
                     "Del" to RemoteKey.Delete,
-                ).forEach { (label, key) -> PillButton(label, { viewModel.key(key) }, kind = PillKind.Quiet) }
+                ).forEach { (label, key) ->
+                    PillButton(label, {
+                        viewModel.tick()
+                        viewModel.key(key)
+                    }, kind = PillKind.Quiet)
+                }
             }
         }
     }
@@ -122,16 +131,31 @@ private fun Touchpad(
     modifier: Modifier = Modifier,
 ) {
     val raw by viewModel.touchpad.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    DisposableEffect(raw) {
+        val restore = if (raw) keepMultiFingerTouches(context) else null
+        onDispose { restore?.invoke() }
+    }
     val area = modifier.clip(Radius.list).background(LinkTheme.colors.surfaceTertiary)
     Box(
         if (raw) {
-            area.rawTouchpad(LocalContext.current.resources.displayMetrics) { viewModel.send(RemoteInput.Touch(it)) }
+            area.rawTouchpad(LocalContext.current.resources.displayMetrics, onTick = viewModel::tick) {
+                viewModel.send(RemoteInput.Touch(it))
+            }
         } else {
             area.pointerInput(viewModel) { interpret(viewModel) }
         },
         contentAlignment = Alignment.Center,
     ) {
         Label(stringResource(R.string.remote_touchpad), LinkTheme.type.bodyMedium, LinkTheme.colors.textTertiary)
+        if (raw && needsMultiFingerGrant(context)) {
+            Label(
+                stringResource(R.string.remote_multi_finger_grant, context.packageName),
+                LinkTheme.type.bodySmall,
+                LinkTheme.colors.textTertiary,
+                Modifier.align(Alignment.BottomCenter).padding(Space.s16),
+            )
+        }
     }
 }
 

@@ -3,8 +3,11 @@ package org.andromeda.link.control
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -90,7 +93,17 @@ class RemoteViewModel(
         wake.trySend(Unit)
     }
 
+    private val _ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** A click, a key from the shortcut bar, or a gesture start, for the screen to make felt. */
+    val ticks: SharedFlow<Unit> = _ticks
+
+    fun tick() {
+        _ticks.tryEmit(Unit)
+    }
+
     fun send(input: RemoteInput) {
+        if (input is RemoteInput.Click || input is RemoteInput.Press) tick()
         flush()
         outbox.trySend(input)
     }
@@ -112,10 +125,20 @@ class RemoteViewModel(
         }
     }
 
-    fun hold(modifier: String) = _held.update { if (modifier in it) it - modifier else it + modifier }
+    /** The first tap holds [modifier] for the next key; a second tap, with no key between, presses it alone. */
+    fun hold(modifier: String) {
+        if (modifier in _held.value) {
+            _held.update { it - modifier }
+            shortcut(modifier)
+        } else {
+            tick()
+            _held.update { it + modifier }
+        }
+    }
 
     /** [key] with the held modifiers, which let go after it; [key] may carry its own, as `alt+tab`. */
     fun shortcut(key: String) {
+        tick()
         val held = MODIFIERS.filter { it in _held.value }
         send(RemoteInput.Shortcut((held + key).joinToString("+")))
         _held.value = emptySet()

@@ -17,6 +17,8 @@ wait_for() {
   fail "$what"
 }
 adb() { "$ADB" -s "$SERIAL" "$@"; }
+# A server first started under the phone lock keeps the lock's descriptor and holds the lock for good.
+[[ -n ${LINK_PHONE_LOCKED:-} ]] || "$ADB" start-server > /dev/null 2>&1 || true
 now_ms() { date +%s%3N; }
 # stamp: each line of stdin with the Unix time in ms in front.
 stamp() { while IFS= read -r line; do printf '%s %s\n' "$(date +%s%3N)" "$line"; done; }
@@ -82,7 +84,8 @@ import re, sys
 xml, want = open(sys.argv[1]).read(), sys.argv[2].lower()
 for node in re.finditer(r'<node [^>]*>', xml):
     attrs = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', node.group(0)))
-    labels = [attrs.get("text", "").lower(), attrs.get("content-desc", "").lower()]
+    # Some vendor apps label buttons only by id, e.g. com.oplus.camera:id/shutter_button.
+    labels = [attrs.get(key, "").lower() for key in ("text", "content-desc")] + [attrs.get("resource-id", "").split("/")[-1]]
     def matches(label):
         if want.startswith("*") and want.endswith("*"):
             return want[1:-1] in label

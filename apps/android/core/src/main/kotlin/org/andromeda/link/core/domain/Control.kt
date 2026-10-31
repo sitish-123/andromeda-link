@@ -72,4 +72,9 @@ sealed interface RemoteInput {
     data class Text(
         val text: String,
     ) : RemoteInput
+
+    /** Modifiers and one key joined by `+`, as `super+t`; only to a desktop that lists `shortcuts`. */
+    data class Shortcut(
+        val keys: String,
+    ) : RemoteInput
 }

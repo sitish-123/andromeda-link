@@ -1624,7 +1624,13 @@ pub enum InputAction {
     Key,
     /// `text` typed into the focused window.
     Text,
+    /// A shortcut in `text`: modifiers and one key joined by `+`, as `super+t` or `ctrl+shift+escape`. Only to a
+    /// desktop whose capabilities list `shortcuts`.
+    Shortcut,
 }
+
+/// The longest [`InputAction::Shortcut`], in bytes.
+pub const MAX_SHORTCUT_LEN: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1686,6 +1692,7 @@ impl RemoteInput {
             InputAction::Press | InputAction::Release | InputAction::Click => self.button.is_some(),
             InputAction::Key => self.key.is_some(),
             InputAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
+            InputAction::Shortcut => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_SHORTCUT_LEN)),
         }
     }
 }

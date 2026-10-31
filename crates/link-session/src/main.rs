@@ -90,7 +90,7 @@ async fn system_command(
 
 /// What this session can do, as `org.andromeda.Link1.SetSessionCapabilities` takes it.
 #[cfg(target_os = "linux")]
-fn capabilities(optional: [(bool, &'static str); 4], system: &system::System) -> Vec<&'static str> {
+fn capabilities(optional: [(bool, &'static str); 5], system: &system::System) -> Vec<&'static str> {
     std::iter::once("notifications")
         .chain(optional.into_iter().filter(|(on, _)| *on).map(|(_, name)| name))
         .chain(system.capabilities())
@@ -221,6 +221,7 @@ async fn main() -> anyhow::Result<()> {
         (input.is_some(), "input"),
         (volume.is_some(), "volume"),
         (screen, "screen"),
+        (input.as_ref().is_some_and(input::Backend::shortcuts), "shortcuts"),
     ];
     let capabilities = capabilities(optional, &system);
     log::info!("can: {}", capabilities.join(", "));

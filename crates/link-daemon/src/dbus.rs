@@ -877,7 +877,7 @@ async fn emit_input(emitter: &SignalEmitter<'_>, id: &DeviceId, input: RemoteInp
     let detail = match input.action {
         InputAction::Press | InputAction::Release | InputAction::Click => input.button.map(|button| wire_name(&button)),
         InputAction::Key => input.key.map(|key| wire_name(&key)),
-        InputAction::Text => input.text,
+        InputAction::Text | InputAction::Shortcut => input.text,
         InputAction::Move | InputAction::Point | InputAction::Scroll => None,
     };
     let (dx, dy) = (input.dx.unwrap_or_default(), input.dy.unwrap_or_default());

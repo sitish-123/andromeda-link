@@ -126,6 +126,12 @@ impl Wayland {
                     self.key(keysym)?;
                 }
             }
+            Action::Shortcut(modifiers, keysym) => {
+                let mask = modifiers.iter().fold(0, |mask, modifier| mask | modifier.mask());
+                self.keyboard.modifiers(mask, 0, 0, 0);
+                self.key(keysym)?;
+                self.keyboard.modifiers(0, 0, 0, 0);
+            }
         }
         self.conn.flush()?;
         Ok(())

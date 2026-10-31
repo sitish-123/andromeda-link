@@ -67,6 +67,18 @@ impl Backend {
         }
     }
 
+    /// Whether [`Action::Shortcut`] works: the backend can hold modifiers.
+    pub const fn shortcuts(&self) -> bool {
+        match self {
+            #[cfg(target_os = "linux")]
+            Self::Wayland(_) | Self::Ei(_) => true,
+            #[cfg(target_os = "linux")]
+            Self::X11(_) => false,
+            #[cfg(target_os = "macos")]
+            Self::Mac(_) => false,
+        }
+    }
+
     /// Handles what the backend's server sends; only libei's needs it, the others never return.
     pub async fn pump(&mut self) -> anyhow::Result<()> {
         match self {
@@ -128,6 +140,72 @@ pub enum Action {
     Click(u32),
     Key(u32),
     Text(String),
+    /// A key pressed while the modifiers are held, as `super+t`.
+    Shortcut(Vec<Modifier>, u32),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Modifier {
+    Shift,
+    Ctrl,
+    Alt,
+    Super,
+}
+
+impl Modifier {
+    fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "shift" => Self::Shift,
+            "ctrl" => Self::Ctrl,
+            "alt" => Self::Alt,
+            "super" => Self::Super,
+            _ => return None,
+        })
+    }
+
+    /// The left-hand key's keysym.
+    #[cfg_attr(target_os = "macos", allow(dead_code, reason = "macOS offers no shortcuts"))]
+    pub const fn keysym(self) -> u32 {
+        match self {
+            Self::Shift => 0xffe1,
+            Self::Ctrl => 0xffe3,
+            Self::Alt => 0xffe9,
+            Self::Super => 0xffeb,
+        }
+    }
+
+    /// The xkb real modifier's bit: Shift, Control, Mod1 and Mod4.
+    #[cfg_attr(target_os = "macos", allow(dead_code, reason = "macOS offers no shortcuts"))]
+    pub const fn mask(self) -> u32 {
+        match self {
+            Self::Shift => 1,
+            Self::Ctrl => 1 << 2,
+            Self::Alt => 1 << 3,
+            Self::Super => 1 << 6,
+        }
+    }
+}
+
+/// `super+t` as its modifiers and the key's keysym: a key the phone names, `f1` to `f12`, or one character.
+fn shortcut(text: &str) -> Option<Action> {
+    let mut parts: Vec<&str> = text.split('+').collect();
+    // `ctrl++` is Ctrl and the plus key.
+    let key = if text.ends_with("++") {
+        parts.truncate(parts.len() - 2);
+        "+"
+    } else {
+        parts.pop()?
+    };
+    let modifiers = parts.into_iter().map(Modifier::parse).collect::<Option<Vec<_>>>()?;
+    let mut chars = key.chars();
+    let keysym = match (chars.next(), chars.next()) {
+        (Some(c), None) => keysym(c.to_ascii_lowercase())?,
+        _ => KEYS.iter().find(|(name, _)| *name == key).map(|(_, keysym)| *keysym).or_else(|| {
+            let number: u32 = key.strip_prefix('f')?.parse().ok()?;
+            (1..=12).contains(&number).then(|| 0xffbe + number - 1)
+        })?,
+    };
+    Some(Action::Shortcut(modifiers, keysym))
 }
 
 impl Action {
@@ -141,6 +219,7 @@ impl Action {
             "click" => Some(Self::Click(button()?)),
             "key" => KEYS.iter().find(|(name, _)| *name == detail).map(|(_, keysym)| Self::Key(*keysym)),
             "text" => Some(Self::Text(detail)),
+            "shortcut" => shortcut(&detail),
             _ => None,
         }
     }

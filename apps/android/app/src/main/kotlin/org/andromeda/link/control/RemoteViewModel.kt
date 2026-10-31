@@ -6,7 +6,11 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.domain.LinkFailure
@@ -32,6 +36,16 @@ class RemoteViewModel(
     private var point: RemoteInput.Point? = null
     private val _failure = MutableStateFlow<LinkFailure?>(null)
     val failure: StateFlow<LinkFailure?> = _failure
+    private val _held = MutableStateFlow<Set<String>>(emptySet())
+
+    /** The modifiers held for the next key, as `super` or `ctrl`. */
+    val held: StateFlow<Set<String>> = _held
+
+    /** The desktop takes shortcuts: its input can hold modifiers. */
+    val shortcuts: StateFlow<Boolean> =
+        repository.capabilities
+            .map { SHORTCUTS in it[desktopId].orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
         viewModelScope.launch {
@@ -87,7 +101,21 @@ class RemoteViewModel(
     ) {
         val kept = before.commonPrefixWith(after).length
         repeat(before.length - kept) { key(RemoteKey.Backspace) }
-        if (after.length > kept) send(RemoteInput.Text(after.substring(kept)))
+        val added = after.substring(kept)
+        when {
+            added.isEmpty() -> Unit
+            _held.value.isNotEmpty() && added.length == 1 -> shortcut(added.lowercase())
+            else -> send(RemoteInput.Text(added))
+        }
+    }
+
+    fun hold(modifier: String) = _held.update { if (modifier in it) it - modifier else it + modifier }
+
+    /** [key] with the held modifiers, which let go after it; [key] may carry its own, as `alt+tab`. */
+    fun shortcut(key: String) {
+        val held = MODIFIERS.filter { it in _held.value }
+        send(RemoteInput.Shortcut((held + key).joinToString("+")))
+        _held.value = emptySet()
     }
 
     /** The presenter opened or closed: the desktop stays awake meanwhile. Runs even as the view model clears. */
@@ -117,6 +145,10 @@ class RemoteViewModel(
     }
 
     private companion object {
+        const val SHORTCUTS = "shortcuts"
+
+        /** In the order a shortcut names them. */
+        val MODIFIERS = listOf("super", "ctrl", "alt", "shift")
         const val FRAME_MS = 16L
         const val POINTER_SPEED = 1.5f
     }

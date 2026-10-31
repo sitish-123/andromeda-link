@@ -857,6 +857,7 @@ private fun RemoteInput.toFfi(): InputEvent =
         is RemoteInput.Release -> InputEvent(InputAction.RELEASE, null, null, button.toFfi(), null, null)
         is RemoteInput.Key -> InputEvent(InputAction.KEY, null, null, null, InputKey.entries[key.ordinal], null)
         is RemoteInput.Text -> InputEvent(InputAction.TEXT, null, null, null, null, text)
+        is RemoteInput.Shortcut -> InputEvent(InputAction.SHORTCUT, null, null, null, null, keys)
     }
 
 private fun MediaCommandKind.toFfi(): FfiCommand =

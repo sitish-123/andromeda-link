@@ -122,14 +122,17 @@ fun ViewerScreen(
         if (typing) {
             val focus = remember { FocusRequester() }
             LaunchedEffect(Unit) { focus.requestFocus() }
-            Typing(
-                input,
+            val shortcuts by input.shortcuts.collectAsStateWithLifecycle()
+            Column(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .imePadding()
-                    .padding(Space.s12)
-                    .focusRequester(focus),
-            )
+                    .padding(Space.s12),
+                verticalArrangement = Arrangement.spacedBy(Space.s8),
+            ) {
+                if (shortcuts) ShortcutBar(input)
+                Typing(input, Modifier.focusRequester(focus))
+            }
         }
         if (menu) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = SCRIM)).clickable { menu = false })
@@ -304,7 +307,10 @@ private suspend fun PointerInputScope.directTouch(
         waitUp()
         return@awaitEachGesture
     }
-    if (fingers > 1) return@awaitEachGesture twoFingers(view, input)
+    if (fingers > 1) {
+        twoFingers(view, input)
+        return@awaitEachGesture
+    }
     val first = currentEvent.changes.firstOrNull()
     if (first == null || !first.pressed) {
         input.send(RemoteInput.Click(PointerButton.Left))
@@ -335,7 +341,13 @@ private suspend fun PointerInputScope.touchpad(
         val event = awaitPointerEvent()
         val pressed = event.changes.filter { it.pressed }
         fingers = maxOf(fingers, pressed.size)
-        if (pressed.size >= 2) return@awaitEachGesture twoFingers(view, input)
+        if (pressed.size >= 2) {
+            val still = twoFingers(view, input) < viewConfiguration.touchSlop
+            if (still && currentEvent.changes.first().uptimeMillis - down.uptimeMillis < TAP_MS) {
+                input.send(RemoteInput.Click(PointerButton.Right))
+            }
+            return@awaitEachGesture
+        }
         pressed.firstOrNull()?.let {
             val delta = it.positionChange()
             travelled += delta.getDistance()
@@ -349,13 +361,17 @@ private suspend fun PointerInputScope.touchpad(
     }
 }
 
-/** A pinch zooms the picture; two fingers that keep their distance scroll the desktop. */
+/**
+ * A pinch zooms the picture; two fingers that keep their distance scroll the desktop. Returns how far they went, or
+ * infinity once they zoomed, so the caller can tell a tap.
+ */
 private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.twoFingers(
     view: Viewport,
     input: RemoteViewModel,
-) {
+): Float {
     var spread: Float? = null
     var zooming = false
+    var travelled = 0f
     while (true) {
         val event = awaitPointerEvent()
         val pressed = event.changes.filter { it.pressed }
@@ -363,6 +379,7 @@ private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.two
         val centroid = (pressed[0].position + pressed[1].position) / 2f
         val distance = (pressed[0].position - pressed[1].position).getDistance()
         val moved = (pressed[0].positionChange() + pressed[1].positionChange()) / 2f
+        travelled += moved.getDistance()
         val previous = spread
         spread = distance
         if (previous != null && previous > 0f) {
@@ -377,6 +394,7 @@ private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.two
         event.changes.forEach { it.consume() }
     }
     waitUp()
+    return if (zooming) Float.POSITIVE_INFINITY else travelled
 }
 
 private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.waitUp() {

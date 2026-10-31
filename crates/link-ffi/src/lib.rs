@@ -349,6 +349,8 @@ pub enum InputAction {
     Click,
     Key,
     Text,
+    /// `text` is modifiers and one key joined by `+`, as `super+t`.
+    Shortcut,
 }
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
@@ -401,6 +403,7 @@ impl From<InputEvent> for message::RemoteInput {
             InputAction::Click => A::Click,
             InputAction::Key => A::Key,
             InputAction::Text => A::Text,
+            InputAction::Shortcut => A::Shortcut,
         };
         let button = event.button.map(|button| match button {
             InputButton::Left => B::Left,

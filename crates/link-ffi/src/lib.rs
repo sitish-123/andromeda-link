@@ -700,6 +700,9 @@ pub trait PhoneLibrary: Send + Sync {
     fn albums(&self) -> Vec<String>;
     fn album(&self, name: String) -> Vec<LibraryItem>;
     fn thumbnail(&self, path: String, px: u16) -> Option<Vec<u8>>;
+    /// Moves the item at `path` to the trash (deletes it before Android 11); false when refused. May block while the
+    /// user confirms on the phone.
+    fn trash(&self, path: String) -> bool;
 }
 
 /// A photo or video; `mtime` in Unix seconds.
@@ -730,6 +733,10 @@ impl link_core::browse::Library for Library {
 
     fn thumbnail(&self, path: &std::path::Path, px: u16) -> Option<Vec<u8>> {
         self.0.thumbnail(path.to_str()?.to_owned(), px)
+    }
+
+    fn trash(&self, path: &std::path::Path) -> bool {
+        path.to_str().is_some_and(|path| self.0.trash(path.to_owned()))
     }
 }
 

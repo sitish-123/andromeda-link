@@ -13,6 +13,8 @@ use tokio::time::Instant;
 
 /// A phone slower than this for one answer, or one page, fails the request.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
+/// A delete in Photos may wait for the user to confirm Android's trash prompt on the phone.
+const DELETE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Entries one listing gathers before it fails, so a hostile phone cannot grow it without bound.
 const MAX_ENTRIES: usize = 16 * 1024;
 
@@ -149,7 +151,8 @@ impl Browsing {
                 (path, Gathered::Data { data: Vec::new(), want: MAX_FS_READ as usize }, message)
             }
         };
-        let deadline = Instant::now() + ANSWER_TIMEOUT;
+        let wait = if matches!(message, Message::FsDelete(_)) { DELETE_TIMEOUT } else { ANSWER_TIMEOUT };
+        let deadline = Instant::now() + wait;
         self.pending.insert(req, Pending { device, path, pick, gathered, reply, deadline });
         (req, message)
     }

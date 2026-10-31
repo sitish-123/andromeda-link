@@ -27,6 +27,9 @@ pub trait Library: Send + Sync {
     fn album(&self, name: &str) -> Vec<LibraryItem>;
     /// A PNG of the image or video at `path`, at most `px` on its longer side; None when it has no picture.
     fn thumbnail(&self, path: &Path, px: u16) -> Option<Vec<u8>>;
+    /// Moves the photo or video at `path` to the phone's trash, or deletes it where there is no trash; false when the
+    /// user or the system refused. May wait for the user to confirm on the phone.
+    fn trash(&self, path: &Path) -> bool;
 }
 
 pub struct LibraryItem {
@@ -161,6 +164,11 @@ impl Roots {
     }
 
     fn delete(&self, path: &str) -> Result<(), FsRefusal> {
+        let root = path.strip_prefix('/').unwrap_or(path).split('/').next().unwrap_or_default();
+        if let Some(library) = self.library.as_deref().filter(|_| root == PHOTOS) {
+            let Target::Path(file) = self.resolve(path)? else { return Err(FsRefusal::NotAFile) };
+            return if library.trash(&file) { Ok(()) } else { Err(FsRefusal::Denied) };
+        }
         let path = self.writable(path)?;
         if fs::symlink_metadata(&path).map_err(|error| refusal(&error))?.is_dir() {
             return Err(FsRefusal::NotAFile);

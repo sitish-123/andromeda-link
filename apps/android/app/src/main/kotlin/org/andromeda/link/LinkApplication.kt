@@ -36,6 +36,7 @@ import org.andromeda.link.notifications.Channels
 import org.andromeda.link.notifications.NotificationMirror
 import org.andromeda.link.notifications.ShareNotifier
 import org.andromeda.link.notifications.TransferNotifier
+import org.andromeda.link.notifications.showTrashPrompt
 import org.andromeda.link.presence.BluetoothBonding
 import org.andromeda.link.presence.PhoneControl
 import org.andromeda.link.presence.Presence
@@ -83,7 +84,7 @@ class AppContainer(
     val calls = Calls(application, repository, scope)
     private val bonding = BluetoothBonding(application, repository, scope)
     val files = PhoneFiles(application)
-    private val library = MediaLibrary(application)
+    private val library = MediaLibrary(application) { showTrashPrompt(application, it) }
     private val contacts = PhoneContacts(application) { scope.launch { repository.contactsChanged() } }
     private val texts = PhoneTexts(application) { scope.launch { repository.textsChanged() } }
     private val callLog = PhoneCallLog(application) { scope.launch { repository.callsChanged() } }

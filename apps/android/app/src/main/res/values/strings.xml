@@ -55,6 +55,8 @@
     <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network and the desktop\'s firewall allows Andromeda Link (on the desktop: sudo ufw allow \"Andromeda Link\").</string>
     <string name="failure_rejected">Can\'t send this: %1$s</string>
     <string name="scan_again">Scan again</string>
+    <string name="trash_prompt_title">Move a photo to the trash?</string>
+    <string name="trash_prompt_text">A computer asked to delete it. Tap to confirm.</string>
     <string name="failure_other">Something went wrong: %1$s</string>
     <string name="back">Back</string>
     <string name="cancel">Cancel</string>

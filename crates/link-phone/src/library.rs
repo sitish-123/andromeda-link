@@ -40,6 +40,11 @@ impl Library for Folders {
     fn thumbnail(&self, path: &Path, _px: u16) -> Option<Vec<u8>> {
         fs::read(path).ok().filter(|bytes| bytes.starts_with(b"\x89PNG"))
     }
+
+    /// A folder has no trash: the file goes.
+    fn trash(&self, path: &Path) -> bool {
+        fs::remove_file(path).is_ok()
+    }
 }
 
 /// JSON files standing in for Android's contacts (`[{"name", "numbers"}]`) and texts (`[{"id", "thread", "address",

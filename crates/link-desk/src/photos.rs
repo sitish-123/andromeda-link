@@ -105,6 +105,8 @@ pub struct PhotosRust {
     pending: usize,
     /// Albums not asked for yet; [`ALBUMS_AT_ONCE`] are asked at a time.
     albums_left: Vec<String>,
+    /// Albums asked for and not answered; a reply for any other album is from an older listing.
+    albums_asked: HashSet<String>,
     /// Whether an album answered, so one failed album does not fail the page.
     any_album: bool,
     /// Paths on screen without a thumbnail request yet, the next one last.
@@ -138,6 +140,7 @@ impl Default for PhotosRust {
             index: HashMap::new(),
             pending: 0,
             albums_left: Vec::new(),
+            albums_asked: HashSet::new(),
             any_album: false,
             queue: Vec::new(),
             asked_thumbs: HashSet::new(),
@@ -194,6 +197,7 @@ impl PhotosRust {
     /// Drops the photo list and every row index into it.
     fn ask_next_album(&mut self) {
         if let Some(path) = self.albums_left.pop() {
+            self.albums_asked.insert(path.clone());
             hub::send(Command::List { device: self.phone.clone(), path });
         }
     }
@@ -271,11 +275,15 @@ impl qobject::LinkPhotos {
 
     fn listed(mut self: Pin<&mut Self>, path: &str, entries: Result<Vec<Entry>, String>) {
         let mut state = self.as_mut().rust_mut();
+        if path != ROOT && !state.albums_asked.remove(path) {
+            return;
+        }
         let entries = match entries {
             Ok(entries) => entries,
             Err(reason) if path == ROOT || (state.pending == 1 && !state.any_album) => {
                 state.pending = 0;
                 state.albums_left.clear();
+                state.albums_asked.clear();
                 self.as_mut().set_error(QString::from(&reason));
                 self.as_mut().set_loading(false);
                 return;
@@ -290,6 +298,7 @@ impl qobject::LinkPhotos {
             state.forget();
             state.pending = albums.len();
             state.any_album = false;
+            state.albums_asked.clear();
             // Asked from the end, so the phone's first albums come first.
             state.albums_left = albums.iter().rev().map(|album| format!("{ROOT}/{}", album.name)).collect();
             for _ in 0..ALBUMS_AT_ONCE {
@@ -463,6 +472,7 @@ mod tests {
             all,
             pending: 0,
             albums_left: Vec::new(),
+            albums_asked: HashSet::new(),
             any_album: false,
             queue: Vec::new(),
             asked_thumbs: HashSet::new(),

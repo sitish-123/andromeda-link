@@ -2,7 +2,9 @@
 # The desktop stays awake while a phone presents or mirrors here, against a mock org.freedesktop.ScreenSaver on a
 # private bus; nothing reaches the real session. Proves: with the input grant, the phone's `presenting on` makes
 # KeepAwake true and link-session calls Inhibit; `presenting off` makes it false and link-session calls UnInhibit with
-# the same cookie; an OpenMirror stream holds the inhibit until the viewer closes it. Writes results.jsonl,
+# the same cookie; an OpenMirror stream holds the inhibit until the viewer closes it. On a desktop other than Andromeda,
+# the phone's `ring on` makes link-session play the ring through pw-play and report ringing; `ring off` stops the
+# player and reports it stopped. Writes results.jsonl,
 # screensaver.log, session.log, hold.jsonl, and linkd.log to $OUT (default ./artifacts/link-awake).
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -73,7 +75,11 @@ say() { printf '%s\n' "$*" >&3; }
 
 XDG_STATE_HOME=$RUNTIME/desktop XDG_DOWNLOAD_DIR=$RUNTIME/downloads "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
 for _ in $(seq 100); do link CancelPairing > /dev/null 2>&1 && break; sleep 0.05; done
-"$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
+# A pw-play that logs its sound and plays for 30 s, standing in for the audio server.
+mkdir -p "$RUNTIME/bin"
+printf '#!/bin/sh\necho "play $1" >> %s/player.log\nexec sleep 30\n' "$RUNTIME" > "$RUNTIME/bin/pw-play"
+chmod +x "$RUNTIME/bin/pw-play"
+PATH=$RUNTIME/bin:$PATH XDG_CURRENT_DESKTOP=GNOME "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
 wait_for 10 "andromeda-link-session did not start" grep -q running "$OUT/session.log"
 PORT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$RUNTIME/desktop/andromeda-link/devices.json")
 CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
@@ -131,5 +137,14 @@ touch "$RUNTIME/close"
 wait_for 10 "KeepAwake stayed on after the viewer closed: $(prop KeepAwake)" awake false
 wait_for 5 "no UnInhibit after the mirror" eval '(( $(calls "UnInhibit 4242") == 2 ))'
 record '{"step":"mirror-closed","keep_awake":false,"uninhibit":2}'
+
+rings() { grep -c "\"event\":\"desktop-ringing\".*\"on\":$1" "$OUT/hold.jsonl" || true; }
+say "ring on"
+wait_for 5 "link-session never played the ring: $(tail -3 "$OUT/session.log")" grep -q "play .*phone-incoming-call.oga" "$RUNTIME/player.log"
+wait_for 5 "the phone never heard the desktop ringing" eval '(( $(rings true) == 1 ))'
+say "ring off"
+wait_for 5 "the phone never heard the ring stop" eval '(( $(rings false) == 1 ))'
+wait_for 5 "the player still runs after ring off" eval '! pgrep -f "sleep 30" -P "$(pgrep -f andromeda-link-session | head -1)" > /dev/null'
+record '{"step":"ring","played":true,"reported_on":1,"reported_off":1}'
 cat "$OUT/results.jsonl"
 echo "PASS; artifacts: $OUT"

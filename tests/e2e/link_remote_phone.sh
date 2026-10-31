@@ -56,7 +56,12 @@ wait_for 5 "andromeda did not start" test -S "$RUNTIME/wayland-0"
 wait_for 10 "the shell did not start" eval '"${SESSION[@]}" "$NOCTALIA" msg settings-close > /dev/null 2>&1'
 
 # Sound: PipeWire with its Pulse server, a null sink as the default output, and a tone playing into it.
-mkdir -p "$RUNTIME/pw-config"
+# The real BlueZ is on the system bus: a bluez monitor here takes headphones from the user's WirePlumber.
+mkdir -p "$RUNTIME/pw-config/wireplumber/wireplumber.conf.d"
+cat > "$RUNTIME/pw-config/wireplumber/wireplumber.conf.d/90-e2e.conf" << 'CONF'
+wireplumber.profiles = { main = { monitor.alsa = disabled, monitor.alsa-midi = disabled, monitor.bluez = disabled,
+  monitor.bluez-midi = disabled, monitor.v4l2 = disabled, monitor.libcamera = disabled } }
+CONF
 "${SESSION[@]}" XDG_CONFIG_HOME="$RUNTIME/pw-config" pipewire > "$OUT/pipewire.log" 2>&1 &
 wait_for 5 "PipeWire did not start" test -S "$RUNTIME/pipewire-0"
 "${SESSION[@]}" XDG_CONFIG_HOME="$RUNTIME/pw-config" wireplumber > "$OUT/wireplumber.log" 2>&1 &

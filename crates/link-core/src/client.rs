@@ -204,6 +204,9 @@ pub struct ClientActor {
     on_bluetooth: HashSet<DeviceId>,
     next_probe: Option<Instant>,
     probes: JoinSet<(DeviceId, Result<Reached, Error>)>,
+    /// Redials looking for an IP path, off the actor: a desktop that does not answer takes seconds to give up on.
+    redials: JoinSet<(DeviceId, Duration, Result<Reached, Error>)>,
+    redialing: HashSet<DeviceId>,
     /// The desktop the phone's hotspot runs for; one at a time.
     hotspot_for: Option<DeviceId>,
     /// Desktops whose live session runs over the phone's hotspot.
@@ -269,6 +272,8 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         on_bluetooth: HashSet::new(),
         next_probe: None,
         probes: JoinSet::new(),
+        redials: JoinSet::new(),
+        redialing: HashSet::new(),
         hotspot_for: None,
         on_hotspot: HashSet::new(),
         hotspot_started: JoinSet::new(),
@@ -539,7 +544,7 @@ impl ClientActor {
                 },
                 Some(event) = self.session_events.recv() => self.relay(event).await,
                 Some(event) = self.transfer_events.recv() => self.on_transfer(event).await,
-                () = sleep_until(next_retry) => self.retry_due().await,
+                () = sleep_until(next_retry) => self.retry_due(),
                 () = sleep_until(next_status) => self.send_status().await,
                 () = sleep_until(self.next_probe) => self.probe(),
                 Some(_) = self.browsing.join_next() => {}
@@ -557,6 +562,14 @@ impl ClientActor {
                     }
                     Ok(_) => {}
                     Err(join) => log::warn!("Wi-Fi Direct task: {join}"),
+                },
+                Some(joined) = self.redials.join_next() => match joined {
+                    Ok((id, delay, reached)) => self.redialed(id, delay, reached).await,
+                    Err(join) => {
+                        // A failed task does not say whose it was; clearing lets every phone redial again.
+                        log::warn!("redial task: {join}");
+                        self.redialing.clear();
+                    }
                 },
                 Some(joined) = self.probes.join_next() => match joined {
                     Ok((id, reached)) => self.probed(id, reached).await,
@@ -883,21 +896,54 @@ impl ClientActor {
         }
     }
 
-    async fn retry_due(&mut self) {
+    fn retry_due(&mut self) {
         let now = Instant::now();
         let due: Vec<DeviceId> =
             self.retries.iter().filter(|(_, retry)| retry.at <= now).map(|(id, _)| id.clone()).collect();
         for id in due {
             let Some(retry) = self.retries.remove(&id) else { continue };
-            if self.sessions.get(&id).is_some_and(SessionHandle::is_live) {
+            if self.sessions.get(&id).is_some_and(SessionHandle::is_live) || self.redialing.contains(&id) {
                 continue;
             }
-            let Err(error) = self.open(&id).await else { continue };
-            if self.wants(&id) {
-                let delay = (retry.delay * 2).min(MAX_RETRY);
-                log::info!("{id}: redial failed: {error}; next in {} s", delay.as_secs());
-                self.retries.insert(id, Retry { at: Instant::now() + delay, delay });
+            let Some(peer) = self.phone.desktops().iter().find(|peer| peer.id == id).cloned() else { continue };
+            self.redialing.insert(id.clone());
+            self.phone.set_present(self.present || self.is_busy(&id));
+            let dialer = self.phone.dialer().clone();
+            self.redials.spawn(async move { (id, retry.delay, reach::reach(&dialer, &peer).await) });
+        }
+    }
+
+    /// A redial's IP path becomes a session on the actor; without one, Bluetooth is tried as [`Self::open`] does.
+    async fn redialed(&mut self, id: DeviceId, delay: Duration, reached: Result<Reached, Error>) {
+        self.redialing.remove(&id);
+        if self.sessions.get(&id).is_some_and(SessionHandle::is_live) {
+            return;
+        }
+        let Some(peer) = self.phone.desktops().iter().find(|peer| peer.id == id).cloned() else { return };
+        let result = match reached {
+            Ok(reached) => self.phone.adopt_reached(&peer, reached).await,
+            Err(error) if peer.bluetooth.is_some() => {
+                log::info!("{id}: no IP path ({error}); trying Bluetooth");
+                self.phone.connect_bluetooth(&peer).await
             }
+            Err(error) => Err(error),
+        };
+        let error = match result {
+            Ok(session) => return drop(self.adopt(session).await),
+            Err(Error::Closed(CloseCode::Unpaired)) => {
+                if let Err(error) = self.phone.forget(&id) {
+                    log::error!("forgetting {id}: {error}");
+                }
+                self.retries.remove(&id);
+                return self.emit(ClientEvent::Unpaired { id }).await;
+            }
+            Err(error) => error,
+        };
+        if self.wants(&id) {
+            let delay = (delay * 2).min(MAX_RETRY);
+            log::info!("{id}: redial failed: {error}; next in {} s", delay.as_secs());
+            let retry = self.retries.entry(id).or_insert(Retry { at: Instant::now() + delay, delay });
+            retry.delay = retry.delay.max(delay);
         }
     }
 
@@ -1408,6 +1454,8 @@ impl ClientActor {
                 });
                 if allowed {
                     self.emit(ClientEvent::Message { from, message }).await;
+                } else if matches!(message, Message::MirrorRequest) {
+                    self.emit(ClientEvent::MirrorBlocked { from }).await;
                 } else {
                     log::info!("{from}: dropped a {} its switch does not allow", message.kind());
                 }
@@ -1452,8 +1500,6 @@ impl ClientActor {
 
     async fn emit(&self, event: ClientEvent) {
         if self.events.send(event).await.is_err() {
-                } else if matches!(message, Message::MirrorRequest) {
-                    self.emit(ClientEvent::MirrorBlocked { from }).await;
             log::debug!("nobody reads client events");
         }
     }

@@ -90,7 +90,7 @@ async fn system_command(
 
 /// What this session can do, as `org.andromeda.Link1.SetSessionCapabilities` takes it.
 #[cfg(target_os = "linux")]
-fn capabilities(optional: [(bool, &'static str); 5], system: &system::System) -> Vec<&'static str> {
+fn capabilities(optional: [(bool, &'static str); 6], system: &system::System) -> Vec<&'static str> {
     std::iter::once("notifications")
         .chain(optional.into_iter().filter(|(on, _)| *on).map(|(_, name)| name))
         .chain(system.capabilities())
@@ -192,6 +192,7 @@ async fn main() -> anyhow::Result<()> {
     let mut closed = notifications.proxy.receive_signal("NotificationClosed").await?;
     let mut clip_offered = link.proxy.receive_clipboard_offered().await?;
     let mut remote_input = link.proxy.receive_remote_input().await?;
+    let mut remote_touch = link.proxy.receive_remote_touch().await?;
     let mut remote_requested = link.proxy.receive_remote_control_requested().await?;
     let mut remote_stopped = link.proxy.receive_remote_control_stopped().await?;
     let mut system_commands = link.proxy.receive_system_command().await?;
@@ -216,12 +217,14 @@ async fn main() -> anyhow::Result<()> {
     // Remote control needs input too: the phone without it would only watch.
     let screen = input.is_some() && screen::available(&bus).await;
     let (screen_requests, screen_target) = screen::spawn(bus.clone(), link.clone());
+    let mut touchpad = attempt("uinput touchpad", input::uinput::Touchpad::open().map(Some).map_err(Into::into));
     let optional = [
         (clipboard.is_some(), "clipboard"),
         (input.is_some(), "input"),
         (volume.is_some(), "volume"),
         (screen, "screen"),
         (input.as_ref().is_some_and(input::Backend::shortcuts), "shortcuts"),
+        (touchpad.is_some(), "touchpad"),
     ];
     let capabilities = capabilities(optional, &system);
     log::info!("can: {}", capabilities.join(", "));
@@ -301,6 +304,13 @@ async fn main() -> anyhow::Result<()> {
                 match input::Action::parse(action, args.dx, args.dy, args.detail.to_owned()) {
                     Some(action) => backend.run(action).context("the input backend stopped")?,
                     None => log::debug!("remote input {action} ignored"),
+                }
+            }
+            Some(signal) = remote_touch.next(), if touchpad.is_some() => {
+                // The daemon sends it only from devices holding the input grant.
+                let Ok(args) = signal.args() else { continue };
+                if let Some(pad) = touchpad.as_mut() {
+                    pad.touch(&args.contacts).context("the uinput touchpad stopped")?;
                 }
             }
             result = pump_input(&mut input) => result.context("the input backend stopped")?,

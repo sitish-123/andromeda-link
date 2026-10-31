@@ -5,6 +5,8 @@ pub mod ei;
 #[cfg(target_os = "macos")]
 pub mod mac;
 #[cfg(target_os = "linux")]
+pub mod uinput;
+#[cfg(target_os = "linux")]
 pub mod wayland;
 #[cfg(target_os = "linux")]
 pub mod x11;

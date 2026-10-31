@@ -355,6 +355,8 @@ pub enum InputAction {
     Text,
     /// `text` is modifiers and one key joined by `+`, as `super+t`.
     Shortcut,
+    /// `contacts` is every finger down now; only to a desktop whose capabilities list `touchpad`.
+    Touch,
 }
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
@@ -393,6 +395,17 @@ pub struct InputEvent {
     pub button: Option<InputButton>,
     pub key: Option<InputKey>,
     pub text: Option<String>,
+    /// For touch: every finger down now.
+    #[uniffi(default = None)]
+    pub contacts: Option<Vec<TouchContact>>,
+}
+
+/// One finger on the touchpad: a stable id while it stays down, and its position from the pad's top left in 1/100 mm.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct TouchContact {
+    pub id: u8,
+    pub x: u32,
+    pub y: u32,
 }
 
 impl From<InputEvent> for message::RemoteInput {
@@ -408,6 +421,7 @@ impl From<InputEvent> for message::RemoteInput {
             InputAction::Key => A::Key,
             InputAction::Text => A::Text,
             InputAction::Shortcut => A::Shortcut,
+            InputAction::Touch => A::Touch,
         };
         let button = event.button.map(|button| match button {
             InputButton::Left => B::Left,
@@ -431,7 +445,10 @@ impl From<InputEvent> for message::RemoteInput {
             InputKey::PageDown => K::PageDown,
             InputKey::F5 => K::F5,
         });
-        Self { action, dx: event.dx, dy: event.dy, button, key, text: event.text }
+        let contacts = event
+            .contacts
+            .map(|contacts| contacts.into_iter().map(|c| message::TouchContact { id: c.id, x: c.x, y: c.y }).collect());
+        Self { action, dx: event.dx, dy: event.dy, button, key, text: event.text, contacts }
     }
 }
 

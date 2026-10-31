@@ -21,6 +21,7 @@ tokio = { workspace = true, features = ["net", "process"] }
 zbus.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.13"
 gstreamer = "0.25"
 gstreamer-app = "0.25"
 reis = { version = "0.7", features = ["tokio"] }

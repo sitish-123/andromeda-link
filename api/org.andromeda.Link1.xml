@@ -341,6 +341,13 @@
       <arg name="dy" type="i"/>
       <arg name="detail" type="s"/>
     </signal>
+    <!-- A phone holding the input grant moved its fingers on its touchpad: every finger down now as (id, x, y), the
+         position from the pad's top left in 1/100 mm; empty when the last finger lifts. link-session feeds them to a
+         uinput touchpad, so the desktop's own touchpad settings and gestures apply. -->
+    <signal name="RemoteTouch">
+      <arg name="device_id" type="s"/>
+      <arg name="contacts" type="a(yuu)"/>
+    </signal>
     <!-- A phone holding the input grant, on the same network, asks for this desktop's screen (remote control):
          source indexes the sources last served to it, -1 for the first. The session answers with
          ServeRemoteControl. -->

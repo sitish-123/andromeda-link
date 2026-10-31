@@ -35,6 +35,7 @@ install -Dm644 "$ROOT/dist/andromeda-link-localsend.firewalld.xml" \
   "$P/usr/lib/firewalld/services/andromeda-link-localsend.xml"
 install -Dm644 "$ROOT/dist/60-andromeda-link-bluetooth.conf" \
   "$P/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
+install -Dm644 "$ROOT/dist/60-andromeda-link-uinput.rules" "$P/usr/lib/udev/rules.d/60-andromeda-link-uinput.rules"
 install -Dm644 "$ROOT/LICENSE" "$P/usr/share/doc/andromeda-link/copyright"
 # The app needs Qt 6.7. With QT_BUNDLE (a Qt prefix, as aqtinstall writes it) the .deb carries that Qt under
 # /usr/lib/andromeda-link/qt, so releases with older Qt (Ubuntu 24.04) install it the same way; the binary must then

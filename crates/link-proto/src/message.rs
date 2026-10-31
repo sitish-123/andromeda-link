@@ -1627,7 +1627,27 @@ pub enum InputAction {
     /// A shortcut in `text`: modifiers and one key joined by `+`, as `super+t` or `ctrl+shift+escape`. Only to a
     /// desktop whose capabilities list `shortcuts`.
     Shortcut,
+    /// Every finger on the phone's touchpad now, in `contacts`; none when the last one lifts. Only to a desktop whose
+    /// capabilities list `touchpad`.
+    Touch,
 }
+
+/// One finger on the phone's touchpad: a stable `id` while it stays down, and its position from the pad's top left in
+/// 1/100 mm, so the desktop's touchpad settings see real distances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TouchContact {
+    pub id: u8,
+    pub x: u32,
+    pub y: u32,
+}
+
+/// The most fingers in one [`InputAction::Touch`].
+pub const MAX_TOUCH_CONTACTS: usize = 5;
+/// The largest [`TouchContact`] id.
+pub const MAX_TOUCH_ID: u8 = 9;
+/// The largest touch position: 300 mm in 1/100 mm.
+pub const MAX_TOUCH_POSITION: u32 = 30_000;
 
 /// The longest [`InputAction::Shortcut`], in bytes.
 pub const MAX_SHORTCUT_LEN: usize = 64;
@@ -1675,6 +1695,8 @@ pub struct RemoteInput {
     pub key: Option<InputKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contacts: Option<Vec<TouchContact>>,
 }
 
 pub const MAX_INPUT_DELTA: i32 = 10_000;
@@ -1693,6 +1715,14 @@ impl RemoteInput {
             InputAction::Key => self.key.is_some(),
             InputAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
             InputAction::Shortcut => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_SHORTCUT_LEN)),
+            InputAction::Touch => self.contacts.as_ref().is_some_and(|contacts| {
+                let ids: std::collections::HashSet<u8> = contacts.iter().map(|contact| contact.id).collect();
+                contacts.len() <= MAX_TOUCH_CONTACTS
+                    && ids.len() == contacts.len()
+                    && contacts.iter().all(|contact| {
+                        contact.id <= MAX_TOUCH_ID && contact.x <= MAX_TOUCH_POSITION && contact.y <= MAX_TOUCH_POSITION
+                    })
+            }),
         }
     }
 }

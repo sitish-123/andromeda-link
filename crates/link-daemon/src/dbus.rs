@@ -769,6 +769,13 @@ impl Link {
     async fn media_key(emitter: &SignalEmitter<'_>, key: &str) -> zbus::Result<()>;
 
     #[zbus(signal)]
+    async fn remote_touch(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        contacts: Vec<(u8, u32, u32)>,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
     async fn remote_input(
         emitter: &SignalEmitter<'_>,
         device_id: &str,
@@ -874,11 +881,15 @@ impl Link {
 }
 
 async fn emit_input(emitter: &SignalEmitter<'_>, id: &DeviceId, input: RemoteInput) -> zbus::Result<()> {
+    if input.action == InputAction::Touch {
+        let contacts = input.contacts.unwrap_or_default().iter().map(|c| (c.id, c.x, c.y)).collect();
+        return Link::remote_touch(emitter, id.as_str(), contacts).await;
+    }
     let detail = match input.action {
         InputAction::Press | InputAction::Release | InputAction::Click => input.button.map(|button| wire_name(&button)),
         InputAction::Key => input.key.map(|key| wire_name(&key)),
         InputAction::Text | InputAction::Shortcut => input.text,
-        InputAction::Move | InputAction::Point | InputAction::Scroll => None,
+        InputAction::Move | InputAction::Point | InputAction::Scroll | InputAction::Touch => None,
     };
     let (dx, dy) = (input.dx.unwrap_or_default(), input.dy.unwrap_or_default());
     Link::remote_input(emitter, id.as_str(), &wire_name(&input.action), dx, dy, &detail.unwrap_or_default()).await

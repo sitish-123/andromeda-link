@@ -225,6 +225,7 @@ Rectangle {
     }
 
     signal turned(int by)
+    signal trashAsked(var paths)
     function clock(ms) {
         const s = Math.floor(ms / 1000)
         return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0")
@@ -283,6 +284,12 @@ Rectangle {
             text: "Save to Downloads"
             iconColor: viewer.fg
             onClicked: viewer.api.save([viewer.item.path])
+        }
+        IconButton {
+            iconName: "trash"
+            text: "Move to trash"
+            iconColor: viewer.fg
+            onClicked: viewer.trashAsked([viewer.item.path])
         }
     }
 

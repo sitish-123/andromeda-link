@@ -65,6 +65,12 @@ QtObject {
     }
     function copy(paths) { saved(paths.length, "clipboard") }
     function save(paths) { saved(paths.length, "Downloads") }
+    function remove(paths) {
+        for (let i = photos.count - 1; i >= 0; i--)
+            if (paths.indexOf(photos.get(i).path) >= 0)
+                photos.remove(i)
+        regroup()
+    }
 
     onColumnsChanged: regroup()
     Component.onCompleted: reload()

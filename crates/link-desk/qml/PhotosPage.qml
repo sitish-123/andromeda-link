@@ -11,6 +11,7 @@ Item {
     property string phoneName
     property var selected: ({})
     property bool taking: false
+    property var trashing: []
     readonly property var paths: Object.keys(selected)
     readonly property bool live: link.serviceRunning && link.connected
     readonly property bool granted: (settings.grants[link.currentPhone] || []).indexOf("browse") >= 0
@@ -107,6 +108,12 @@ Item {
                 onClicked: page.api.copy(page.paths)
             }
             TonalButton {
+                iconName: "trash"
+                text: "Move to trash"
+                enabled: page.live
+                onClicked: page.trashing = page.paths
+            }
+            TonalButton {
                 iconName: "down"
                 text: "Save to Downloads"
                 kind: "primary"
@@ -189,5 +196,64 @@ Item {
         anchors.fill: parent
         z: 10
         api: page.api
+        onTrashAsked: paths => page.trashing = paths
+    }
+
+    Popup {
+        id: confirm
+        anchors.centerIn: parent
+        modal: true
+        visible: page.trashing.length > 0
+        onClosed: page.trashing = []
+        padding: 24
+        width: 420
+        z: 20
+        background: Rectangle {
+            radius: 20
+            color: Theme.elev
+            border.width: 1
+            border.color: Theme.b2
+        }
+        Overlay.modal: Rectangle { color: Qt.alpha("black", 0.4) }
+        contentItem: ColumnLayout {
+            spacing: 8
+            Label {
+                Layout.fillWidth: true
+                text: "Move " + (page.trashing.length === 1 ? "this photo" : page.trashing.length + " photos")
+                      + " to the trash on " + page.phoneName + "?"
+                font.pixelSize: Theme.title
+                font.weight: Font.DemiBold
+                wrapMode: Text.WordWrap
+            }
+            Label {
+                Layout.fillWidth: true
+                text: "You can restore " + (page.trashing.length === 1 ? "it" : "them")
+                      + " from the phone's trash for 30 days. " + page.phoneName
+                      + " can ask you to allow it."
+                wrapMode: Text.WordWrap
+                font.pixelSize: Theme.body
+                color: Theme.t2
+            }
+            RowLayout {
+                Layout.topMargin: 16
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+                TonalButton {
+                    text: "Cancel"
+                    onClicked: confirm.close()
+                }
+                TonalButton {
+                    objectName: "trashConfirmed"
+                    kind: "warn"
+                    text: "Move to trash"
+                    onClicked: {
+                        page.api.remove(page.trashing)
+                        page.selected = {}
+                        viewer.close()
+                        confirm.close()
+                    }
+                }
+            }
+        }
     }
 }

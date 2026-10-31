@@ -53,6 +53,9 @@ pub mod qobject {
         fn copy(self: Pin<&mut LinkPhotos>, paths: &QStringList);
         #[qinvokable]
         fn save(self: Pin<&mut LinkPhotos>, paths: &QStringList);
+        /// Moves the photos to the phone's trash; the grid reloads after each one.
+        #[qinvokable]
+        fn remove(self: Pin<&mut LinkPhotos>, paths: &QStringList);
         /// Has the phone's camera take a photo; it lands in Pictures/Phone and opens.
         #[qinvokable]
         fn take_photo(self: Pin<&mut LinkPhotos>);
@@ -168,6 +171,7 @@ impl cxx_qt::Initialize for qobject::LinkPhotos {
             let wanted = match event {
                 Event::Listed { path, .. } => path.starts_with(ROOT),
                 Event::Fetched { page, .. } => *page == PAGE,
+                Event::PhoneChanged { folder, .. } => folder.starts_with(ROOT),
                 Event::Thumbnail { .. } | Event::Viewed { .. } | Event::Devices(_) | Event::Phone(_) => true,
                 _ => false,
             };
@@ -282,6 +286,7 @@ impl qobject::LinkPhotos {
                 }
                 return self.saved(i32::try_from(paths.len()).unwrap_or(i32::MAX), folder);
             }
+            Event::PhoneChanged { device, .. } if device == state.phone => return self.reload(),
             _ => return,
         }
         self.refresh();
@@ -470,6 +475,12 @@ impl qobject::LinkPhotos {
 
     fn save(self: Pin<&mut Self>, paths: &QStringList) {
         desktop::fetch(PAGE, paths, Fetch::Save);
+    }
+
+    fn remove(self: Pin<&mut Self>, paths: &QStringList) {
+        for path in paths.iter().map(QString::to_string) {
+            hub::to_phone(|device| Command::DeleteFile { device, path });
+        }
     }
 
     fn take_photo(self: Pin<&mut Self>) {

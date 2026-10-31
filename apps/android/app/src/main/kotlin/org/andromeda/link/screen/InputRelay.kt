@@ -22,6 +22,7 @@ import java.io.IOException
 object InputRelay {
     private const val UNIT = 10_000f
     private const val WHEEL_STEP = 100f
+    private const val FRAME_MS = 8L
     private const val POWER_OFF = 0
     private const val POWER_NORMAL = 2
 
@@ -29,15 +30,22 @@ object InputRelay {
     private var touching = false
     private val held = mutableSetOf<Int>()
     private var screenOff = false
+    private var pkg = ""
+    private var lowLatencyWifi = false
+
+    /** The `content read` now running; it outlives this helper unless stopped, and Link would write into it. */
+    @Volatile var reader: Process? = null
 
     /** Reads commands until Link closes the stream; a panel left off goes back on then. */
     fun follow(pkg: String) {
+        this.pkg = pkg
         val process =
             runCatching {
                 ProcessBuilder("content", "read", "--uri", "content://$pkg.inputhelper/commands")
                     .redirectError(ProcessBuilder.Redirect.INHERIT)
                     .start()
             }.getOrNull() ?: return
+        reader = process
         try {
             process.inputStream.bufferedReader().forEachLine { line ->
                 runCatching { run(line.split(' ')) }.onFailure { println("input: ${it.message}") }
@@ -56,9 +64,10 @@ object InputRelay {
         held.toList().forEach { inject(key(KeyEvent.ACTION_UP, it, 0, now)) }
         held.clear()
         if (screenOff) power(POWER_NORMAL)
+        if (lowLatencyWifi) wifiLatency(false)
     }
 
-    /** `action x y x2 y2 code meta text`: text is Base64, empty fields are 0. */
+    /** `action x y x2 y2 code meta text`: text is Base64, empty fields are 0; for a gesture, code is its length in ms. */
     private fun run(fields: List<String>) {
         fun int(index: Int) = fields.getOrNull(index)?.toIntOrNull() ?: 0
         val (width, height) = screen()
@@ -71,6 +80,17 @@ object InputRelay {
                 touching = true
                 touch(MotionEvent.ACTION_DOWN, x, y, now)
             }
+            "tap" -> stroke(x, y, x, y, 0)
+            "long-press" -> stroke(x, y, x, y, int(5).toLong())
+            "swipe" -> stroke(x, y, int(3) / UNIT * width, int(4) / UNIT * height, int(5).toLong())
+            "scroll" ->
+                stroke(
+                    x,
+                    y,
+                    (x + int(3) / UNIT * width).coerceIn(0f, width - 1f),
+                    (y + int(4) / UNIT * height).coerceIn(0f, height - 1f),
+                    int(5).toLong(),
+                )
             "touch-move" -> if (touching) touch(MotionEvent.ACTION_MOVE, x, y, now)
             "touch-up" ->
                 if (touching) {
@@ -93,7 +113,61 @@ object InputRelay {
             }
             "screen-off" -> if (power(POWER_OFF)) screenOff = true
             "screen-on" -> if (power(POWER_NORMAL)) screenOff = false
+            "wifi-latency" -> wifiLatency(int(5) == 1)
+            "capture" -> capture(String(Base64.decode(fields.getOrNull(7).orEmpty(), Base64.NO_WRAP)))
         }
+    }
+
+    /**
+     * Starts Link's screen capture for [desktop] with no prompt: PROJECT_MEDIA lets Link's own capture skip Android's
+     * dialog. The desktop's Screen switch on the phone is the user's consent.
+     */
+    private fun capture(desktop: String) {
+        for (command in listOf(
+            listOf("cmd", "appops", "set", pkg, "PROJECT_MEDIA", "allow"),
+            listOf("am", "start", "-n", "$pkg/.screen.CaptureConsentActivity", "--es", "desktop", desktop),
+        )) {
+            val result =
+                runCatching {
+                    val process = ProcessBuilder(command).redirectErrorStream(true).start()
+                    process.inputStream
+                        .bufferedReader()
+                        .readText()
+                        .trim() to process.waitFor()
+                }.getOrElse { it.message to -1 }
+            if (result.second != 0) println("capture: ${command.take(2).joinToString(" ")} exited ${result.second}: ${result.first}")
+        }
+    }
+
+    /** Wi-Fi's low-latency mode, which ends power saving on the radio; while mirroring it cuts ping from ~50 to ~10 ms. */
+    private fun wifiLatency(on: Boolean) {
+        val mode = if (on) "enabled" else "disabled"
+        val code =
+            runCatching {
+                ProcessBuilder("cmd", "wifi", "force-low-latency-mode", mode).redirectErrorStream(true).start().waitFor()
+            }.getOrDefault(-1)
+        if (code == 0) lowLatencyWifi = on else println("wifi: force-low-latency-mode $mode exited $code")
+    }
+
+    /** One finger from (x, y) to (toX, toY) over [ms], moved each frame; the next command waits, as a finger would. */
+    private fun stroke(
+        x: Float,
+        y: Float,
+        toX: Float,
+        toY: Float,
+        ms: Long,
+    ) {
+        touchDownMs = SystemClock.uptimeMillis()
+        touching = true
+        touch(MotionEvent.ACTION_DOWN, x, y, touchDownMs)
+        val steps = (ms / FRAME_MS).coerceAtLeast(1)
+        for (step in 1..steps) {
+            Thread.sleep(ms / steps)
+            val done = step.toFloat() / steps
+            touch(MotionEvent.ACTION_MOVE, x + (toX - x) * done, y + (toY - y) * done, SystemClock.uptimeMillis())
+        }
+        touching = false
+        touch(MotionEvent.ACTION_UP, toX, toY, SystemClock.uptimeMillis())
     }
 
     private fun touch(

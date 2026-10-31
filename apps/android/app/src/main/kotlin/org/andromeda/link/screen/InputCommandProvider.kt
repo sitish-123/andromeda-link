@@ -72,9 +72,12 @@ class InputCommandProvider : ContentProvider() {
 
         private fun connected(stream: OutputStream) {
             val old = relay
+            // Cleared before the new helper shows as connected, so a command sent at once is not lost.
+            lines.clear()
             relay = stream
             old?.close()
-            lines.clear()
+            // A helper that comes back mid-mirror keeps Wi-Fi out of power saving, as the one before did.
+            if (ScreenCapture.running) send("wifi-latency", code = 1)
             Log.i("ScreenInput", "the shell helper reads input")
         }
 

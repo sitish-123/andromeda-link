@@ -10,7 +10,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.andromeda.link.LinkApplication
 import org.andromeda.link.R
 import org.andromeda.link.clipboard.LogAccess
@@ -36,12 +38,22 @@ class ScreenMirror(
 
     private fun on(command: MirrorCommand) {
         when (command) {
-            is MirrorCommand.Requested -> {
-                scope.launch(Dispatchers.IO) { LogAccess.startHelper(context) }
-                ask(command.desktopId)
-            }
+            is MirrorCommand.Requested ->
+                scope.launch(Dispatchers.IO) {
+                    val start = System.currentTimeMillis()
+                    Log.i(TAG, "${command.desktopId} requests the mirror")
+                    LogAccess.startHelper(context)
+                    val silent = captureSilently(command.desktopId)
+                    Log.i(TAG, "silent capture: $silent after ${System.currentTimeMillis() - start} ms")
+                    if (!silent) ask(command.desktopId)
+                }
             is MirrorCommand.Input ->
-                if (ScreenInput.enabled || InputCommandProvider.connected) ScreenInput.perform(command) else askForControl()
+                when {
+                    ScreenInput.enabled || InputCommandProvider.connected -> ScreenInput.perform(command)
+                    // A helper lost mid-mirror comes back within its 3 s poll; this input is dropped meanwhile.
+                    LogAccess.helperPossible() -> scope.launch(Dispatchers.IO) { LogAccess.startHelper(context) }
+                    else -> askForControl()
+                }
             is MirrorCommand.Keyframe -> ScreenCapture.requestKeyframe()
             is MirrorCommand.Stopped -> {
                 notifications.cancel(REQUEST_NOTIFICATION)
@@ -49,6 +61,15 @@ class ScreenMirror(
                 ScreenCapture.stop(context, command.desktopId)
             }
         }
+    }
+
+    /** Through the shell helper, which starts the capture with no prompt; false when it cannot or did not. */
+    private suspend fun captureSilently(desktopId: String): Boolean {
+        if (ScreenCapture.running || !LogAccess.helperPossible()) return false
+        withTimeoutOrNull(HELPER_WAIT_MS) { while (!InputCommandProvider.connected) delay(POLL_MS) } ?: return false
+        if (!InputCommandProvider.send("capture", text = desktopId)) return false
+        // A helper from an older Link ignores the command; the notification asks then.
+        return withTimeoutOrNull(HELPER_WAIT_MS) { while (!ScreenCapture.running) delay(POLL_MS) } != null
     }
 
     private fun ask(desktopId: String) {
@@ -153,5 +174,9 @@ class ScreenMirror(
         // The desktop gives up after 60 s.
         const val REQUEST_TIMEOUT_MS = 60_000L
         private const val TAG = "ScreenMirror"
+
+        // The helper polls for Link every 3 s.
+        private const val HELPER_WAIT_MS = 5_000L
+        private const val POLL_MS = 100L
     }
 }

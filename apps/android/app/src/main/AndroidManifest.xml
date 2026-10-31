@@ -212,7 +212,8 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name=".screen.CaptureConsentActivity"
-            android:exported="false"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:taskAffinity=""

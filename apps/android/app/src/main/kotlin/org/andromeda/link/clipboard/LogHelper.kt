@@ -49,6 +49,8 @@ object LogHelper {
         var lastCheck = lastRun
         while (true) {
             Thread.sleep(TICK_MS)
+            // An update deletes the APK this code came from; the updated Link must not reach this helper first.
+            if (!java.io.File(System.getProperty("java.class.path").orEmpty()).exists()) exit("$pkg was updated")
             val now = System.currentTimeMillis()
             if (now - lastCheck > BEAT_MS) {
                 lastCheck = now
@@ -122,6 +124,7 @@ object LogHelper {
     private fun exit(why: String): Nothing {
         println(why)
         link?.destroy()
+        InputRelay.reader?.destroy()
         exitProcess(0)
     }
 

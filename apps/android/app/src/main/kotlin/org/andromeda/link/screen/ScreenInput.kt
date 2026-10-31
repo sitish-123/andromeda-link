@@ -169,8 +169,10 @@ class ScreenInput : AccessibilityService() {
         private fun relayed(input: MirrorCommand.Input): Boolean {
             if (!InputCommandProvider.connected) return false
 
-            fun send(action: String) =
-                InputCommandProvider.send(action, input.x, input.y, input.x2, input.y2, input.code, input.meta, input.text)
+            fun send(
+                action: String,
+                code: Int? = input.code,
+            ) = InputCommandProvider.send(action, input.x, input.y, input.x2, input.y2, code, input.meta, input.text)
 
             fun key(code: Int) = InputCommandProvider.send("key-down", code = code) && InputCommandProvider.send("key-up", code = code)
             return when (input.action) {
@@ -187,7 +189,10 @@ class ScreenInput : AccessibilityService() {
                 MirrorAction.Recents -> key(KeyEvent.KEYCODE_APP_SWITCH)
                 // The virtual keyboard map has keys for ASCII only; other text goes into the field through Accessibility.
                 MirrorAction.Text -> input.text.orEmpty().all { it in ' '..'~' } && send("text")
-                MirrorAction.Tap, MirrorAction.LongPress, MirrorAction.Swipe, MirrorAction.Scroll -> false
+                MirrorAction.Tap -> send("tap")
+                MirrorAction.LongPress -> send("long-press", (input.ms?.toLong() ?: LONG_PRESS_MS).toInt())
+                MirrorAction.Swipe -> send("swipe", (input.ms?.toLong() ?: SWIPE_MS).toInt())
+                MirrorAction.Scroll -> send("scroll", SCROLL_MS.toInt())
             }
         }
 

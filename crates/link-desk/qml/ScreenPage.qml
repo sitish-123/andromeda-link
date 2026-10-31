@@ -89,8 +89,9 @@ Item {
                 readonly property real aspect: page.api.videoWidth > 0 ? page.api.videoWidth / page.api.videoHeight : 0.47
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: page.live && page.granted ? -40 : 0
-                height: page.mirroring ? parent.height - 112
-                                       : Math.min(parent.height - (page.live && page.granted ? 140 : 40), 440)
+                height: Math.min(page.mirroring ? parent.height - 112
+                                                : Math.min(parent.height - (page.live && page.granted ? 140 : 40), 440),
+                                 parent.width / aspect)
                 width: height * aspect
                 radius: page.mirroring ? 20 : 32
                 color: page.mirroring ? "black" : Theme.elev

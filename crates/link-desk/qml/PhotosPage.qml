@@ -148,6 +148,7 @@ Item {
                 selected: page.selected
                 onToggled: path => page.toggle(path)
                 onWanted: path => page.api.want(path)
+                onOpened: path => viewer.open(path)
             }
             Grid {
                 id: skeleton
@@ -180,5 +181,13 @@ Item {
                 onTriggered: page.api.reload()
             }
         }
+    }
+
+    PhotoViewer {
+        id: viewer
+        objectName: "photoViewer"
+        anchors.fill: parent
+        z: 10
+        api: page.api
     }
 }

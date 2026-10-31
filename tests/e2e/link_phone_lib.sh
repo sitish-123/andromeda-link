@@ -171,7 +171,12 @@ PY
 # allow_mirror NAME: Allow on the request, as a heads-up or in the shade (ColorOS can keep a pinned heads-up out of
 # the shade), then Start on Android's capture prompt. Goes home first: a fullscreen app can hide both.
 allow_mirror() {
-  wait_for 75 "no mirror request notification" eval 'adb shell dumpsys notification --noredact | grep -q "wants to show your screen"'
+  # With a root or Shizuku helper the phone starts the capture itself, with no notification or prompt.
+  local before
+  before=$(grep -c "allowed mirroring" "$OUT/linkd.log" || true)
+  wait_for 75 "no mirror request notification" eval '(( $(grep -c "allowed mirroring" "$OUT/linkd.log") > before )) ||
+    adb shell dumpsys notification --noredact | grep -q "wants to show your screen"'
+  (( $(grep -c "allowed mirroring" "$OUT/linkd.log") > before )) && return
   adb shell input keyevent KEYCODE_HOME
   local at="" was="" try text
   # The shade moves while it opens, so a position counts only once two dumps a second apart agree on it. A tap on a

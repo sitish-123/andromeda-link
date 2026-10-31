@@ -33,8 +33,12 @@ impl Stream {
         ended: impl FnOnce(bool) + Send + 'static,
     ) -> Result<Self, String> {
         gst::init().map_err(|error| error.to_string())?;
-        let decoder =
-            if gst::ElementFactory::find("vah264dec").is_some() { "vah264dec" } else { "avdec_h264 ! videoconvert" };
+        // Frame threads hold up to one frame per core; slices keep each frame's delay to its own decode.
+        let decoder = if gst::ElementFactory::find("vah264dec").is_some() {
+            "vah264dec"
+        } else {
+            "avdec_h264 thread-type=slice ! videoconvert"
+        };
         let (pipeline, src) = build(&format!(
             "appsrc name=src is-live=true format=time caps={CAPS} ! h264parse ! {decoder} ! video/x-raw,format=NV12 \
              ! appsink name=sink sync=false max-buffers=1 drop=true"

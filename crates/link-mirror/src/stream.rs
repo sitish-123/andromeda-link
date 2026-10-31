@@ -201,12 +201,23 @@ pub fn to_png(socket: UnixStream, dir: &Path, count: u32) -> anyhow::Result<()> 
     run_to_end(&pipeline, src, socket, Sound::Wav(dir.join("audio.wav")), count)
 }
 
+/// The window's decoder, which the latency test times too: VA-API when the GPU has it. Frame threads would hold up to
+/// one frame per core, so the software decoder splits each frame into slices instead.
+fn live_decoder() -> &'static str {
+    if gst::ElementFactory::find("vah264dec").is_some() {
+        "vah264dec"
+    } else {
+        "avdec_h264 thread-type=slice ! videoconvert"
+    }
+}
+
 /// Decodes `count` units and writes one line per frame to `out`: the Unix time in ms it was decoded at, and its mean
 /// luma (0 to 255). A test flips the phone's screen and times the flip's arrival.
 pub fn to_luma(socket: UnixStream, out: &Path, count: u32) -> anyhow::Result<()> {
     let (pipeline, src) = build(&format!(
-        "appsrc name=src is-live=true format=time caps={CAPS} ! h264parse ! avdec_h264 ! videoconvert \
-         ! video/x-raw,format=GRAY8 ! appsink name=sink sync=false"
+        "appsrc name=src is-live=true format=time caps={CAPS} ! h264parse ! {} ! video/x-raw,format=NV12 \
+         ! appsink name=sink sync=false max-buffers=1 drop=true",
+        live_decoder()
     ))?;
     let sink = pipeline
         .by_name("sink")
@@ -219,7 +230,8 @@ pub fn to_luma(socket: UnixStream, out: &Path, count: u32) -> anyhow::Result<()>
                 let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
                 let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
                 let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
-                let picked = map.iter().step_by(LUMA_STRIDE);
+                // NV12's first two thirds are the luma plane: no conversion, which at 1440 by 3168 fell behind 60 fps.
+                let picked = map[..map.len() * 2 / 3].iter().step_by(LUMA_STRIDE);
                 let (sum, n) = picked.fold((0u64, 0u64), |(sum, n), luma| (sum + u64::from(*luma), n + 1));
                 let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_millis());
                 writeln!(file, "{now} {}", sum / n.max(1))
@@ -253,8 +265,7 @@ impl Display {
     /// Shows `socket`'s stream in place of the current one; `ended` gets each end of stream or error.
     pub fn start(&self, socket: UnixStream, ended: impl FnMut(&gst::Message) + 'static) -> anyhow::Result<()> {
         self.stop();
-        let decoder =
-            if gst::ElementFactory::find("vah264dec").is_some() { "vah264dec" } else { "avdec_h264 ! videoconvert" };
+        let decoder = live_decoder();
         log::info!("decoding with {}", decoder.split(' ').next().unwrap_or(decoder));
         let paintable_sink = gst::ElementFactory::find("gtk4paintablesink").is_some();
         // Ubuntu 24.04 lacks the GTK 4 sink: frames then reach the picture as textures copied off an appsink.

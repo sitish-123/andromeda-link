@@ -56,7 +56,7 @@ start_mirror() {
 }
 
 adb logcat -c
-adb logcat -v epoch ScreenCapture:I ScreenInput:I MirrorAudio:I LinkFixture:I '*:S' > "$OUT/logcat.txt" &
+adb logcat -v epoch ScreenCapture:I ScreenInput:I ScreenMirror:I MirrorAudio:I LinkFixture:I '*:S' > "$OUT/logcat.txt" &
 adb shell am start -W -n org.andromeda.link.fixture/.MirrorProbeActivity > /dev/null
 sleep 1
 start_mirror --luma "$OUT/luma.tsv" --count 1000000

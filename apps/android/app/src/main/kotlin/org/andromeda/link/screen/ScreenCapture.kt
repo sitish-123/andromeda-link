@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.hardware.display.VirtualDisplayConfig
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
@@ -18,6 +19,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import android.view.Display
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -31,6 +33,8 @@ import org.andromeda.link.LinkApplication
 import org.andromeda.link.R
 import org.andromeda.link.core.domain.MirrorStream
 import org.andromeda.link.notifications.Channels
+import org.lsposed.hiddenapibypass.HiddenApiBypass
+import java.lang.reflect.Method
 
 /**
  * Captures the screen into the hardware H.264 encoder and streams its output to one desktop: at most 1440 pixels on
@@ -116,17 +120,7 @@ class ScreenCapture : Service() {
     ) {
         val (width, height) = videoSize()
         var codec = encoder(width, height) ?: return
-        display =
-            projection.createVirtualDisplay(
-                "Link mirror",
-                width,
-                height,
-                resources.displayMetrics.densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                surface,
-                null,
-                null,
-            )
+        display = mirrorDisplay(projection, width, height)
         val repository = (application as LinkApplication).container.repository
         val stream =
             repository.startMirror(desktop, width, height).getOrElse {
@@ -222,6 +216,45 @@ class ScreenCapture : Service() {
         if (modes.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)) {
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
         }
+    }
+
+    /**
+     * The display the encoder records. MediaProjection's public call makes it at 60 Hz, so a 120 Hz screen mirrored at
+     * half its rate. Only a hidden call takes the screen's own rate; if Android refuses it, the public one.
+     */
+    private fun mirrorDisplay(
+        projection: MediaProjection,
+        width: Int,
+        height: Int,
+    ): VirtualDisplay? {
+        val dpi = resources.displayMetrics.densityDpi
+        val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
+        val displays = getSystemService(DisplayManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            runCatching {
+                val config =
+                    VirtualDisplayConfig
+                        .Builder("Link mirror", width, height, dpi)
+                        .setFlags(flags)
+                        .setSurface(surface)
+                        .setRequestedRefreshRate(displays.getDisplay(Display.DEFAULT_DISPLAY).refreshRate)
+                        .build()
+                val create =
+                    HiddenApiBypass.getDeclaredMethods(DisplayManager::class.java).filterIsInstance<Method>().first {
+                        it.name == "createVirtualDisplay" &&
+                            it.parameterTypes.contentEquals(
+                                arrayOf(
+                                    MediaProjection::class.java,
+                                    VirtualDisplayConfig::class.java,
+                                    VirtualDisplay.Callback::class.java,
+                                    Handler::class.java,
+                                ),
+                            )
+                    }
+                return create.invoke(displays, projection, config, null, null) as VirtualDisplay
+            }.onFailure { Log.i(TAG, "mirror display at the screen's rate: ${it.cause ?: it}") }
+        }
+        return projection.createVirtualDisplay("Link mirror", width, height, dpi, flags, surface, null, null)
     }
 
     /** Sends the encoder's output until it ends; true when it ended for a rotation. */

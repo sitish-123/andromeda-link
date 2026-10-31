@@ -37,6 +37,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
@@ -120,39 +121,48 @@ private fun Touchpad(
     viewModel: RemoteViewModel,
     modifier: Modifier = Modifier,
 ) {
+    val raw by viewModel.touchpad.collectAsStateWithLifecycle()
+    val area = modifier.clip(Radius.list).background(LinkTheme.colors.surfaceTertiary)
     Box(
-        modifier.clip(Radius.list).background(LinkTheme.colors.surfaceTertiary).pointerInput(viewModel) {
-            awaitEachGesture {
-                val down = awaitFirstDown()
-                var fingers = 1
-                var travelled = 0f
-                var lifted = down.uptimeMillis
-                do {
-                    val event = awaitPointerEvent()
-                    val pressed = event.changes.filter { it.pressed }
-                    fingers = maxOf(fingers, pressed.size)
-                    if (pressed.isNotEmpty()) {
-                        val delta = pressed.fold(Offset.Zero) { sum, change -> sum + change.positionChange() } / pressed.size.toFloat()
-                        travelled += delta.getDistance()
-                        if (pressed.size >= 2) {
-                            viewModel.scroll(delta.x, delta.y)
-                        } else if (fingers == 1) {
-                            viewModel.move(delta.x, delta.y)
-                        }
-                    }
-                    event.changes.forEach {
-                        lifted = it.uptimeMillis
-                        it.consume()
-                    }
-                } while (pressed.isNotEmpty())
-                if (lifted - down.uptimeMillis < TAP_MS && travelled < viewConfiguration.touchSlop) {
-                    viewModel.send(RemoteInput.Click(if (fingers >= 2) PointerButton.Right else PointerButton.Left))
-                }
-            }
+        if (raw) {
+            area.rawTouchpad(LocalContext.current.resources.displayMetrics) { viewModel.send(RemoteInput.Touch(it)) }
+        } else {
+            area.pointerInput(viewModel) { interpret(viewModel) }
         },
         contentAlignment = Alignment.Center,
     ) {
         Label(stringResource(R.string.remote_touchpad), LinkTheme.type.bodyMedium, LinkTheme.colors.textTertiary)
+    }
+}
+
+/** For a desktop without a real touchpad: one finger moves and taps, two fingers scroll and tap to right-click. */
+private suspend fun PointerInputScope.interpret(viewModel: RemoteViewModel) {
+    awaitEachGesture {
+        val down = awaitFirstDown()
+        var fingers = 1
+        var travelled = 0f
+        var lifted = down.uptimeMillis
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.filter { it.pressed }
+            fingers = maxOf(fingers, pressed.size)
+            if (pressed.isNotEmpty()) {
+                val delta = pressed.fold(Offset.Zero) { sum, change -> sum + change.positionChange() } / pressed.size.toFloat()
+                travelled += delta.getDistance()
+                if (pressed.size >= 2) {
+                    viewModel.scroll(delta.x, delta.y)
+                } else if (fingers == 1) {
+                    viewModel.move(delta.x, delta.y)
+                }
+            }
+            event.changes.forEach {
+                lifted = it.uptimeMillis
+                it.consume()
+            }
+        } while (pressed.isNotEmpty())
+        if (lifted - down.uptimeMillis < TAP_MS && travelled < viewConfiguration.touchSlop) {
+            viewModel.send(RemoteInput.Click(if (fingers >= 2) PointerButton.Right else PointerButton.Left))
+        }
     }
 }
 

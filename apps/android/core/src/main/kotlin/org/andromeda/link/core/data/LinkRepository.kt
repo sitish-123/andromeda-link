@@ -91,6 +91,7 @@ import org.andromeda.link.ffi.NotificationButton as FfiNotificationButton
 import org.andromeda.link.ffi.PhoneNotification as FfiPhoneNotification
 import org.andromeda.link.ffi.PlaybackState as FfiState
 import org.andromeda.link.ffi.ShareKind as FfiShareKind
+import org.andromeda.link.ffi.TouchContact as FfiTouchContact
 
 /**
  * The phone side of Link over the Rust core. Every operation returns a [Result] whose failure is a
@@ -867,6 +868,16 @@ private fun RemoteInput.toFfi(): InputEvent =
         is RemoteInput.Key -> InputEvent(InputAction.KEY, null, null, null, InputKey.entries[key.ordinal], null)
         is RemoteInput.Text -> InputEvent(InputAction.TEXT, null, null, null, null, text)
         is RemoteInput.Shortcut -> InputEvent(InputAction.SHORTCUT, null, null, null, null, keys)
+        is RemoteInput.Touch ->
+            InputEvent(
+                InputAction.TOUCH,
+                null,
+                null,
+                null,
+                null,
+                null,
+                contacts.map { FfiTouchContact(it.id.toUByte(), it.x.toUInt(), it.y.toUInt()) },
+            )
     }
 
 private fun MediaCommandKind.toFfi(): FfiCommand =

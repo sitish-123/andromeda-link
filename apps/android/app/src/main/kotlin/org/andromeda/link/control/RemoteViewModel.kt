@@ -46,6 +46,12 @@ class RemoteViewModel(
         repository.capabilities
             .map { SHORTCUTS in it[desktopId].orEmpty() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    /** The desktop makes a real touchpad of raw finger contacts, so its own touchpad settings and gestures apply. */
+    val touchpad: StateFlow<Boolean> =
+        repository.capabilities
+            .map { TOUCHPAD in it[desktopId].orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
 
     init {
         viewModelScope.launch {
@@ -143,6 +149,7 @@ class RemoteViewModel(
             scrollY -= sy
         }
     }
+        const val TOUCHPAD = "touchpad"
 
     private companion object {
         const val SHORTCUTS = "shortcuts"

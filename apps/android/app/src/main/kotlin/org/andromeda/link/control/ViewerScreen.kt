@@ -237,11 +237,15 @@ private fun Picture(
                     },
         )
         val description = stringResource(R.string.viewer_picture)
+        // A desktop with a real touchpad gets the raw fingers in touchpad mode; its own settings and gestures apply.
+        val raw by input.touchpad.collectAsStateWithLifecycle()
+        val area = Modifier.fillMaxSize().semantics { contentDescription = description }
         Box(
-            Modifier
-                .fillMaxSize()
-                .semantics { contentDescription = description }
-                .pointerInput(direct, view) { if (direct) directTouch(view, input) else touchpad(view, input) },
+            if (raw && !direct) {
+                area.rawTouchpad(LocalContext.current.resources.displayMetrics) { input.send(RemoteInput.Touch(it)) }
+            } else {
+                area.pointerInput(direct, view) { if (direct) directTouch(view, input) else touchpad(view, input) }
+            },
         )
     }
 }

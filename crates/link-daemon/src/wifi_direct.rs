@@ -24,6 +24,10 @@ pub enum Spare {
     Added(String),
 }
 
+pub const fn on_spare(active: &Active) -> bool {
+    matches!(active, Active::Spare(..))
+}
+
 /// Where to join a group while the desktop keeps its network; None when only leaving it would do. Quick, since the
 /// hub awaits it: [`join`] waits for `NetworkManager` to take an added interface.
 pub async fn spare() -> Option<Spare> {

@@ -1,8 +1,12 @@
 //! macOS joins no Wi-Fi Direct group, so its hello leaves out `feature:wifi-direct-join` and phones use their hotspot.
 
-use crate::hotspot::Joined;
+use crate::hotspot::{Active, Joined};
 
 pub struct Spare;
+
+pub const fn on_spare(_active: &Active) -> bool {
+    false
+}
 
 #[expect(clippy::unused_async, reason = "the Linux module's signature")]
 pub async fn spare() -> Option<Spare> {

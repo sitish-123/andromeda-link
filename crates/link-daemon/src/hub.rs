@@ -1485,8 +1485,7 @@ impl Hub {
         }
         self.joining_groups.insert(id.clone());
         // `spare` may remove a stale spare interface, so not while a group of this desktop may be on it.
-        let spare_in_use = self.joining_groups.len() > 1
-            || self.hotspots.values().any(|active| matches!(active, hotspot::Active::Spare(..)));
+        let spare_in_use = self.joining_groups.len() > 1 || self.hotspots.values().any(crate::wifi_direct::on_spare);
         let spare = if spare_in_use {
             None
         } else {

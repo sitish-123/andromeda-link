@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Andromeda</vendor>
+  <action id="org.andromeda.link.wifi-power-save">
+    <description>Turn Wi-Fi power save off while a phone screen is mirrored</description>
+    <message>Andromeda Link turns Wi-Fi power save off while it mirrors a phone</message>
+    <!-- The daemon is a user service, outside any logind session, so "active" never matches it. -->
+    <defaults>
+      <allow_any>yes</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/andromeda-link/wifi-power-save</annotate>
+  </action>
+</policyconfig>

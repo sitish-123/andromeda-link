@@ -11,7 +11,7 @@ Requires:       qt6-qtbase >= 6.7 qt6-qtdeclarative qt6-qtmultimedia
 Obsoletes:      andromeda-link-app < %{version}-%{release}
 Provides:       andromeda-link-app = %{version}-%{release}
 Recommends:     gstreamer1-plugin-gtk4 (xdg-desktop-portal-gnome or xdg-desktop-portal-kde)
-Suggests:       bluez NetworkManager scrcpy android-tools
+Suggests:       bluez NetworkManager scrcpy android-tools iw
 %global debug_package %{nil}
 
 %description
@@ -34,6 +34,9 @@ install -Dm644 %{linkroot}/dist/andromeda-link-localsend.firewalld.xml \
   %{buildroot}%{_prefix}/lib/firewalld/services/andromeda-link-localsend.xml
 install -Dm644 %{linkroot}/dist/60-andromeda-link-bluetooth.conf \
   %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf
+install -Dm755 %{linkroot}/dist/andromeda-link-wifi-power-save %{buildroot}%{_prefix}/lib/andromeda-link/wifi-power-save
+install -Dm644 %{linkroot}/dist/org.andromeda.link.wifi-power-save.policy \
+  %{buildroot}%{_datadir}/polkit-1/actions/org.andromeda.link.wifi-power-save.policy
 install -Dm644 %{linkroot}/dist/org.andromeda.Link.desktop %{buildroot}%{_datadir}/applications/org.andromeda.Link.desktop
 cp -r %{linkroot}/dist/icons %{buildroot}%{_datadir}/
 install -Dm644 %{linkroot}/LICENSE %{buildroot}%{_licensedir}/%{name}/LICENSE
@@ -65,5 +68,7 @@ fi
 %{_prefix}/lib/firewalld/services/andromeda-link*.xml
 %{_datadir}/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf
 %{_bindir}/andromeda-link
+%{_prefix}/lib/andromeda-link/wifi-power-save
+%{_datadir}/polkit-1/actions/org.andromeda.link.wifi-power-save.policy
 %{_datadir}/applications/org.andromeda.Link.desktop
 %{_datadir}/icons/hicolor/*/apps/org.andromeda.Link*

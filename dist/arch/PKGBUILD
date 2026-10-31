@@ -11,7 +11,8 @@ license=(MIT)
 depends=(glibc gcc-libs dbus fuse3 gtk4 qt6-base qt6-declarative qt6-multimedia gstreamer gst-plugins-base-libs
   gst-plugins-bad gst-plugin-gtk4)
 makedepends=(cargo protobuf clang lld)
-optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
+optdepends=('iw: Wi-Fi power save off while mirroring, for a faster picture'
+  'bluez: Link over Bluetooth when no Wi-Fi reaches the phone'
   "networkmanager: joining the phone's hotspot or Wi-Fi Direct group for large transfers away from Wi-Fi"
   'gst-plugin-va: hardware decoding of the mirrored phone screen'
   'gst-libav: software decoding of the mirrored phone screen without VA-API'
@@ -52,6 +53,9 @@ package() {
     "$pkgdir/usr/lib/firewalld/services/andromeda-link-localsend.xml"
   install -Dm644 "$dist/60-andromeda-link-bluetooth.conf" \
     "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
+  install -Dm755 "$dist/andromeda-link-wifi-power-save" "$pkgdir/usr/lib/andromeda-link/wifi-power-save"
+  install -Dm644 "$dist/org.andromeda.link.wifi-power-save.policy" \
+    "$pkgdir/usr/share/polkit-1/actions/org.andromeda.link.wifi-power-save.policy"
   install -Dm644 "$dist/org.andromeda.Link.desktop" "$pkgdir/usr/share/applications/org.andromeda.Link.desktop"
   cp -r "$dist/icons" "$pkgdir/usr/share/"
   install -Dm644 "$ROOT/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

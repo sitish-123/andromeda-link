@@ -1,0 +1,23 @@
+#!/bin/sh
+# Runs as root through pkexec. "off" turns power save off on every Wi-Fi interface while a phone mirrors (power save
+# holds received packets for up to a beacon interval); "restore" turns it on again where it was on before.
+set -eu
+state=/run/andromeda-link-wifi-power-save
+case ${1-} in
+off)
+  [ -e "$state" ] || for net in /sys/class/net/*/wireless; do
+    iface=${net%/wireless}; iface=${iface##*/}
+    iw dev "$iface" get power_save 2> /dev/null | grep -q ': on$' && echo "$iface"
+  done > "$state"
+  for net in /sys/class/net/*/wireless; do
+    iface=${net%/wireless}; iface=${iface##*/}
+    iw dev "$iface" set power_save off 2> /dev/null || true
+  done
+  ;;
+restore)
+  [ -e "$state" ] || exit 0
+  while read -r iface; do iw dev "$iface" set power_save on 2> /dev/null || true; done < "$state"
+  rm -f "$state"
+  ;;
+*) echo "usage: $0 off|restore" >&2; exit 2 ;;
+esac

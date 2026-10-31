@@ -9,7 +9,7 @@ use link_core::identity::DeviceId;
 use link_core::mirror::{MirrorReceiver, MirrorStream};
 use link_core::proto::message::{MIRROR_CONFIG, MIRROR_END};
 use tokio::io::AsyncWriteExt as _;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
@@ -42,6 +42,7 @@ pub struct Mirrors {
     /// Each running pump's stop, which ends it with [`MIRROR_END`].
     running: HashMap<DeviceId, oneshot::Sender<()>>,
     pumps: JoinSet<DeviceId>,
+    wifi: WifiPower,
 }
 
 impl Mirrors {
@@ -85,6 +86,7 @@ impl Mirrors {
         if let Some(stop) = self.running.remove(id) {
             let _ = stop.send(());
         }
+        self.wifi.awake(self.active());
     }
 
     /// The phone's video stream: handed to the request waiting for it, or refused.
@@ -118,6 +120,7 @@ impl Mirrors {
             id
         });
         self.running.insert(from, stop);
+        self.wifi.awake(true);
     }
 
     /// The next pump to end, with its phone, which is told to stop in case the viewer closed first.
@@ -132,7 +135,51 @@ impl Mirrors {
             }
         };
         self.running.remove(&id);
+        self.wifi.awake(self.active());
         Some(id)
+    }
+}
+
+/// Root helper that turns Wi-Fi power save off, or back to what it was; power save holds received packets for up to a
+/// beacon interval (about 100 ms).
+const WIFI_HELPER: &str = "/usr/lib/andromeda-link/wifi-power-save";
+
+/// Keeps this computer's Wi-Fi out of power save while a phone mirrors. One task runs the helper, so calls apply in order.
+#[derive(Default)]
+struct WifiPower(Option<watch::Sender<bool>>);
+
+impl WifiPower {
+    fn awake(&mut self, awake: bool) {
+        let sender = self.0.get_or_insert_with(|| {
+            let (sender, mut receiver) = watch::channel(false);
+            tokio::spawn(async move {
+                let mut applied = false;
+                while receiver.changed().await.is_ok() {
+                    let awake = *receiver.borrow_and_update();
+                    if awake != applied {
+                        power_save(!awake).await;
+                        applied = awake;
+                    }
+                }
+                if applied {
+                    power_save(true).await;
+                }
+            });
+            sender
+        });
+        sender.send_replace(awake);
+    }
+}
+
+async fn power_save(on: bool) {
+    if !std::path::Path::new(WIFI_HELPER).exists() {
+        return;
+    }
+    let mode = if on { "restore" } else { "off" };
+    match tokio::process::Command::new("pkexec").args([WIFI_HELPER, mode]).status().await {
+        Ok(status) if status.success() => log::info!("Wi-Fi power save: {mode}"),
+        Ok(status) => log::info!("Wi-Fi power save {mode}: the helper {status}"),
+        Err(error) => log::info!("Wi-Fi power save {mode}: pkexec: {error}"),
     }
 }
 

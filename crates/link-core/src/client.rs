@@ -1445,8 +1445,6 @@ impl ClientActor {
             .map(|peer| DesktopState {
                 peer: peer.clone(),
                 connected: live(&peer.id),
-                } else if matches!(message, Message::MirrorRequest) {
-                    self.emit(ClientEvent::MirrorBlocked { from }).await;
                 bluetooth: live(&peer.id) && self.on_bluetooth.contains(&peer.id),
             })
             .collect()
@@ -1454,6 +1452,8 @@ impl ClientActor {
 
     async fn emit(&self, event: ClientEvent) {
         if self.events.send(event).await.is_err() {
+                } else if matches!(message, Message::MirrorRequest) {
+                    self.emit(ClientEvent::MirrorBlocked { from }).await;
             log::debug!("nobody reads client events");
         }
     }

@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    CALLS, CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_P2P_NAME_LEN, MAX_PUNCH_ADDRESSES,
-    MAX_SNAPSHOT, MESSAGES, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
+    CALLS, CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT, MESSAGES,
+    MIRROR_STREAMS, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
     NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, PRESENTING, PhotoRefusal, Punch,
-    STATUS_SIGNAL, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemResult, TransferId, WifiDirect,
+    STATUS_SIGNAL, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemResult, TransferId, WIFI_DIRECT_JOIN,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -208,9 +208,8 @@ pub struct ClientActor {
     /// When the hotspot stops unless a transfer starts first.
     hotspot_idle_at: Option<Instant>,
     upgrades: HashMap<DeviceId, Vec<oneshot::Sender<Result<(), Error>>>>,
-    /// How each desktop shows over Wi-Fi Direct (its device address, else its name), from its `wifi-direct-ready`;
-    /// dropped for the session once a group fails.
-    wifi_direct_names: HashMap<DeviceId, String>,
+    /// Desktops whose Bluetooth session already failed to move to a Wi-Fi Direct group.
+    wifi_direct_failed: HashSet<DeviceId>,
     /// Whether the hotspot slot holds a Wi-Fi Direct group rather than the hotspot.
     slot_is_group: bool,
     /// While that group is forming: when it gives up for the hotspot.
@@ -271,7 +270,7 @@ pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receive
         hotspot_started: JoinSet::new(),
         hotspot_idle_at: None,
         upgrades: HashMap::new(),
-        wifi_direct_names: HashMap::new(),
+        wifi_direct_failed: HashSet::new(),
         slot_is_group: false,
         wifi_direct_until: None,
         wifi_direct_started: JoinSet::new(),
@@ -332,7 +331,9 @@ impl Client {
     pub async fn start_mirror(&self, id: DeviceId, width: u32, height: u32) -> Result<MirrorSender, Error> {
         let session = self.session(id.clone()).await?;
         session.send(Message::MirrorStarted(MirrorStarted { width, height })).await?;
-        let sender = MirrorSender::open(&session, width, height).await?;
+        let desktops = self.desktops().await?;
+        let streams = desktops.iter().any(|desktop| desktop.peer.id == id && desktop.peer.has(MIRROR_STREAMS));
+        let sender = MirrorSender::open(&session, width, height, streams).await?;
         self.commands.send(Command::Mirroring { id, on: true }).await.map_err(|_| Error::Stopped)?;
         Ok(sender)
     }
@@ -784,6 +785,7 @@ impl ClientActor {
             log::info!("{id}: connected over Bluetooth");
             self.on_bluetooth.insert(id.clone());
             self.on_hotspot.remove(&id);
+            self.wifi_direct_failed.remove(&id);
             self.next_probe = Some(Instant::now());
         } else {
             log::info!("{id}: connected at {}", addr.map_or_else(String::new, |addr| addr.to_string()));
@@ -989,30 +991,27 @@ impl ClientActor {
         }
     }
 
-    /// Takes the hotspot slot for a Wi-Fi Direct group with `id`, when both sides can form one: the phone's name goes
-    /// out first so the desktop looks for it while the phone connects.
+    /// Takes the hotspot slot for a Wi-Fi Direct group with `id`, when both sides can: the phone creates the group as
+    /// its owner and sends its credentials, so neither side negotiates and Android asks the user nothing.
     fn try_wifi_direct(&mut self, id: &DeviceId) -> bool {
-        let (Some(provider), Some(desktop), Some(handle)) =
-            (self.phone.wifi_direct(), self.wifi_direct_names.get(id).cloned(), self.sessions.get(id).cloned())
-        else {
+        let joins = self.phone.desktops().iter().any(|peer| peer.id == *id && peer.has(WIFI_DIRECT_JOIN));
+        let (Some(provider), Some(handle)) = (self.phone.wifi_direct(), self.sessions.get(id).cloned()) else {
             return false;
         };
-        log::info!("{id}: forming a Wi-Fi Direct group with {desktop:?}");
+        if !joins || self.wifi_direct_failed.contains(id) {
+            return false;
+        }
+        log::info!("{id}: creating a Wi-Fi Direct group");
         self.hotspot_for = Some(id.clone());
         self.slot_is_group = true;
         self.wifi_direct_until = Some(Instant::now() + hotspot::WIFI_DIRECT_TIMEOUT);
         let id = id.clone();
         self.wifi_direct_started.spawn(async move {
-            let formed = async {
-                let named = provider.clone();
-                let name = tokio::task::spawn_blocking(move || named.name()).await.map_err(text)?.map_err(text)?;
-                if name.is_empty() || name.len() > MAX_P2P_NAME_LEN {
-                    return Err(format!("the phone's Wi-Fi Direct name {name:?} does not fit"));
-                }
-                handle.send(Message::WifiDirect(WifiDirect { name })).await.map_err(text)?;
-                tokio::task::spawn_blocking(move || provider.connect(&desktop)).await.map_err(text)?.map_err(text)
+            let started = async {
+                let group = tokio::task::spawn_blocking(move || provider.start()).await.map_err(text)?.map_err(text)?;
+                handle.send(Message::WifiDirect(group)).await.map_err(text)
             };
-            (id, formed.await)
+            (id, started.await)
         });
         true
     }
@@ -1026,7 +1025,7 @@ impl ClientActor {
         log::info!("{id}: Wi-Fi Direct failed, trying the hotspot: {reason}");
         self.slot_is_group = false;
         self.stop_wifi_direct_provider();
-        self.wifi_direct_names.remove(&id);
+        self.wifi_direct_failed.insert(id.clone());
         self.hotspot_for = None;
         self.start_hotspot(id).await;
     }
@@ -1363,10 +1362,6 @@ impl ClientActor {
                         log::info!("{from}: refusing to mirror: {error}");
                     }
                 }
-            }
-            SessionEvent::Message { from, message: Message::WifiDirectReady(ready) } => {
-                // The address finds the desktop even when it shows no name, as wpa_supplicant does by default.
-                self.wifi_direct_names.insert(from, ready.address.unwrap_or(ready.name));
             }
             SessionEvent::Message { from, message: Message::HotspotEnd(end) }
                 if self.hotspot_for.as_ref() == Some(&from) && self.wifi_direct_until.is_some() =>

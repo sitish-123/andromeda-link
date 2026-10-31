@@ -2,6 +2,7 @@
 //! u64 presentation time in microseconds, a flags byte, then the bytes: H.264 in Annex B form, or with the audio flag
 //! one Opus packet of 48 kHz stereo.
 
+use std::cell::RefCell;
 use std::io::{Read as _, Write as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -11,11 +12,15 @@ use anyhow::{Context, bail};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
+use gtk4::glib;
 
 const UNIT_HEADER: usize = 13;
 const MAX_UNIT: usize = 4 * 1024 * 1024;
 const KEYFRAME: u8 = 1;
 const AUDIO: u8 = 4;
+/// The daemon's last unit, empty, when the phone ended mirroring on purpose; a socket closing without it
+/// lost the stream.
+const END: u8 = 8;
 const CAPS: &str = "video/x-h264,stream-format=byte-stream,alignment=au";
 const AUDIO_CAPS: &str = "audio/x-opus,channel-mapping-family=(int)0,channels=(int)2,rate=(int)48000";
 /// Every this many pixels of the luma plane go into a frame's mean; enough for a full-screen flip.
@@ -103,18 +108,23 @@ impl Audio {
 }
 
 /// Pushes units into `src` and the sound on a thread until the socket ends or `limit` video units went in, then ends
-/// the streams.
-fn feed(mut socket: UnixStream, src: gst_app::AppSrc, sound: Sound, limit: Option<u32>) {
+/// the streams. With `report`, a lost stream posts an error on the pipeline instead of ending it.
+fn feed(mut socket: UnixStream, src: gst_app::AppSrc, sound: Sound, limit: Option<u32>, report: bool) {
     std::thread::spawn(move || {
         let mut audio = Audio { sound, running: None };
         let mut first = None;
         let mut fed = 0;
+        let mut lost = None;
         while limit.is_none_or(|limit| fed < limit) {
             let unit = match read_unit(&mut socket) {
-                Ok(Some(unit)) => unit,
-                Ok(None) => break,
+                Ok(Some(unit)) if unit.flags & END == 0 => unit,
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    lost = Some("the mirror stream was lost".to_owned());
+                    break;
+                }
                 Err(error) => {
-                    log::info!("reading the mirror stream: {error}");
+                    lost = Some(format!("reading the mirror stream: {error}"));
                     break;
                 }
             };
@@ -136,6 +146,12 @@ fn feed(mut socket: UnixStream, src: gst_app::AppSrc, sound: Sound, limit: Optio
             fed += 1;
         }
         audio.finish();
+        if let Some(lost) = lost {
+            log::info!("{lost}");
+            if report {
+                return src.post_error_message(gst::error_msg!(gst::StreamError::Failed, ["{lost}"]));
+            }
+        }
         if let Err(error) = src.end_of_stream() {
             log::debug!("ending the mirror stream: {error}");
         }
@@ -161,7 +177,7 @@ fn run_to_end(
     count: u32,
 ) -> anyhow::Result<()> {
     pipeline.set_state(gst::State::Playing)?;
-    feed(socket, src, sound, Some(count));
+    feed(socket, src, sound, Some(count), false);
     let bus = pipeline.bus().context("the pipeline has no bus")?;
     let message =
         bus.timed_pop_filtered(gst::ClockTime::from_seconds(120), &[gst::MessageType::Eos, gst::MessageType::Error]);
@@ -216,15 +232,27 @@ pub fn to_luma(socket: UnixStream, out: &Path, count: u32) -> anyhow::Result<()>
     run_to_end(&pipeline, src, socket, Sound::Mute, count)
 }
 
-/// The window's pipeline: VA-API decoding when the GPU has it, into a GTK picture, never waiting on the clock.
+/// The window's picture and the pipeline feeding it: VA-API decoding when the GPU has it, never waiting on the clock.
+/// A reopened mirror gets a new pipeline into the same picture.
 pub struct Display {
-    pub pipeline: gst::Pipeline,
     pub picture: gtk4::Picture,
+    running: RefCell<Option<Running>>,
+}
+
+struct Running {
+    pipeline: gst::Pipeline,
     socket: UnixStream,
+    _watch: Option<gst::bus::BusWatchGuard>,
 }
 
 impl Display {
-    pub fn new(socket: UnixStream) -> anyhow::Result<Self> {
+    pub fn new() -> Self {
+        Self { picture: gtk4::Picture::new(), running: RefCell::default() }
+    }
+
+    /// Shows `socket`'s stream in place of the current one; `ended` gets each end of stream or error.
+    pub fn start(&self, socket: UnixStream, ended: impl FnMut(&gst::Message) + 'static) -> anyhow::Result<()> {
+        self.stop();
         let decoder =
             if gst::ElementFactory::find("vah264dec").is_some() { "vah264dec" } else { "avdec_h264 ! videoconvert" };
         log::info!("decoding with {}", decoder.split(' ').next().unwrap_or(decoder));
@@ -239,29 +267,40 @@ impl Display {
         let (pipeline, src) =
             build(&format!("appsrc name=src is-live=true format=time caps={CAPS} ! h264parse ! {decoder} ! {sink}"))?;
         let sink = pipeline.by_name("sink").context("the pipeline has no sink")?;
-        let picture = if paintable_sink {
-            gtk4::Picture::for_paintable(&sink.property::<gtk4::gdk::Paintable>("paintable"))
+        if paintable_sink {
+            self.picture.set_paintable(Some(&sink.property::<gtk4::gdk::Paintable>("paintable")));
         } else {
-            let picture = gtk4::Picture::new();
             let sink =
                 sink.downcast::<gst_app::AppSink>().map_err(|_| anyhow::anyhow!("the sink is not an appsink"))?;
-            show_samples(&sink, &picture);
-            picture
-        };
+            show_samples(&sink, &self.picture);
+        }
+        let watch = watch(&pipeline, ended);
         pipeline.set_state(gst::State::Playing)?;
-        feed(socket.try_clone()?, src, Sound::Speakers, None);
-        Ok(Self { pipeline, picture, socket })
+        feed(socket.try_clone()?, src, Sound::Speakers, None, true);
+        *self.running.borrow_mut() = Some(Running { pipeline, socket, _watch: watch });
+        Ok(())
     }
 
     /// Closes the socket, which tells the daemon and then the phone to stop.
     pub fn stop(&self) {
-        if let Err(error) = self.socket.shutdown(std::net::Shutdown::Both) {
+        let Some(running) = self.running.borrow_mut().take() else { return };
+        if let Err(error) = running.socket.shutdown(std::net::Shutdown::Both) {
             log::debug!("closing the mirror socket: {error}");
         }
-        if let Err(error) = self.pipeline.set_state(gst::State::Null) {
+        if let Err(error) = running.pipeline.set_state(gst::State::Null) {
             log::debug!("stopping the pipeline: {error}");
         }
     }
+}
+
+fn watch(pipeline: &gst::Pipeline, mut ended: impl FnMut(&gst::Message) + 'static) -> Option<gst::bus::BusWatchGuard> {
+    let watch = pipeline.bus()?.add_watch_local(move |_, message| {
+        if matches!(message.view(), gst::MessageView::Eos(_) | gst::MessageView::Error(_)) {
+            ended(message);
+        }
+        glib::ControlFlow::Continue
+    });
+    watch.map_err(|error| log::warn!("watching the mirror: {error}")).ok()
 }
 
 /// Hands each `BGRx` frame of `sink` to `picture` on the GTK main thread.

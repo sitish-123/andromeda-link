@@ -15,7 +15,7 @@ impl Stream {
     pub fn start(
         _socket: UnixStream,
         _frame: impl Fn(Frame) + Send + Sync + 'static,
-        _ended: impl FnOnce() + Send + 'static,
+        _ended: impl FnOnce(bool) + Send + 'static,
     ) -> Result<Self, String> {
         Err("this build has no video decoder".into())
     }

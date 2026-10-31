@@ -6,7 +6,7 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 
-use crate::mirror_unit::{AUDIO, KEYFRAME, read_unit};
+use crate::mirror_unit::{AUDIO, END, KEYFRAME, read_unit};
 
 const CAPS: &str = "video/x-h264,stream-format=byte-stream,alignment=au";
 const AUDIO_CAPS: &str = "audio/x-opus,channel-mapping-family=(int)0,channels=(int)2,rate=(int)48000";
@@ -26,11 +26,11 @@ pub struct Stream {
 
 impl Stream {
     /// Decodes `socket` until it ends: VA-API when the GPU has it. `frame` gets each picture on a streaming thread,
-    /// `ended` runs once after the socket closes.
+    /// `ended` runs once after the socket closes, with whether the stream or its decoding broke.
     pub fn start(
         socket: UnixStream,
         frame: impl Fn(Frame) + Send + Sync + 'static,
-        ended: impl FnOnce() + Send + 'static,
+        ended: impl FnOnce(bool) + Send + 'static,
     ) -> Result<Self, String> {
         gst::init().map_err(|error| error.to_string())?;
         let decoder =
@@ -57,8 +57,7 @@ impl Stream {
         pipeline.set_state(gst::State::Playing).map_err(|error| error.to_string())?;
         let reader = socket.try_clone().map_err(|error| error.to_string())?;
         std::thread::spawn(move || {
-            feed(reader, &src);
-            ended();
+            ended(feed(reader, &src));
         });
         Ok(Self { pipeline, socket })
     }
@@ -87,17 +86,18 @@ fn picture(sample: &gst::Sample) -> Option<Frame> {
     (data.len() >= needed).then_some(Frame { width, height, stride, data })
 }
 
-/// Pushes the socket's units into the video and sound pipelines until it ends.
-fn feed(mut socket: UnixStream, src: &gst_app::AppSrc) {
+/// Pushes the socket's units into the video and sound pipelines until it ends; whether it broke.
+fn feed(mut socket: UnixStream, src: &gst_app::AppSrc) -> bool {
     let mut sound: Option<Option<(gst::Pipeline, gst_app::AppSrc)>> = None;
     let mut first = None;
-    loop {
+    let broke = loop {
         let (pts_us, flags, data) = match read_unit(&mut socket) {
+            Ok(Some((_, flags, _))) if flags & END != 0 => break false,
             Ok(Some(unit)) => unit,
-            Ok(None) => break,
+            Ok(None) => break true,
             Err(error) => {
                 log::info!("reading the mirror stream: {error}");
-                break;
+                break true;
             }
         };
         let base = *first.get_or_insert(pts_us);
@@ -116,12 +116,13 @@ fn feed(mut socket: UnixStream, src: &gst_app::AppSrc) {
                 log::debug!("the sound pipeline stopped");
             }
         } else if src.push_buffer(buffer).is_err() {
-            break;
+            break true;
         }
-    }
+    };
     if let Some(Some((pipeline, _))) = sound {
         let _ = pipeline.set_state(gst::State::Null);
     }
+    broke
 }
 
 fn speakers() -> Option<(gst::Pipeline, gst_app::AppSrc)> {

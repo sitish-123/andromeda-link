@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use objc2_core_foundation::{CFDictionary, CFNumber, CFRetained, CFString};
 
-use crate::mirror_unit::{AUDIO, read_unit};
+use crate::mirror_unit::{AUDIO, END, read_unit};
 
 /// One decoded picture: `height` rows of luma, `stride` bytes each, then the chroma rows.
 pub struct Frame {
@@ -26,17 +26,16 @@ pub struct Stream {
 
 impl Stream {
     /// Decodes `socket` until it ends. `frame` gets each picture on the reading thread, `ended` runs once after the
-    /// socket closes.
+    /// socket closes, with whether it broke instead of ending.
     pub fn start(
         socket: UnixStream,
         frame: impl Fn(Frame) + Send + Sync + 'static,
-        ended: impl FnOnce() + Send + 'static,
+        ended: impl FnOnce(bool) + Send + 'static,
     ) -> Result<Self, String> {
         let reader = socket.try_clone().map_err(|error| error.to_string())?;
         let frame: Arc<FrameFn> = Arc::new(frame);
         std::thread::spawn(move || {
-            feed(reader, &frame);
-            ended();
+            ended(feed(reader, &frame));
         });
         Ok(Self { socket })
     }
@@ -53,16 +52,18 @@ impl Drop for Stream {
 
 type FrameFn = dyn Fn(Frame) + Send + Sync;
 
-fn feed(mut socket: UnixStream, frame: &Arc<FrameFn>) {
+/// Whether the stream broke.
+fn feed(mut socket: UnixStream, frame: &Arc<FrameFn>) -> bool {
     let mut decoder: Option<Decoder> = None;
     let mut sound: Option<Option<Speaker>> = None;
     loop {
         let (pts_us, flags, data) = match read_unit(&mut socket) {
+            Ok(Some((_, flags, _))) if flags & END != 0 => return false,
             Ok(Some(unit)) => unit,
-            Ok(None) => break,
+            Ok(None) => return true,
             Err(error) => {
                 log::info!("reading the mirror stream: {error}");
-                break;
+                return true;
             }
         };
         if flags & AUDIO != 0 {

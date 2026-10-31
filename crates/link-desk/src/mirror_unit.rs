@@ -9,6 +9,9 @@ const MAX_UNIT: usize = 4 * 1024 * 1024;
 #[cfg_attr(target_os = "macos", allow(dead_code, reason = "VideoToolbox finds keyframes itself"))]
 pub const KEYFRAME: u8 = 1;
 pub const AUDIO: u8 = 4;
+/// The daemon's last unit, empty, when the phone ended mirroring on purpose; a socket closing without it
+/// lost the stream.
+pub const END: u8 = 8;
 
 /// The next `(pts µs, flags, data)`; None when the socket ended.
 pub fn read_unit(socket: &mut UnixStream) -> std::io::Result<Option<(u64, u8, Vec<u8>)>> {

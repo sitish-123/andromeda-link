@@ -8,8 +8,8 @@ use link_core::identity::Spki;
 use link_core::pairing::pair_as_server;
 use link_core::proto::message::Hello;
 use link_core::proto::message::{
-    BLUETOOTH_SCHEME, BT_PAIRING, CALLS, CAPABILITIES, CLIP_ITEMS, CONTROL, MESSAGES, NOTIFICATION_SYNC, PRESENTING,
-    STATUS_SIGNAL, SYSTEM, SYSTEM_CONTROL,
+    BLUETOOTH_SCHEME, BT_PAIRING, CALLS, CAPABILITIES, CLIP_ITEMS, CONTROL, MESSAGES, MIRROR_STREAMS,
+    NOTIFICATION_SYNC, PRESENTING, STATUS_SIGNAL, SYSTEM, SYSTEM_CONTROL, WIFI_DIRECT_JOIN,
 };
 use link_core::proto::session::Role;
 use link_core::proto::{CloseCode, VERSION};
@@ -198,6 +198,9 @@ impl Context {
         if self.bluetooth.is_some() {
             addresses.push(BT_PAIRING.to_owned());
         }
+        if cfg!(target_os = "linux") {
+            addresses.push(WIFI_DIRECT_JOIN.to_owned());
+        }
         addresses.extend(
             [
                 STATUS_SIGNAL,
@@ -210,6 +213,7 @@ impl Context {
                 SYSTEM_CONTROL,
                 NOTIFICATION_SYNC,
                 CLIP_ITEMS,
+                MIRROR_STREAMS,
             ]
             .map(str::to_owned),
         );

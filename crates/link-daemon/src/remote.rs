@@ -66,7 +66,7 @@ impl Remotes {
     }
 }
 
-async fn pump(mut socket: tokio::net::UnixStream, mut sender: MirrorSender) -> anyhow::Result<()> {
+async fn pump(mut socket: tokio::net::UnixStream, sender: MirrorSender) -> anyhow::Result<()> {
     let mut header = [0; 13];
     loop {
         match socket.read_exact(&mut header).await {
@@ -81,6 +81,6 @@ async fn pump(mut socket: tokio::net::UnixStream, mut sender: MirrorSender) -> a
         socket.read_exact(&mut data).await?;
         sender.send(&Unit { pts_us: u64::from_be_bytes(pts), flags, data }).await?;
     }
-    sender.finish();
+    sender.finish().await;
     Ok(())
 }

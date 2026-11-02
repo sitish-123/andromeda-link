@@ -53,9 +53,10 @@ class Calls(
     }
 
     private fun act(action: CallAction) {
-        if (state != CallState.Ringing) return
+        if (state == CallState.Idle) return
         when (action) {
             CallAction.Mute -> {
+                if (state != CallState.Ringing) return
                 audio.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_MUTE, 0)
                 muted = true
             }

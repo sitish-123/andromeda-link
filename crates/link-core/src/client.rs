@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use link_proto::CloseCode;
 use link_proto::message::{
-    CALLS, CAN_CONTROL, CLIP_ITEMS, FsRefusal, Hotspot, HotspotEnd, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT, MESSAGES,
-    MIRROR_STREAMS, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
+    CALL_APP, CALLS, CAN_CONTROL, CLIP_ITEMS, Call, FsRefusal, Hotspot, HotspotEnd, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT,
+    MESSAGES, MIRROR_STREAMS, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
     NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, PRESENTING, PhotoRefusal, Punch,
     SCREEN_SHAPE, STATUS_SIGNAL, SYSTEM_CONTROL, ScreenShape, Share, Status, SystemCommand, SystemResult, TransferId,
     WIFI_DIRECT_JOIN,
@@ -159,10 +159,11 @@ enum Command {
     SyncNotifications {
         notifications: Vec<NotificationPosted>,
     },
-    /// The live sessions of desktops whose switch for `feature` is on.
+    /// The live sessions of desktops whose switch for `feature` is on, each with `message` as that desktop takes it.
     Sessions {
         feature: Feature,
-        reply: oneshot::Sender<Vec<SessionHandle>>,
+        message: Message,
+        reply: oneshot::Sender<Vec<(SessionHandle, Message)>>,
     },
 }
 
@@ -486,12 +487,13 @@ impl Client {
             return self.request(|reply| Command::Notify { message, reply }).await;
         }
         let feature = feature_of(&message).ok_or(Error::Unexpected(message.kind()))?;
-        let sessions = self.request(|reply| Command::Sessions { feature, reply }).await?;
+        let kind = message.kind();
+        let sessions = self.request(|reply| Command::Sessions { feature, message, reply }).await?;
         let mut sent = 0;
-        for session in sessions {
-            match session.send(message.clone()).await {
+        for (session, message) in sessions {
+            match session.send(message).await {
                 Ok(()) => sent += 1,
-                Err(error) => log::info!("broadcasting a {}: {error}", message.kind()),
+                Err(error) => log::info!("broadcasting a {kind}: {error}"),
             }
         }
         Ok(sent)
@@ -657,13 +659,22 @@ impl ClientActor {
                 self.upgrades.entry(id.clone()).or_default().push(reply);
                 self.start_hotspot(id).await;
             }
-            Command::Sessions { feature, reply } => {
+            Command::Sessions { feature, message, reply } => {
                 let sessions = self
                     .phone
                     .desktops()
                     .iter()
                     .filter(|peer| peer.grants.allows(feature))
-                    .filter_map(|peer| self.sessions.get(&peer.id).filter(|handle| handle.is_live()).cloned())
+                    .filter_map(|peer| {
+                        let handle = self.sessions.get(&peer.id).filter(|handle| handle.is_live())?.clone();
+                        let message = match &message {
+                            Message::Call(call) if !peer.has(CALL_APP) => {
+                                Message::Call(Call { app: None, ..call.clone() })
+                            }
+                            message => message.clone(),
+                        };
+                        Some((handle, message))
+                    })
                     .collect();
                 drop(reply.send(sessions));
             }

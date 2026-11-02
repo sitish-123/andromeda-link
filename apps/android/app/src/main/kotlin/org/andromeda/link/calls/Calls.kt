@@ -20,18 +20,22 @@ import org.andromeda.link.core.domain.CallAction
 import org.andromeda.link.core.domain.CallLimits
 import org.andromeda.link.core.domain.CallState
 import org.andromeda.link.core.domain.truncateUtf8
+import org.andromeda.link.notifications.AppCall
 
 /**
  * The phone's calls for desktops: each state change from [CallStateReceiver], with the number when Android gives it
- * (`READ_CALL_LOG`) and the contact's name when the app may read contacts. Desktops mute the ringer or decline.
+ * (`READ_CALL_LOG`) and the contact's name when the app may read contacts. A call without a number (Messenger) takes
+ * the caller and app from its call notification. Desktops mute the ringer or decline.
  */
 class Calls(
     private val context: Context,
     private val repository: LinkRepository,
     private val scope: CoroutineScope,
+    private val appCall: () -> AppCall?,
 ) {
     private val audio = context.getSystemService(AudioManager::class.java)
     private var state = CallState.Idle
+    private var number: String? = null
     private var muted = false
 
     fun start() {
@@ -47,9 +51,24 @@ class Calls(
             audio.adjustStreamVolume(AudioManager.STREAM_RING, AudioManager.ADJUST_UNMUTE, 0)
             muted = false
         }
-        val shownNumber = number?.takeIf { it.isNotBlank() }?.truncateUtf8(CallLimits.NUMBER)
-        val name = shownNumber?.let(::contactName)?.truncateUtf8(CallLimits.NAME)
-        scope.launch { repository.reportCall(next, shownNumber, name).onFailure { Log.w(TAG, "reporting a call: ${it.message}") } }
+        this.number = number?.takeIf { it.isNotBlank() }?.truncateUtf8(CallLimits.NUMBER)
+        report()
+    }
+
+    /** An app's call notification came up: a call without a number now has its caller and app. */
+    fun appCallShown() {
+        if (state != CallState.Idle && number == null) report()
+    }
+
+    private fun report() {
+        val shownNumber = number
+        val app = if (shownNumber == null && state != CallState.Idle) appCall() else null
+        val name = (shownNumber?.let(::contactName) ?: app?.caller)?.truncateUtf8(CallLimits.NAME)
+        val appName = app?.app?.truncateUtf8(CallLimits.NAME)
+        val next = state
+        scope.launch {
+            repository.reportCall(next, shownNumber, name, appName).onFailure { Log.w(TAG, "reporting a call: ${it.message}") }
+        }
     }
 
     private fun act(action: CallAction) {

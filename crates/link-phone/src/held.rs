@@ -94,7 +94,7 @@ impl Held {
             ClientEvent::Message { message: Message::CallAction(action), .. }
                 if action.action == CallActionKind::Decline =>
             {
-                let idle = Message::Call(Call { state: CallState::Idle, number: None, name: None });
+                let idle = Message::Call(Call { state: CallState::Idle, number: None, name: None, app: None });
                 self.broadcast(idle).await;
             }
             // As the app does: ring or stop, then report the state.

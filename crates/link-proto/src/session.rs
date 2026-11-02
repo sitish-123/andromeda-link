@@ -404,6 +404,7 @@ mod tests {
                 state: CallState::Ringing,
                 number: number.map(str::to_owned),
                 name: name.map(str::to_owned),
+                app: None,
             })
         };
         let action = Message::CallAction(CallAction { action: CallActionKind::Decline });

@@ -81,7 +81,7 @@ class AppContainer(
     val ringer = Ringer(application, repository, scope)
     val screen = ScreenMirror(application, repository, scope)
     private val mirrorAsk = MirrorAsk(application, repository, scope)
-    val calls = Calls(application, repository, scope)
+    val calls = Calls(application, repository, scope, mirror::appCall).also { mirror.onCallShown = it::appCallShown }
     private val bonding = BluetoothBonding(application, repository, scope)
     val files = PhoneFiles(application)
     private val library = MediaLibrary(application) { showTrashPrompt(application, it) }

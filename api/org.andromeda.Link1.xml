@@ -301,12 +301,13 @@
       <arg name="action" type="s" direction="in"/>
     </method>
     <!-- The phone's call state changed: state is "ringing", "active", or "idle"; number and name are empty when the
-         phone may not read them. -->
+         phone may not read them. app names the app of a call without a number, such as Messenger; else empty. -->
     <signal name="Call">
       <arg name="device_id" type="s"/>
       <arg name="state" type="s"/>
       <arg name="number" type="s"/>
       <arg name="name" type="s"/>
+      <arg name="app" type="s"/>
     </signal>
     <!-- Starts (true) or stops ringing the phone. Returns once sent. Errors: .NotConnected. -->
     <method name="Ring">

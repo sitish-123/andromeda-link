@@ -406,6 +406,7 @@ class LinkRepository(
         state: CallState,
         number: String?,
         name: String?,
+        app: String?,
     ): Result<Int> =
         call {
             val ffiState =
@@ -414,7 +415,7 @@ class LinkRepository(
                     CallState.Active -> FfiCallState.ACTIVE
                     CallState.Idle -> FfiCallState.IDLE
                 }
-            it.reportCall(ffiState, number, name).toInt()
+            it.reportCall(ffiState, number, name, app).toInt()
         }
 
     /**

@@ -1184,19 +1184,20 @@ impl LinkClient {
         self.broadcast(Message::MediaGone(message::MediaGone { player })).await
     }
 
-    /// Reports the call state to every connected desktop that takes calls; `number` and `name` only when known.
+    /// Reports the call state to every connected desktop that takes calls; `number`, `name` and `app` only when known.
     pub async fn report_call(
         &self,
         state: CallState,
         number: Option<String>,
         name: Option<String>,
+        app: Option<String>,
     ) -> Result<u32, LinkError> {
         let state = match state {
             CallState::Ringing => message::CallState::Ringing,
             CallState::Active => message::CallState::Active,
             CallState::Idle => message::CallState::Idle,
         };
-        self.broadcast(Message::Call(message::Call { state, number, name })).await
+        self.broadcast(Message::Call(message::Call { state, number, name, app })).await
     }
 
     /// Tells the desktop Android is about to pair Bluetooth with it (no `passkey`), so it accepts the connection; then

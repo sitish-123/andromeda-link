@@ -54,6 +54,9 @@ pub const MESSAGES: &str = "feature:messages";
 /// A hello carries this when its side takes the call log and dial types; older peers close a session on them.
 pub const CALLS: &str = "feature:calls";
 
+/// A desktop's hello carries this when its `call` takes `app`; older desktops close a session on the field.
+pub const CALL_APP: &str = "feature:call-app";
+
 /// A desktop's hello carries this when it takes `notification-snapshot`, `alert_once`, and `status`'s
 /// `notifications_off`, and answers with `notification-pull`; older desktops close a session on them.
 pub const NOTIFICATION_SYNC: &str = "feature:notification-sync";
@@ -1093,9 +1096,12 @@ pub struct Call {
     pub state: CallState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<String>,
-    /// The contact's name, when the phone may read contacts.
+    /// The contact's name, when the phone may read contacts; for an app call, the caller the app shows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The app of a call without a number, such as Messenger.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2269,6 +2275,7 @@ impl Message {
             Self::Call(call) => {
                 call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
                     && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
+                    && call.app.as_ref().is_none_or(|app| sized(app, 1, MAX_CALLER_LEN))
             }
             Self::Share(share) => share.check().is_ok(),
             Self::NotificationPosted(posted) => posted.valid(),

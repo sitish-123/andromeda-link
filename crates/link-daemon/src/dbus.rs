@@ -632,6 +632,7 @@ impl Link {
         state: &str,
         number: &str,
         name: &str,
+        app: &str,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
@@ -1202,7 +1203,8 @@ pub async fn forward(
                 }
                 Event::Call { id, call } => {
                     let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
-                    Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;
+                    let app = call.app.unwrap_or_default();
+                    Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name, &app).await?;
                 }
                 Event::NotificationRemoved { id, notification } => {
                     Link::notification_removed(emitter, id.as_str(), &notification).await?;

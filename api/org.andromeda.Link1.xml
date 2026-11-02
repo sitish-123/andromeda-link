@@ -1,6 +1,8 @@
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
   "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
-<!-- Served by andromeda-linkd on the session bus at /org/andromeda/Link1. -->
+<!-- Served by andromeda-linkd on the session bus at /org/andromeda/Link1. Any process of the user may call every method
+     (docs/link-v2.md, rule 8): no method checks its caller, so Unpair, SetAutoAccept, Disconnect, Connect, and SavePhoto
+     are open to the user's own processes. -->
 <node>
   <interface name="org.andromeda.Link1">
     <!-- Opens a 120 s pairing window accepting one attempt; replaces an open window. -->
@@ -59,6 +61,21 @@
       <arg name="path" type="s" direction="in"/>
       <arg name="size" type="q" direction="in"/>
       <arg name="png" type="ay" direction="out"/>
+    </method>
+    <!-- The count (1 to 64) newest photos on a connected phone, newest first: path (for Thumbnail, ReadFile, and
+         SavePhoto), name, time in Unix seconds. Errors as ListFiles; .Refused("denied") while Android withholds photo
+         access on the phone, .Refused("not-found") from a phone without feature:photos-recent. -->
+    <method name="RecentPhotos">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="count" type="q" direction="in"/>
+      <arg name="photos" type="a(sst)" direction="out"/>
+    </method>
+    <!-- Copies a photo of the last RecentPhotos answer for this device into the downloads folder, named from its own
+         name (cleaned, never replacing a file), and returns the saved path. Errors: .Rejected for any other path. -->
+    <method name="SavePhoto">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="saved" type="s" direction="out"/>
     </method>
     <!-- Up to length bytes (1 byte to 1 MiB) of a file on a connected phone from offset; fewer at its end, none
          past it. Errors as ListFiles. -->
@@ -135,6 +152,15 @@
     <method name="CancelTransfer">
       <arg name="transfer_id" type="s" direction="in"/>
     </method>
+    <!-- Ends the session with the device and refuses it until Connect, also after a daemon restart. The device stays
+         paired. Errors: InvalidArgs for an unknown device. -->
+    <method name="Disconnect">
+      <arg name="device_id" type="s" direction="in"/>
+    </method>
+    <!-- Lifts Disconnect. The daemon cannot dial: the phone reconnects at its next retry, within 30 s. -->
+    <method name="Connect">
+      <arg name="device_id" type="s" direction="in"/>
+    </method>
     <!-- Accept this device's offers without a TransferOffered. Off for a newly paired device. -->
     <method name="SetAutoAccept">
       <arg name="device_id" type="s" direction="in"/>
@@ -179,6 +205,8 @@
     <property name="DeviceInfo" type="a{sa{sv}}" access="read"/>
     <!-- Devices whose offers are accepted without asking. -->
     <property name="AutoAccept" type="as" access="read"/>
+    <!-- Devices the user disconnected; they stay paired and cannot connect until Connect. -->
+    <property name="Paused" type="as" access="read"/>
     <!-- Connected device id to (battery percent, charging, network, signal); network is wifi, cellular, ethernet,
          none, or other; signal is cellular bars, 0 to 4, or -1 without service. A device appears once it reported,
          and leaves when it disconnects. -->
@@ -266,7 +294,7 @@
       <!-- False for an update that replaces the shown notification without a sound or a popup. -->
       <arg name="alert" type="b"/>
     </signal>
-    <!-- action is "mute" (silence the ringer until the call ends) or "decline" (end the ringing call). Returns once sent.
+    <!-- action is "mute" (silence the ringer until the call ends) or "decline" (end the ringing or active call). Returns once sent.
          Errors: .NotConnected, .Rejected for another action. -->
     <method name="CallAction">
       <arg name="device_id" type="s" direction="in"/>

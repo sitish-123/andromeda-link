@@ -299,7 +299,7 @@ private fun HomeHeader(
                 )
             desktop.connected -> stringResource(R.string.home_connected_via, stringResource(R.string.home_via_wifi))
             refreshing -> stringResource(R.string.home_via_searching)
-            else -> stringResource(R.string.home_last_seen, lastSeen(desktop.lastSeen))
+            else -> disconnectedLine(desktop)
         }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
@@ -354,7 +354,7 @@ private fun HomeHeader(
             }
         }
     }
-    if (!desktop.connected) {
+    if (!desktop.connected && !desktop.paused) {
         PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !refreshing)
     }
 }

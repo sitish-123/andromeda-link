@@ -12,9 +12,9 @@ use link_core::proto::CloseCode;
 use link_core::proto::message::{
     CALLS, CAMERA, CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities,
     DesktopStatus, FEATURE, FS_STAT, FS_WRITE, FsRefusal, Hello, Hotspot, HotspotEnd, HotspotJoined,
-    MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull, PhotoRefusal, Ping,
-    RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemCommandKind, SystemResult, Text,
-    TransferId,
+    MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull, PHOTOS_RECENT,
+    PhotoRefusal, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemCommandKind,
+    SystemResult, Text, TransferId,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -71,6 +71,8 @@ pub struct Snapshot {
     pub pairing: bool,
     /// Devices whose file offers are accepted without asking, the D-Bus `AutoAccept` property.
     pub auto_accept: Vec<String>,
+    /// Devices the user disconnected, the D-Bus `Paused` property.
+    pub paused: Vec<String>,
     /// Device id to granted features, the D-Bus `Grants` property.
     pub grants: Vec<(String, Vec<String>)>,
     /// Connected device id to `(battery, charging, network, signal)`, the D-Bus `DeviceStatus` property.
@@ -228,6 +230,7 @@ enum Command {
     StartPairing { reply: oneshot::Sender<anyhow::Result<(String, String)>> },
     CancelPairing,
     Unpair { id: DeviceId, reply: oneshot::Sender<bool> },
+    SetPaused { id: DeviceId, paused: bool, reply: oneshot::Sender<bool> },
     AnswerHotspot { id: DeviceId, allow: bool },
     ConfirmBtPairing { passkey: u32, reply: oneshot::Sender<bool> },
     Admit { spki: Spki, reply: oneshot::Sender<Admission> },
@@ -504,6 +507,7 @@ impl Hub {
                 self.forget_notifications(&id).await;
                 let _ = reply.send(unpaired);
             }
+            Command::SetPaused { id, paused, reply } => drop(reply.send(self.set_paused(&id, paused))),
             Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
             Command::Paired { spki, name, window } => self.paired(&spki, name, window).await,
             Command::PairingFailed { reason, window } => {
@@ -693,12 +697,9 @@ impl Hub {
                 self.media.disconnected(&from).await;
                 self.forget_notifications(&from).await;
             }
-            SessionEvent::Message {
-                from,
-                message: answer @ (Message::FsEntries(_) | Message::FsData(_) | Message::FsError(_)),
-            } => {
+            SessionEvent::Message { from, message } if browse::is_answer(&message) => {
                 // Answers to this desktop's own requests, which need no grant of the phone's here.
-                if let Some(next) = self.browsing.on_answer(&from, answer)
+                if let Some(next) = self.browsing.on_answer(&from, message)
                     && let Some(session) = self.sessions.get(&from)
                     && session.send(next).await.is_err()
                 {
@@ -938,6 +939,9 @@ impl Hub {
             self.save();
             return Admission::Reject(CloseCode::Unpaired);
         }
+        if self.store.peer(&id).is_some_and(|peer| peer.paused) {
+            return Admission::Reject(CloseCode::Paused);
+        }
         if self.store.peer(&id).is_some() {
             return Admission::Session;
         }
@@ -971,6 +975,9 @@ impl Hub {
         let Some(peer) = self.store.peer_mut(&id) else {
             return session.close(CloseCode::NotPaired);
         };
+        if peer.paused {
+            return session.close(CloseCode::Paused);
+        }
         peer.name = hello.name;
         peer.touch();
         self.save();
@@ -1027,6 +1034,9 @@ impl Hub {
                 let reason = if granted { FsRefusal::Denied } else { FsRefusal::NotAllowed };
                 return drop(reply.send(Err(browse::Failure::Refused(reason))));
             }
+        }
+        if matches!(request, browse::Request::Recent { .. }) && !self.phone_has(&id, PHOTOS_RECENT) {
+            return drop(reply.send(Err(browse::Failure::Refused(FsRefusal::NotFound))));
         }
         let request = if self.phone_has(&id, FS_STAT) { Ok(request) } else { request.for_older_phone() };
         let request = match request {
@@ -1609,6 +1619,17 @@ impl Hub {
         }
     }
 
+    fn set_paused(&mut self, id: &DeviceId, paused: bool) -> bool {
+        let Some(peer) = self.store.peer_mut(id) else { return false };
+        peer.paused = paused;
+        if paused && let Some(session) = self.sessions.get(id) {
+            session.close(CloseCode::Paused);
+        }
+        self.save();
+        self.publish();
+        true
+    }
+
     fn unpair(&mut self, id: &DeviceId) -> bool {
         if self.store.remove(id).is_none() {
             return false;
@@ -1670,6 +1691,7 @@ impl Hub {
             .collect();
         let auto_accept =
             self.store.peers.iter().filter(|peer| peer.auto_accept).map(|peer| peer.id.to_string()).collect();
+        let paused = self.store.peers.iter().filter(|peer| peer.paused).map(|peer| peer.id.to_string()).collect();
         let grants = self.store.peers.iter().map(|peer| (peer.id.to_string(), peer.grants.names())).collect();
         let mut status: Vec<_> = self
             .status
@@ -1708,6 +1730,7 @@ impl Hub {
                 info,
                 pairing,
                 auto_accept,
+                paused,
                 grants,
                 status,
                 controls,
@@ -1806,6 +1829,11 @@ impl HubHandle {
 
     pub async fn unpair(&self, id: DeviceId) -> bool {
         self.request(|reply| Command::Unpair { id, reply }).await.unwrap_or(false)
+    }
+
+    /// Disconnects `id` and keeps it out until `paused` is false; false for an unknown device.
+    pub async fn set_paused(&self, id: DeviceId, paused: bool) -> bool {
+        self.request(|reply| Command::SetPaused { id, paused, reply }).await.unwrap_or(false)
     }
 
     pub async fn admit(&self, spki: Spki) -> Admission {

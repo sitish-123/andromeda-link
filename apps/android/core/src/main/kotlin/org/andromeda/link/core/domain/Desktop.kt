@@ -15,6 +15,8 @@ data class Desktop(
     val btPairing: Boolean = false,
     /** The desktop takes remote input, commands, and pings. */
     val control: Boolean = false,
+    /** The desktop disconnected this phone and refuses it until the user connects it there. */
+    val paused: Boolean = false,
 )
 
 /** This phone's switches for one desktop; all but browsing, the screen, and messages on after pairing. */

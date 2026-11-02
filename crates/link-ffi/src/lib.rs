@@ -256,6 +256,10 @@ pub enum LinkEvent {
     Unpaired {
         desktop_id: String,
     },
+    /// The desktop disconnected this phone: it refuses it until the user connects it there. The phone keeps redialing.
+    Paused {
+        desktop_id: String,
+    },
     /// The desktop offers files; answer with `accept_transfer` or `decline_transfer` within 120 s.
     TransferOffered {
         transfer_id: String,
@@ -742,6 +746,8 @@ pub trait PhoneLibrary: Send + Sync {
     fn albums(&self) -> Vec<String>;
     fn album(&self, name: String) -> Vec<LibraryItem>;
     fn thumbnail(&self, path: String, px: u16) -> Option<Vec<u8>>;
+    /// The newest `count` photos of every album, newest first; None while Android withholds photo access.
+    fn recent(&self, count: u32) -> Option<Vec<RecentPhoto>>;
     /// Moves the item at `path` to the trash (deletes it before Android 11); false when refused. May block while the
     /// user confirms on the phone.
     fn trash(&self, path: String) -> bool;
@@ -754,6 +760,13 @@ pub struct LibraryItem {
     pub path: String,
     pub size: u64,
     pub mtime: u64,
+}
+
+/// A photo with the album it is in; `mtime` in Unix seconds.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RecentPhoto {
+    pub album: String,
+    pub item: LibraryItem,
 }
 
 struct Library(Arc<dyn PhoneLibrary>);
@@ -775,6 +788,24 @@ impl link_core::browse::Library for Library {
 
     fn thumbnail(&self, path: &std::path::Path, px: u16) -> Option<Vec<u8>> {
         self.0.thumbnail(path.to_str()?.to_owned(), px)
+    }
+
+    fn recent(&self, count: usize) -> Option<Vec<link_core::browse::RecentItem>> {
+        let photos = self.0.recent(u32::try_from(count).unwrap_or(u32::MAX))?;
+        Some(
+            photos
+                .into_iter()
+                .map(|RecentPhoto { album, item }| link_core::browse::RecentItem {
+                    album,
+                    item: link_core::browse::LibraryItem {
+                        name: item.name,
+                        path: PathBuf::from(item.path),
+                        size: item.size,
+                        mtime: item.mtime,
+                    },
+                })
+                .collect(),
+        )
     }
 
     fn trash(&self, path: &std::path::Path) -> bool {
@@ -1477,6 +1508,7 @@ fn translate(event: ClientEvent, runtime: &tokio::runtime::Handle) -> Option<Lin
             text: share.text,
         },
         ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
+        ClientEvent::Paused { id } => LinkEvent::Paused { desktop_id: id.to_string() },
         ClientEvent::MirrorBlocked { from } => LinkEvent::MirrorBlocked { desktop_id: from.to_string() },
         ClientEvent::Transfer(TransferEvent::Mirror { from, stream }) => {
             let receiver = stream.take()?;

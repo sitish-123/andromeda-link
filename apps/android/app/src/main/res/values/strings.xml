@@ -311,6 +311,7 @@
     <string name="home_via_searching">Connecting</string>
     <string name="home_last_seen">Last seen %1$s</string>
     <string name="home_battery">%1$d%%</string>
+    <string name="home_paused_by">Paused by %1$s. Resume from the desktop.</string>
     <string name="home_connected_via">Connected, %1$s</string>
     <string name="home_battery_charging">Charging</string>
     <string name="home_battery_discharging">On battery</string>

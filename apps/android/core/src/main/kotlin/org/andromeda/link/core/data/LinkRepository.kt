@@ -117,6 +117,11 @@ class LinkRepository(
             .createMulticastLock("andromeda-link")
             .apply { setReferenceCounted(true) }
     private val _desktops = MutableStateFlow<List<Desktop>>(emptyList())
+
+    private val pausedPrefs = context.getSharedPreferences("paused-desktops", Context.MODE_PRIVATE)
+
+    /** Desktops that refused this phone as paused, until one connects; kept across restarts. */
+    private val pausedIds = MutableStateFlow(pausedPrefs.getStringSet(PAUSED_KEY, emptySet()).orEmpty().toSet())
     private val _incoming = MutableSharedFlow<IncomingShare>(extraBufferCapacity = INCOMING_BUFFER)
     private val _transfers = MutableSharedFlow<TransferEvent>(extraBufferCapacity = INCOMING_BUFFER)
     private val downloads = Downloads(context)
@@ -506,7 +511,7 @@ class LinkRepository(
 
     suspend fun refresh(): Result<Unit> =
         call { client ->
-            _desktops.value = client.desktops().map { it.toDomain() }
+            _desktops.value = client.desktops().map { it.toDomain().copy(paused = it.id in pausedIds.value) }
         }
 
     suspend fun pairUri(uri: String): Result<Desktop> = callAndRefresh { it.pairUri(uri).toDomain() }
@@ -629,7 +634,12 @@ class LinkRepository(
     private suspend fun follow(client: LinkClient) {
         while (true) {
             when (val event = client.nextEvent() ?: return) {
+                is LinkEvent.Paused -> {
+                    setPaused(event.desktopId, true)
+                    _desktops.update { list -> list.map { if (it.id == event.desktopId) it.copy(paused = true) else it } }
+                }
                 is LinkEvent.Connected -> {
+                    setPaused(event.desktopId, false)
                     // The desktop list, not the event, says whether it came over Bluetooth.
                     refresh()
                     _connections.emit(event.desktopId)
@@ -826,6 +836,14 @@ class LinkRepository(
         _desktops.update { list -> list.map { if (it.id == id) it.copy(connected = connected) else it } }
     }
 
+    private fun setPaused(
+        id: String,
+        paused: Boolean,
+    ) {
+        val next = pausedIds.updateAndGet { if (paused) it + id else it - id }
+        pausedPrefs.edit().putStringSet(PAUSED_KEY, next).apply()
+    }
+
     private fun nameOf(id: String): String = _desktops.value.firstOrNull { it.id == id }?.name ?: id
 
     private suspend fun <T> withMulticast(block: suspend () -> T): T {
@@ -839,6 +857,7 @@ class LinkRepository(
 
     private companion object {
         const val INCOMING_BUFFER = 16
+        const val PAUSED_KEY = "ids"
         const val MAX_CLIP_SIZE = 64L shl 20
         const val RECENT_CLIPS = 3
         const val ACTIVITY_LIMIT = 200

@@ -71,6 +71,10 @@ pub enum ClientEvent {
     Unpaired {
         id: DeviceId,
     },
+    /// The desktop disconnected this phone and refuses it until the user connects it there.
+    Paused {
+        id: DeviceId,
+    },
     /// Offers, progress, and results of file transfers in both directions.
     Transfer(TransferEvent),
     /// A feature message from a desktop whose switch for that feature is on.
@@ -787,6 +791,8 @@ impl ClientActor {
                 if matches!(error, Error::Closed(CloseCode::Unpaired)) {
                     self.retries.remove(id);
                     self.emit(ClientEvent::Unpaired { id: id.clone() }).await;
+                } else if matches!(error, Error::Closed(CloseCode::Paused)) {
+                    self.emit(ClientEvent::Paused { id: id.clone() }).await;
                 }
                 Err(error)
             }
@@ -901,8 +907,13 @@ impl ClientActor {
                 log::error!("forgetting {id}: {error}");
             }
             self.emit(ClientEvent::Unpaired { id }).await;
-        } else if self.wants(&id) {
-            self.retries.insert(id, Retry { at: Instant::now() + FIRST_RETRY, delay: FIRST_RETRY });
+        } else {
+            if matches!(result, Err(Error::Closed(CloseCode::Paused))) {
+                self.emit(ClientEvent::Paused { id: id.clone() }).await;
+            }
+            if self.wants(&id) {
+                self.retries.insert(id, Retry { at: Instant::now() + FIRST_RETRY, delay: FIRST_RETRY });
+            }
         }
     }
 
@@ -949,6 +960,9 @@ impl ClientActor {
             }
             Err(error) => error,
         };
+        if matches!(error, Error::Closed(CloseCode::Paused)) {
+            self.emit(ClientEvent::Paused { id: id.clone() }).await;
+        }
         if self.wants(&id) {
             let delay = (delay * 2).min(MAX_RETRY);
             log::info!("{id}: redial failed: {error}; next in {} s", delay.as_secs());
@@ -1388,6 +1402,7 @@ impl ClientActor {
                     | Message::FsStat(_)
                     | Message::FsRead(_)
                     | Message::FsThumb(_)
+                    | Message::PhotosRecent(_)
                     | Message::FsWrite(_)
                     | Message::FsDelete(_)),
             } => {

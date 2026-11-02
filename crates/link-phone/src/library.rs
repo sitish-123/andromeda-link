@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use link_core::browse::{Library, LibraryItem};
+use link_core::browse::{Library, LibraryItem, RecentItem};
 use link_core::messages::Messages;
 use link_core::proto::message::{Contact, LoggedCall, MessagesRefusal, Text};
 
@@ -39,6 +39,21 @@ impl Library for Folders {
 
     fn thumbnail(&self, path: &Path, _px: u16) -> Option<Vec<u8>> {
         fs::read(path).ok().filter(|bytes| bytes.starts_with(b"\x89PNG"))
+    }
+
+    /// A `.denied` file in the folder stands for Android withholding photo access.
+    fn recent(&self, count: usize) -> Option<Vec<RecentItem>> {
+        if self.0.join(".denied").exists() {
+            return None;
+        }
+        let mut photos: Vec<RecentItem> = self
+            .albums()
+            .into_iter()
+            .flat_map(|album| self.album(&album).into_iter().map(move |item| RecentItem { album: album.clone(), item }))
+            .collect();
+        photos.sort_by_key(|photo| std::cmp::Reverse(photo.item.mtime));
+        photos.truncate(count);
+        Some(photos)
     }
 
     /// A folder has no trash: the file goes.

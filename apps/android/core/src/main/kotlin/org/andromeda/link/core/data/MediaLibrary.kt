@@ -1,20 +1,25 @@
 package org.andromeda.link.core.data
 
+import android.Manifest
 import android.app.PendingIntent
 import android.app.RecoverableSecurityException
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.media.ThumbnailUtils
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Size
 import org.andromeda.link.ffi.LibraryItem
 import org.andromeda.link.ffi.PhoneLibrary
+import org.andromeda.link.ffi.RecentPhoto
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlin.math.roundToInt
@@ -46,7 +51,63 @@ class MediaLibrary(
             .sorted()
     }
 
-    override fun album(name: String): List<LibraryItem> = query(name).map { it.item }
+    /** Browse path ("album/name") to the file path of the last [recent] answer. */
+    @Volatile private var recentPaths: Map<String, String> = emptyMap()
+
+    /** An item of the last [recent] answer comes first, so a name two files share resolves to the one that was listed. */
+    override fun album(name: String): List<LibraryItem> {
+        val listed = recentPaths
+        return query(name).map { it.item }.sortedBy { if (listed["$name/${it.name}"] == it.path) 0 else 1 }
+    }
+
+    /**
+     * The newest photos by date added, or null while Android withholds photo access: no grant at all, or no result
+     * set. The caller asks for more than it needs, since it drops names the protocol cannot carry. A partial grant
+     * (Android 14+) lists the photos the user picked.
+     */
+    override fun recent(count: UInt): List<RecentPhoto>? {
+        if (!canReadPhotos()) return null
+        val bucket = MediaStore.MediaColumns.BUCKET_DISPLAY_NAME
+        val projection =
+            arrayOf(
+                bucket,
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                @Suppress("DEPRECATION") MediaStore.MediaColumns.DATA,
+                MediaStore.MediaColumns.SIZE,
+                MediaStore.MediaColumns.DATE_ADDED,
+            )
+        val query =
+            Bundle().apply {
+                putStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaStore.MediaColumns.DATE_ADDED))
+                putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+                putInt(ContentResolver.QUERY_ARG_LIMIT, count.toInt())
+            }
+        val rows =
+            context.contentResolver
+                .query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, query, null)
+                ?.use { cursor ->
+                    buildList<RecentPhoto> {
+                        while (cursor.moveToNext()) {
+                            val name = cursor.getString(1) ?: continue
+                            val path = cursor.getString(2) ?: continue
+                            val item = LibraryItem(name, path, cursor.getLong(3).toULong(), cursor.getLong(4).toULong())
+                            add(RecentPhoto(cursor.getString(0) ?: "Other", item))
+                        }
+                    }
+                } ?: return null
+        recentPaths = rows.asReversed().associate { "${it.album}/${it.item.name}" to it.item.path }
+        return rows
+    }
+
+    private fun canReadPhotos(): Boolean {
+        fun granted(permission: String) = context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        return when {
+            Build.VERSION.SDK_INT >= 34 ->
+                granted(Manifest.permission.READ_MEDIA_IMAGES) || granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+            Build.VERSION.SDK_INT >= 33 -> granted(Manifest.permission.READ_MEDIA_IMAGES)
+            else -> granted(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
 
     override fun thumbnail(
         path: String,

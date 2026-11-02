@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use link_proto::message::{
     BT_PAIRING, CALLS, CAMERA, CAPABILITIES, CLIP_ITEMS, CONTROL, FEATURE, FS_STAT, FS_WRITE, Hello, MESSAGES, Message,
-    PairMethod, SYSTEM, SYSTEM_CONTROL, bluetooth_address,
+    PHOTOS_RECENT, PairMethod, SYSTEM, SYSTEM_CONTROL, bluetooth_address,
 };
 use link_proto::pairing::Secret;
 use link_proto::{CloseCode, VERSION};
@@ -273,9 +273,20 @@ impl Phone {
     }
 
     fn hello(&self) -> Hello {
-        let features =
-            [FS_STAT, FS_WRITE, CAMERA, MESSAGES, CALLS, CONTROL, CAPABILITIES, SYSTEM, SYSTEM_CONTROL, CLIP_ITEMS]
-                .map(str::to_owned);
+        let features = [
+            FS_STAT,
+            FS_WRITE,
+            CAMERA,
+            PHOTOS_RECENT,
+            MESSAGES,
+            CALLS,
+            CONTROL,
+            CAPABILITIES,
+            SYSTEM,
+            SYSTEM_CONTROL,
+            CLIP_ITEMS,
+        ]
+        .map(str::to_owned);
         Hello { version: VERSION, name: self.name.clone(), addresses: features.to_vec() }
     }
 

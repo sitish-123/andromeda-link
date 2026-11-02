@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use link_core::identity::DeviceId;
 use link_core::proto::message::{
-    FsDelete, FsEntry, FsList, FsRead, FsRefusal, FsStat, FsThumb, FsWrite, MAX_FS_READ, Message,
+    FsDelete, FsEntry, FsList, FsRead, FsRefusal, FsStat, FsThumb, FsWrite, MAX_FS_READ, Message, PhotosRecent,
+    RecentPhoto,
 };
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -42,6 +43,10 @@ pub enum Request {
     Delete {
         path: String,
     },
+    /// The newest photos, needing `feature:photos-recent` there.
+    Recent {
+        count: u16,
+    },
     /// One entry of a listing, standing in for `Stat` with a phone from before it.
     Find {
         parent: String,
@@ -63,7 +68,7 @@ impl Request {
                 let parent = if parent.is_empty() { "/" } else { parent };
                 Ok(Self::Find { parent: parent.to_owned(), name: name.to_owned() })
             }
-            Self::Thumb { .. } => Err(Failure::Refused(FsRefusal::NotFound)),
+            Self::Thumb { .. } | Self::Recent { .. } => Err(Failure::Refused(FsRefusal::NotFound)),
             other => Ok(other),
         }
     }
@@ -73,6 +78,7 @@ impl Request {
 pub enum Answer {
     Entries(Vec<FsEntry>),
     Data(Vec<u8>),
+    Photos(Vec<RecentPhoto>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +88,11 @@ pub enum Failure {
     TimedOut,
     /// The phone answered against the protocol: a listing too long, a read longer than asked.
     Malformed,
+}
+
+/// Whether `message` answers a browse request.
+pub fn is_answer(message: &Message) -> bool {
+    matches!(message, Message::FsEntries(_) | Message::FsData(_) | Message::FsError(_) | Message::PhotosList(_))
 }
 
 pub type Reply = oneshot::Sender<Result<Answer, Failure>>;
@@ -106,6 +117,7 @@ struct Pending {
 enum Gathered {
     Entries(Vec<FsEntry>),
     Data { data: Vec<u8>, want: usize },
+    Photos { count: usize, photos: Vec<RecentPhoto> },
 }
 
 #[derive(Default)]
@@ -146,6 +158,10 @@ impl Browsing {
                 let message = Message::FsDelete(FsDelete { req, path: path.clone() });
                 (path, Gathered::Entries(Vec::new()), message)
             }
+            Request::Recent { count } => {
+                let message = Message::PhotosRecent(PhotosRecent { req, count });
+                (String::new(), Gathered::Photos { count: usize::from(count), photos: Vec::new() }, message)
+            }
             Request::Thumb { path, px } => {
                 let message = Message::FsThumb(FsThumb { req, path: path.clone(), px });
                 (path, Gathered::Data { data: Vec::new(), want: MAX_FS_READ as usize }, message)
@@ -168,6 +184,7 @@ impl Browsing {
         let req = match &answer {
             Message::FsEntries(page) => page.req,
             Message::FsData(data) => data.req,
+            Message::PhotosList(list) => list.req,
             Message::FsError(error) => error.req,
             _ => return None,
         };
@@ -182,6 +199,10 @@ impl Browsing {
                     Some(cursor) => Step::Next(FsList { req, path: pending.path.clone(), cursor: Some(cursor) }),
                     None => Step::Done,
                 }
+            }
+            (Message::PhotosList(list), Gathered::Photos { photos, .. }) => {
+                *photos = list.photos;
+                Step::Done
             }
             (Message::FsData(chunk), Gathered::Data { data, want }) => {
                 data.extend_from_slice(&chunk.data);
@@ -213,6 +234,11 @@ impl Browsing {
             },
             (Gathered::Entries(entries), None) => Ok(Answer::Entries(entries)),
             (Gathered::Data { data, .. }, _) => Ok(Answer::Data(data)),
+            (Gathered::Photos { count, mut photos }, _) => {
+                photos.sort_by_key(|photo| std::cmp::Reverse(photo.added));
+                photos.truncate(count);
+                Ok(Answer::Photos(photos))
+            }
         };
         drop(pending.reply.send(answer));
     }
@@ -236,5 +262,27 @@ impl Browsing {
         for req in gone {
             self.fail(req, Failure::NotConnected);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use link_core::identity::Identity;
+    use link_core::proto::message::PhotosList;
+
+    use super::*;
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "a failed step fails the test")]
+    fn recent_photos_are_cut_to_the_count_and_sorted_newest_first() {
+        let from = Identity::generate().expect("key").spki().device_id();
+        let photo = |n: u64| RecentPhoto { path: format!("/Photos/A/{n}.jpg"), name: format!("{n}.jpg"), added: n };
+        let (reply, answer) = oneshot::channel();
+        let mut browsing = Browsing::default();
+        let (req, _) = browsing.start(from.clone(), Request::Recent { count: 2 }, reply);
+        let list = PhotosList { req, photos: vec![photo(1), photo(5), photo(3), photo(4)] };
+        assert!(browsing.on_answer(&from, Message::PhotosList(list)).is_none());
+        let Ok(Answer::Photos(photos)) = answer.blocking_recv().expect("answered") else { panic!("no photos") };
+        assert_eq!(photos.iter().map(|photo| photo.added).collect::<Vec<_>>(), [5, 4]);
     }
 }

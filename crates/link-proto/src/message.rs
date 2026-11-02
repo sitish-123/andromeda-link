@@ -45,6 +45,9 @@ pub const FS_WRITE: &str = "feature:fs-write";
 /// A phone's hello carries this when it answers `photo-request`; older phones close a session on the type.
 pub const CAMERA: &str = "feature:camera";
 
+/// A phone's hello carries this when it answers `photos-recent`; older phones close a session on the type.
+pub const PHOTOS_RECENT: &str = "feature:photos-recent";
+
 /// A hello carries this when its side takes the contacts and text message types; older peers close a session on them.
 pub const MESSAGES: &str = "feature:messages";
 
@@ -777,6 +780,32 @@ pub struct PhotoTaken {
     pub refused: Option<PhotoRefusal>,
 }
 
+/// Asks for the phone's newest photos; answered by `photos-list`, or `fs-error` (`denied` while Android withholds photo access).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhotosRecent {
+    pub req: u64,
+    pub count: u16,
+}
+
+/// A photo as `photos-list` gives it: its browse path under the Photos root, for `fs-thumb` and `fs-read`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecentPhoto {
+    pub path: String,
+    pub name: String,
+    /// Unix seconds.
+    pub added: u64,
+}
+
+/// The newest photos first, at most the count asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhotosList {
+    pub req: u64,
+    pub photos: Vec<RecentPhoto>,
+}
+
 /// Asks for one entry; answered by `fs-entries` holding that entry alone, or `fs-error`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -848,6 +877,8 @@ pub const MAX_FS_NAME: usize = 255;
 pub const MAX_FS_ENTRIES: usize = 128;
 pub const MAX_FS_READ: u32 = 1024 * 1024;
 pub const MAX_FS_THUMB_PX: u16 = 1024;
+/// Photos per `photos-list`, so the longest paths still fit a control frame.
+pub const MAX_RECENT_PHOTOS: u16 = 64;
 /// Bytes per `fs-data`, so a read never holds the control stream for long.
 pub const MAX_FS_CHUNK: usize = 48 * 1024;
 
@@ -1881,6 +1912,8 @@ pub enum Message {
     FsDelete(FsDelete),
     PhotoRequest(PhotoRequest),
     PhotoTaken(PhotoTaken),
+    PhotosRecent(PhotosRecent),
+    PhotosList(PhotosList),
     ContactsList(ContactsList),
     Contacts(Contacts),
     /// The phone's contacts changed; a desktop that keeps them asks again.
@@ -1970,6 +2003,8 @@ impl Message {
             Self::FsDelete(_) => "fs-delete",
             Self::PhotoRequest(_) => "photo-request",
             Self::PhotoTaken(_) => "photo-taken",
+            Self::PhotosRecent(_) => "photos-recent",
+            Self::PhotosList(_) => "photos-list",
             Self::ContactsList(_) => "contacts-list",
             Self::Contacts(_) => "contacts",
             Self::ContactsChanged => "contacts-changed",
@@ -2055,6 +2090,8 @@ impl Message {
             Self::FsDelete(body) => Value::serialized(body),
             Self::PhotoRequest(body) => Value::serialized(body),
             Self::PhotoTaken(body) => Value::serialized(body),
+            Self::PhotosRecent(body) => Value::serialized(body),
+            Self::PhotosList(body) => Value::serialized(body),
             Self::ContactsList(body) => Value::serialized(body),
             Self::Contacts(body) => Value::serialized(body),
             Self::TextsList(body) => Value::serialized(body),
@@ -2151,6 +2188,8 @@ impl Message {
             "fs-delete" => Self::FsDelete(body.deserialized()?),
             "photo-request" => Self::PhotoRequest(body.deserialized()?),
             "photo-taken" => Self::PhotoTaken(body.deserialized()?),
+            "photos-recent" => Self::PhotosRecent(body.deserialized()?),
+            "photos-list" => Self::PhotosList(body.deserialized()?),
             "contacts-list" => Self::ContactsList(body.deserialized()?),
             "contacts" => Self::Contacts(body.deserialized()?),
             "contacts-changed" => {
@@ -2281,6 +2320,11 @@ impl Message {
             Self::FsThumb(thumb) => fs_path_valid(&thumb.path) && (1..=MAX_FS_THUMB_PX).contains(&thumb.px),
             Self::FsWrite(write) => fs_path_valid(&write.path) && write.data.len() <= MAX_FS_CHUNK,
             Self::FsDelete(delete) => fs_path_valid(&delete.path),
+            Self::PhotosRecent(recent) => (1..=MAX_RECENT_PHOTOS).contains(&recent.count),
+            Self::PhotosList(list) => {
+                list.photos.len() <= usize::from(MAX_RECENT_PHOTOS)
+                    && list.photos.iter().all(|photo| fs_path_valid(&photo.path) && fs_name_valid(&photo.name))
+            }
             Self::PhotoTaken(taken) => {
                 taken.path.as_ref().is_some_and(|path| fs_path_valid(path)) != taken.refused.is_some()
             }

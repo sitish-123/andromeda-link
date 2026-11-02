@@ -10,7 +10,7 @@ envelope = hello-msg / pair-spake-msg / pair-confirm-msg / unpair-msg / share-ms
   mirror-request-msg / mirror-started-msg / screen-shape-msg / mirror-stop-msg / mirror-input-msg /
   mirror-keyframe-msg / mirror-data-msg /
   fs-list-msg / fs-entries-msg / fs-read-msg / fs-data-msg / fs-error-msg / fs-stat-msg / fs-thumb-msg /
-  fs-write-msg / fs-delete-msg / photo-request-msg / photo-taken-msg /
+  fs-write-msg / fs-delete-msg / photo-request-msg / photo-taken-msg / photos-recent-msg / photos-list-msg /
   contacts-list-msg / contacts-msg / contacts-changed-msg /
   texts-list-msg / texts-msg / texts-changed-msg / text-send-msg / text-sent-msg /
   calls-list-msg / calls-msg / calls-changed-msg / dial-msg / dialed-msg /
@@ -281,6 +281,15 @@ photo-taken-msg = { type: "photo-taken", id: uint, body: {
   req: uint,
   ? path: fs-path,
   ? refused: "not-allowed" / "denied" / "cancelled" / "failed",
+} }
+
+; The newest photos, with "feature:photos-recent" in the phone's hello and its browse switch on. photos-list answers with
+; at most count photos, newest first, each with its browse path (for fs-thumb and fs-read) and the time it was added in Unix seconds;
+; fs-error denied answers while Android withholds photo access.
+photos-recent-msg = { type: "photos-recent", id: uint, body: { req: uint, count: 1..64 } }
+photos-list-msg = { type: "photos-list", id: uint, body: {
+  req: uint,
+  photos: [* { path: fs-path, name: fs-name, added: uint }],  ; at most 64
 } }
 
 ; Contacts, both sides with "feature:messages" in their hello. The desktop pulls them page by page on connect and after

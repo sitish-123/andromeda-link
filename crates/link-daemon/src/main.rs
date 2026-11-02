@@ -23,6 +23,7 @@ mod notifications;
 mod paths;
 mod quickshare;
 mod remote;
+mod save;
 mod socket;
 #[cfg_attr(target_os = "macos", path = "wifi_direct_none.rs")]
 mod wifi_direct;
@@ -49,6 +50,7 @@ fn main() -> anyhow::Result<()> {
 
 async fn run() -> anyhow::Result<()> {
     let paths = paths::Paths::create()?;
+    save::sweep(&paths.downloads);
     let identity = Identity::load_or_create(&paths.identity).context("loading the device key")?;
     let mut store = Store::load(&paths.devices).context("loading the device store")?;
     let (endpoint, puncher) = bind(&identity, store.port)?;

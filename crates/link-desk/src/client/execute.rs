@@ -109,6 +109,14 @@ pub(super) async fn execute(
             });
             Ok(())
         }
+        Command::View { device, path } => {
+            let (proxy, events) = (proxy.clone(), events.clone());
+            tokio::spawn(async move {
+                let file = view(&proxy, &device, &path).await;
+                let _ = events.send(Event::Viewed { device, path, file });
+            });
+            Ok(())
+        }
         Command::CopyToPhone { device, folder, paths } => {
             copy_files(proxy, events, device, folder, paths);
             Ok(())
@@ -213,6 +221,18 @@ async fn thumbnail(proxy: &Link1Proxy<'_>, device: &str, path: &str, size: u16) 
     let png =
         proxy.thumbnail(device, path, size).await.map_err(|error| log::debug!("thumbnail {path}: {error}")).ok()?;
     std::fs::write(&file, png).map_err(|error| log::warn!("{}: {error}", file.display())).ok()?;
+    Some(file)
+}
+
+/// The cached copy of a whole phone file, copied once per (device, path).
+async fn view(proxy: &Link1Proxy<'_>, device: &str, path: &str) -> Option<PathBuf> {
+    let folder = cache("view").ok()?;
+    let file = folder.join(hashed(&(device, path), &crate::format::extension(path)));
+    if file.exists() {
+        return Some(file);
+    }
+    let saved = save(proxy, device, path, &folder).await.map_err(|error| log::info!("view {path}: {error}")).ok()?;
+    std::fs::rename(&saved, &file).map_err(|error| log::warn!("{}: {error}", file.display())).ok()?;
     Some(file)
 }
 

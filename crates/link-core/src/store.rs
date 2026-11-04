@@ -45,6 +45,9 @@ pub struct Peer {
     /// The `feature:` entries of the desktop's last hello.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
+    /// The user disconnected this phone on the desktop: no session is admitted until Connect. A desktop-side setting.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,6 +181,7 @@ pub fn feature_of(message: &Message) -> Option<Feature> {
         | Message::FsDelete(_) => Some(Feature::Files),
         Message::MirrorRequest
         | Message::MirrorStarted(_)
+        | Message::ScreenShape(_)
         | Message::MirrorStop(_)
         | Message::MirrorInput(_)
         | Message::MirrorKeyframe => Some(Feature::Screen),
@@ -285,6 +289,7 @@ impl Peer {
             bluetooth: None,
             bt_pairing: false,
             features: Vec::new(),
+            paused: false,
         }
     }
 
@@ -356,5 +361,27 @@ impl Store {
     pub fn remove(&mut self, id: &DeviceId) -> Option<Peer> {
         let index = self.peers.iter().position(|peer| peer.id == *id)?;
         Some(self.peers.remove(index))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::Identity;
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "a failed step fails the test")]
+    fn a_paused_phone_stays_paused_after_a_restart() {
+        let identity = Identity::generate().expect("key");
+        let mut store = Store::default();
+        let mut peer = Peer::new(identity.spki(), "phone".to_owned());
+        peer.paused = true;
+        let id = peer.id.clone();
+        store.upsert(peer);
+        let path = std::env::temp_dir().join(format!("link-store-paused-{}.json", std::process::id()));
+        store.save(&path).expect("save");
+        let loaded = Store::load(&path).expect("load");
+        drop(fs::remove_file(&path));
+        assert!(loaded.peer(&id).expect("peer").paused);
     }
 }

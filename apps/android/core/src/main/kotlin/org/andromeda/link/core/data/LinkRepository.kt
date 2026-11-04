@@ -57,6 +57,7 @@ import org.andromeda.link.core.domain.RemoteSource
 import org.andromeda.link.core.domain.RemoteUnit
 import org.andromeda.link.core.domain.RemoteVideo
 import org.andromeda.link.core.domain.SavedFile
+import org.andromeda.link.core.domain.ScreenShape
 import org.andromeda.link.core.domain.ShareKind
 import org.andromeda.link.core.domain.Sharing
 import org.andromeda.link.core.domain.TransferEvent
@@ -75,6 +76,8 @@ import org.andromeda.link.ffi.OutgoingFile
 import org.andromeda.link.ffi.PhoneCamera
 import org.andromeda.link.ffi.PhoneLibrary
 import org.andromeda.link.ffi.PhoneMessages
+import org.andromeda.link.ffi.PixelRect
+import org.andromeda.link.ffi.PixelShape
 import org.andromeda.link.ffi.RemoteView
 import org.andromeda.link.ffi.generateIdentity
 import java.io.ByteArrayOutputStream
@@ -91,6 +94,7 @@ import org.andromeda.link.ffi.NotificationButton as FfiNotificationButton
 import org.andromeda.link.ffi.PhoneNotification as FfiPhoneNotification
 import org.andromeda.link.ffi.PlaybackState as FfiState
 import org.andromeda.link.ffi.ShareKind as FfiShareKind
+import org.andromeda.link.ffi.TouchContact as FfiTouchContact
 
 /**
  * The phone side of Link over the Rust core. Every operation returns a [Result] whose failure is a
@@ -113,6 +117,11 @@ class LinkRepository(
             .createMulticastLock("andromeda-link")
             .apply { setReferenceCounted(true) }
     private val _desktops = MutableStateFlow<List<Desktop>>(emptyList())
+
+    private val pausedPrefs = context.getSharedPreferences("paused-desktops", Context.MODE_PRIVATE)
+
+    /** Desktops that refused this phone as paused, until one connects; kept across restarts. */
+    private val pausedIds = MutableStateFlow(pausedPrefs.getStringSet(PAUSED_KEY, emptySet()).orEmpty().toSet())
     private val _incoming = MutableSharedFlow<IncomingShare>(extraBufferCapacity = INCOMING_BUFFER)
     private val _transfers = MutableSharedFlow<TransferEvent>(extraBufferCapacity = INCOMING_BUFFER)
     private val downloads = Downloads(context)
@@ -131,6 +140,7 @@ class LinkRepository(
     private val _ringingDesktops = MutableStateFlow<Set<String>>(emptySet())
     private val _callActions = MutableSharedFlow<CallAction>(extraBufferCapacity = INCOMING_BUFFER)
     private val _mirrorCommands = MutableSharedFlow<MirrorCommand>(extraBufferCapacity = MIRROR_BUFFER)
+    private val _mirrorBlocked = MutableSharedFlow<String>(extraBufferCapacity = INCOMING_BUFFER)
     private val _remote = MutableSharedFlow<RemoteEvent>(extraBufferCapacity = MIRROR_BUFFER)
     private val _commands = MutableStateFlow<Map<String, List<DesktopCommand>>>(emptyMap())
     private val _capabilities = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
@@ -290,12 +300,38 @@ class LinkRepository(
     /** Requests, input, and stops from desktops mirroring this phone's screen. */
     val mirrorCommands: SharedFlow<MirrorCommand> = _mirrorCommands.asSharedFlow()
 
+    /** Desktops that asked to mirror while their Screen switch is off, by id. */
+    val mirrorBlocked: SharedFlow<String> = _mirrorBlocked.asSharedFlow()
+
+    /** Turns [desktopId]'s Screen switch on, then answers its waiting request as if the switch had been on. */
+    suspend fun allowMirror(desktopId: String): Result<Unit> =
+        setSharing(desktopId, Feature.Screen, true).onSuccess { _mirrorCommands.emit(MirrorCommand.Requested(desktopId)) }
+
     /** Tells the desktop that asked the video's size and opens the stream to it. */
     suspend fun startMirror(
         desktopId: String,
         width: Int,
         height: Int,
     ): Result<MirrorStream> = call { FfiMirror(it.startMirror(desktopId, width.toUInt(), height.toUInt())) }
+
+    /** Tells the mirroring desktop the screen's corners and cutouts, so it can draw the phone's edge. */
+    suspend fun sendScreenShape(
+        desktopId: String,
+        shape: ScreenShape,
+    ): Result<Unit> =
+        call {
+            it.sendScreenShape(
+                desktopId,
+                PixelShape(
+                    shape.width.toUInt(),
+                    shape.height.toUInt(),
+                    shape.corners.map(Int::toUInt),
+                    shape.cutouts.map { rect ->
+                        PixelRect(rect.left.toUInt(), rect.top.toUInt(), rect.width().toUInt(), rect.height().toUInt())
+                    },
+                ),
+            )
+        }
 
     /** Ends mirroring, or refuses a request, with why. */
     suspend fun stopMirror(
@@ -370,6 +406,7 @@ class LinkRepository(
         state: CallState,
         number: String?,
         name: String?,
+        app: String?,
     ): Result<Int> =
         call {
             val ffiState =
@@ -378,7 +415,7 @@ class LinkRepository(
                     CallState.Active -> FfiCallState.ACTIVE
                     CallState.Idle -> FfiCallState.IDLE
                 }
-            it.reportCall(ffiState, number, name).toInt()
+            it.reportCall(ffiState, number, name, app).toInt()
         }
 
     /**
@@ -475,7 +512,7 @@ class LinkRepository(
 
     suspend fun refresh(): Result<Unit> =
         call { client ->
-            _desktops.value = client.desktops().map { it.toDomain() }
+            _desktops.value = client.desktops().map { it.toDomain().copy(paused = it.id in pausedIds.value) }
         }
 
     suspend fun pairUri(uri: String): Result<Desktop> = callAndRefresh { it.pairUri(uri).toDomain() }
@@ -598,7 +635,12 @@ class LinkRepository(
     private suspend fun follow(client: LinkClient) {
         while (true) {
             when (val event = client.nextEvent() ?: return) {
+                is LinkEvent.Paused -> {
+                    setPaused(event.desktopId, true)
+                    _desktops.update { list -> list.map { if (it.id == event.desktopId) it.copy(paused = true) else it } }
+                }
                 is LinkEvent.Connected -> {
+                    setPaused(event.desktopId, false)
                     // The desktop list, not the event, says whether it came over Bluetooth.
                     refresh()
                     _connections.emit(event.desktopId)
@@ -659,6 +701,7 @@ class LinkRepository(
                 is LinkEvent.NotificationDismissed ->
                     _notificationCommands.emit(NotificationCommand.Dismiss(event.desktopId, event.id))
                 is LinkEvent.MirrorRequested -> _mirrorCommands.emit(MirrorCommand.Requested(event.desktopId))
+                is LinkEvent.MirrorBlocked -> _mirrorBlocked.emit(event.desktopId)
                 is LinkEvent.MirrorInput ->
                     _mirrorCommands.emit(
                         MirrorCommand.Input(
@@ -670,6 +713,8 @@ class LinkRepository(
                             event.y2,
                             event.ms?.toInt(),
                             event.text,
+                            event.code?.toInt(),
+                            event.meta?.toInt(),
                         ),
                     )
                 is LinkEvent.MirrorKeyframeRequested -> _mirrorCommands.emit(MirrorCommand.Keyframe(event.desktopId))
@@ -792,6 +837,14 @@ class LinkRepository(
         _desktops.update { list -> list.map { if (it.id == id) it.copy(connected = connected) else it } }
     }
 
+    private fun setPaused(
+        id: String,
+        paused: Boolean,
+    ) {
+        val next = pausedIds.updateAndGet { if (paused) it + id else it - id }
+        pausedPrefs.edit().putStringSet(PAUSED_KEY, next).apply()
+    }
+
     private fun nameOf(id: String): String = _desktops.value.firstOrNull { it.id == id }?.name ?: id
 
     private suspend fun <T> withMulticast(block: suspend () -> T): T {
@@ -805,6 +858,7 @@ class LinkRepository(
 
     private companion object {
         const val INCOMING_BUFFER = 16
+        const val PAUSED_KEY = "ids"
         const val MAX_CLIP_SIZE = 64L shl 20
         const val RECENT_CLIPS = 3
         const val ACTIVITY_LIMIT = 200
@@ -855,6 +909,17 @@ private fun RemoteInput.toFfi(): InputEvent =
         is RemoteInput.Release -> InputEvent(InputAction.RELEASE, null, null, button.toFfi(), null, null)
         is RemoteInput.Key -> InputEvent(InputAction.KEY, null, null, null, InputKey.entries[key.ordinal], null)
         is RemoteInput.Text -> InputEvent(InputAction.TEXT, null, null, null, null, text)
+        is RemoteInput.Shortcut -> InputEvent(InputAction.SHORTCUT, null, null, null, null, keys)
+        is RemoteInput.Touch ->
+            InputEvent(
+                InputAction.TOUCH,
+                null,
+                null,
+                null,
+                null,
+                null,
+                contacts.map { FfiTouchContact(it.id.toUByte(), it.x.toUInt(), it.y.toUInt()) },
+            )
     }
 
 private fun MediaCommandKind.toFfi(): FfiCommand =
@@ -918,6 +983,14 @@ private fun FfiMirrorAction.toDomain(): MirrorAction =
         FfiMirrorAction.HOME -> MirrorAction.Home
         FfiMirrorAction.RECENTS -> MirrorAction.Recents
         FfiMirrorAction.TEXT -> MirrorAction.Text
+        FfiMirrorAction.TOUCH_DOWN -> MirrorAction.TouchDown
+        FfiMirrorAction.TOUCH_MOVE -> MirrorAction.TouchMove
+        FfiMirrorAction.TOUCH_UP -> MirrorAction.TouchUp
+        FfiMirrorAction.WHEEL -> MirrorAction.Wheel
+        FfiMirrorAction.KEY_DOWN -> MirrorAction.KeyDown
+        FfiMirrorAction.KEY_UP -> MirrorAction.KeyUp
+        FfiMirrorAction.SCREEN_OFF -> MirrorAction.ScreenOff
+        FfiMirrorAction.SCREEN_ON -> MirrorAction.ScreenOn
     }
 
 private class FfiRemote(

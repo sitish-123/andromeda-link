@@ -26,6 +26,11 @@ use crate::hub::{Event, HubHandle, Signal, Snapshot};
 use crate::messages::SendFailure;
 
 pub const PATH: &str = "/org/andromeda/Link1";
+/// `SavePhoto` stops here, so a hostile phone cannot fill the disk.
+const MAX_SAVED_PHOTO: u64 = 256 * 1024 * 1024;
+/// One `SavePhoto` at a time, and none longer than this.
+static SAVES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+const SAVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 const NAME: &str = "org.andromeda.Link1";
 /// The shell passes descriptors, not types; the receiver's platform types files by name.
 const OCTET_STREAM: &str = "application/octet-stream";
@@ -36,6 +41,8 @@ pub struct Link {
     nearby: watch::Receiver<Vec<(String, String)>>,
     /// Callers of `SetSessionCapabilities` whose leaving the bus is watched.
     watched: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Per device, the paths of its last `RecentPhotos` answer: the only ones `SavePhoto` takes.
+    recent: std::sync::Arc<std::sync::Mutex<HashMap<String, std::collections::HashSet<String>>>>,
     /// The socket client this copy serves, which owns its capabilities until its connection closes; None on the bus.
     peer: Option<String>,
 }
@@ -47,7 +54,61 @@ impl Link {
         nearby: watch::Receiver<Vec<(String, String)>>,
         peer: Option<String>,
     ) -> Self {
-        Self { hub, snapshots, nearby, watched: std::sync::Arc::default(), peer }
+        Self { hub, snapshots, nearby, watched: std::sync::Arc::default(), recent: std::sync::Arc::default(), peer }
+    }
+
+    /// Reads `path` from the phone into a staged file in the downloads folder and publishes it; the file work runs off
+    /// the runtime.
+    async fn copy_photo(&self, device_id: &str, path: &str) -> Result<String, LinkError> {
+        let name = crate::save::safe_name(path.rsplit('/').next().unwrap_or_default());
+        let dir = crate::paths::downloads_dir().ok_or_else(|| LinkError::Failed("no downloads folder".to_owned()))?;
+        let failed = |error: std::io::Error| LinkError::Failed(error.to_string());
+        let blocking = |error: tokio::task::JoinError| LinkError::Failed(error.to_string());
+        let mut staged = tokio::task::spawn_blocking(move || crate::save::Staged::create(&dir))
+            .await
+            .map_err(blocking)?
+            .map_err(failed)?;
+        let mut offset = 0_u64;
+        loop {
+            let read =
+                browse::Request::Read { path: path.to_owned(), offset, len: link_core::proto::message::MAX_FS_READ };
+            let browse::Answer::Data(chunk) = self.browse(device_id, read).await? else {
+                return Err(LinkError::Failed("the phone answered a read with a listing".to_owned()));
+            };
+            if chunk.is_empty() {
+                break;
+            }
+            offset += chunk.len() as u64;
+            if offset > MAX_SAVED_PHOTO {
+                return Err(LinkError::Failed("the photo is larger than 256 MiB".to_owned()));
+            }
+            staged = tokio::task::spawn_blocking(move || {
+                std::io::Write::write_all(&mut staged.file, &chunk).map(|()| staged)
+            })
+            .await
+            .map_err(blocking)?
+            .map_err(failed)?;
+        }
+        let saved =
+            tokio::task::spawn_blocking(move || staged.publish(&name)).await.map_err(blocking)?.map_err(failed)?;
+        Ok(saved.to_string_lossy().into_owned())
+    }
+
+    /// Forgets the photo lists of devices that are no longer connected, so `SavePhoto` takes none of their paths.
+    pub fn forget_recent(&self, connected: &std::collections::HashSet<&str>) {
+        self.recent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|id, _| connected.contains(id.as_str()));
+    }
+
+    async fn pause(&self, device_id: &str, paused: bool) -> fdo::Result<()> {
+        let id = DeviceId::parse(device_id).map_err(|_| fdo::Error::InvalidArgs("not a device id".to_owned()))?;
+        if self.hub.set_paused(id, paused).await {
+            Ok(())
+        } else {
+            Err(fdo::Error::InvalidArgs("unknown device".to_owned()))
+        }
     }
 }
 
@@ -147,6 +208,16 @@ impl Link {
         } else {
             Err(LinkError::Rejected(format!("no open transfer {id}")))
         }
+    }
+
+    /// Ends the session with the phone and keeps it out, across restarts, until `Connect`. It stays paired.
+    async fn disconnect(&self, device_id: String) -> fdo::Result<()> {
+        self.pause(&device_id, true).await
+    }
+
+    /// Lifts `Disconnect`; the phone reconnects at its next retry, within 30 s.
+    async fn connect(&self, device_id: String) -> fdo::Result<()> {
+        self.pause(&device_id, false).await
     }
 
     async fn set_auto_accept(&self, device_id: String, enabled: bool) -> fdo::Result<()> {
@@ -280,6 +351,11 @@ impl Link {
         self.snapshots.borrow().auto_accept.clone()
     }
 
+    #[zbus(property)]
+    fn paused(&self) -> Vec<String> {
+        self.snapshots.borrow().paused.clone()
+    }
+
     #[zbus(signal)]
     async fn transfer_offered(
         emitter: &SignalEmitter<'_>,
@@ -330,7 +406,7 @@ impl Link {
             browse::Answer::Entries(entries) => {
                 Ok(entries.into_iter().map(|entry| (entry.name, entry.dir, entry.size, entry.mtime)).collect())
             }
-            browse::Answer::Data(_) => Err(LinkError::Failed("the phone answered a listing with data".to_owned())),
+            _ => Err(LinkError::Failed("the phone answered a listing with data".to_owned())),
         }
     }
 
@@ -357,10 +433,43 @@ impl Link {
         }
         match self.browse(&device_id, browse::Request::Thumb { path, px: size }).await? {
             browse::Answer::Data(png) => Ok(png),
-            browse::Answer::Entries(_) => {
-                Err(LinkError::Failed("the phone answered a thumbnail with a listing".to_owned()))
-            }
+            _ => Err(LinkError::Failed("the phone answered a thumbnail with a listing".to_owned())),
         }
+    }
+
+    /// The `count` (1 to 64) newest photos on a connected phone, newest first, as (path, name, time in Unix seconds).
+    /// The path goes to `Thumbnail`, `ReadFile`, and `SavePhoto`. `.Refused("denied")` while Android withholds photo
+    /// access on the phone; `.Refused("not-found")` from a phone that lacks the feature.
+    async fn recent_photos(&self, device_id: String, count: u16) -> Result<Vec<(String, String, u64)>, LinkError> {
+        if !(1..=link_core::proto::message::MAX_RECENT_PHOTOS).contains(&count) {
+            return Err(LinkError::Rejected("a count outside 1 to 64".to_owned()));
+        }
+        match self.browse(&device_id, browse::Request::Recent { count }).await? {
+            browse::Answer::Photos(photos) => {
+                let paths = photos.iter().map(|photo| photo.path.clone()).collect();
+                self.recent.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(device_id, paths);
+                Ok(photos.into_iter().map(|photo| (photo.path, photo.name, photo.added)).collect())
+            }
+            _ => Err(LinkError::Failed("the phone did not answer with photos".to_owned())),
+        }
+    }
+
+    /// Copies a photo of the last `RecentPhotos` answer for this device into the downloads folder, under a free name
+    /// made from the photo's own, and returns the saved path. `.Rejected` for any other path.
+    async fn save_photo(&self, device_id: String, path: String) -> Result<String, LinkError> {
+        let known = self
+            .recent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&device_id)
+            .is_some_and(|paths| paths.contains(&path));
+        if !known {
+            return Err(LinkError::Rejected("not a path RecentPhotos gave for this device".to_owned()));
+        }
+        let _turn = SAVES.acquire().await.map_err(|_| LinkError::Failed("saving is closed".to_owned()))?;
+        tokio::time::timeout(SAVE_TIMEOUT, self.copy_photo(&device_id, &path))
+            .await
+            .unwrap_or_else(|_| Err(LinkError::Failed("saving the photo took longer than 2 minutes".to_owned())))
     }
 
     /// Up to `length` bytes (at most 1 MiB) of a file on a connected phone, from `offset`; fewer at its end.
@@ -372,7 +481,7 @@ impl Link {
         }
         match self.browse(&device_id, browse::Request::Read { path, offset, len: length }).await? {
             browse::Answer::Data(data) => Ok(data),
-            browse::Answer::Entries(_) => Err(LinkError::Failed("the phone answered a read with a listing".to_owned())),
+            _ => Err(LinkError::Failed("the phone answered a read with a listing".to_owned())),
         }
     }
 
@@ -425,6 +534,12 @@ impl Link {
         let action: MirrorAction = serde_json::from_value(serde_json::Value::String(action))
             .map_err(|_| LinkError::Rejected("not a mirror action".to_owned()))?;
         let int = |key: &str| args.get(key).and_then(|value| i32::try_from(value.clone()).ok());
+        let unsigned = |key: &str| {
+            let value = args.get(key)?;
+            u32::try_from(value.clone())
+                .ok()
+                .or_else(|| i32::try_from(value.clone()).ok().and_then(|v| u32::try_from(v).ok()))
+        };
         let input = MirrorInput {
             action,
             x: int("x"),
@@ -433,6 +548,8 @@ impl Link {
             y2: int("y2"),
             ms: args.get("ms").and_then(|value| u32::try_from(value.clone()).ok()),
             text: args.get("text").and_then(|value| String::try_from(value.clone()).ok()),
+            code: unsigned("code"),
+            meta: unsigned("meta"),
         };
         self.send(&device_id, Message::MirrorInput(input)).await
     }
@@ -459,7 +576,7 @@ impl Link {
         Ok(())
     }
 
-    /// `mute` silences the phone's ringer; `decline` ends its ringing call.
+    /// `mute` silences the phone's ringer; `decline` ends its ringing or active call.
     async fn call_action(&self, device_id: String, action: String) -> Result<(), LinkError> {
         let action = CallActionKind::parse(&action)
             .ok_or_else(|| LinkError::Rejected("action is mute or decline".to_owned()))?;
@@ -515,6 +632,7 @@ impl Link {
         state: &str,
         number: &str,
         name: &str,
+        app: &str,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
@@ -522,6 +640,14 @@ impl Link {
 
     #[zbus(signal)]
     async fn phone_ringing(emitter: &SignalEmitter<'_>, device_id: &str, on: bool) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn screen_shape(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        corners: Vec<u16>,
+        cutouts: Vec<(u16, u16, u16, u16)>,
+    ) -> zbus::Result<()>;
 
     /// A text the phone received, newer than every text kept for it.
     #[zbus(signal)]
@@ -761,6 +887,13 @@ impl Link {
     async fn media_key(emitter: &SignalEmitter<'_>, key: &str) -> zbus::Result<()>;
 
     #[zbus(signal)]
+    async fn remote_touch(
+        emitter: &SignalEmitter<'_>,
+        device_id: &str,
+        contacts: Vec<(u8, u32, u32)>,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
     async fn remote_input(
         emitter: &SignalEmitter<'_>,
         device_id: &str,
@@ -866,11 +999,15 @@ impl Link {
 }
 
 async fn emit_input(emitter: &SignalEmitter<'_>, id: &DeviceId, input: RemoteInput) -> zbus::Result<()> {
+    if input.action == InputAction::Touch {
+        let contacts = input.contacts.unwrap_or_default().iter().map(|c| (c.id, c.x, c.y)).collect();
+        return Link::remote_touch(emitter, id.as_str(), contacts).await;
+    }
     let detail = match input.action {
         InputAction::Press | InputAction::Release | InputAction::Click => input.button.map(|button| wire_name(&button)),
         InputAction::Key => input.key.map(|key| wire_name(&key)),
-        InputAction::Text => input.text,
-        InputAction::Move | InputAction::Point | InputAction::Scroll => None,
+        InputAction::Text | InputAction::Shortcut => input.text,
+        InputAction::Move | InputAction::Point | InputAction::Scroll | InputAction::Touch => None,
     };
     let (dx, dy) = (input.dx.unwrap_or_default(), input.dy.unwrap_or_default());
     Link::remote_input(emitter, id.as_str(), &wire_name(&input.action), dx, dy, &detail.unwrap_or_default()).await
@@ -960,6 +1097,8 @@ pub async fn forward(
                 changed?;
                 let next = snapshots.borrow_and_update().clone();
                 if next.devices != last.devices {
+                    let connected = next.devices.iter().filter(|device| device.2).map(|device| device.0.as_str()).collect();
+                    link.get().await.forget_recent(&connected);
                     link.get().await.devices_changed(emitter).await?;
                 }
                 if next.info != last.info {
@@ -970,6 +1109,9 @@ pub async fn forward(
                 }
                 if next.auto_accept != last.auto_accept {
                     link.get().await.auto_accept_changed(emitter).await?;
+                }
+                if next.paused != last.paused {
+                    link.get().await.paused_changed(emitter).await?;
                 }
                 if next.grants != last.grants {
                     link.get().await.grants_changed(emitter).await?;
@@ -1035,6 +1177,10 @@ pub async fn forward(
                 Event::NotificationPosted { id, posted, alert } => emit_posted(emitter, &id, posted, alert).await?,
                 Event::RingRequested { id, on } => Link::ring_requested(emitter, id.as_str(), on).await?,
                 Event::PhoneRinging { id, on } => Link::phone_ringing(emitter, id.as_str(), on).await?,
+                Event::ScreenShape { id, shape } => {
+                    let cutouts = shape.cutouts.iter().map(|rect| (rect.x, rect.y, rect.width, rect.height)).collect();
+                    Link::screen_shape(emitter, id.as_str(), shape.corners.to_vec(), cutouts).await?;
+                }
                 Event::Hotspot { id, ssid } => Link::hotspot(emitter, id.as_str(), &ssid.unwrap_or_default()).await?,
                 Event::HotspotAsk { id, ssid } => Link::hotspot_requested(emitter, id.as_str(), &ssid).await?,
                 Event::TextReceived { id, text } => {
@@ -1057,7 +1203,8 @@ pub async fn forward(
                 }
                 Event::Call { id, call } => {
                     let (number, name) = (call.number.unwrap_or_default(), call.name.unwrap_or_default());
-                    Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name).await?;
+                    let app = call.app.unwrap_or_default();
+                    Link::call(emitter, id.as_str(), call.state.as_str(), &number, &name, &app).await?;
                 }
                 Event::NotificationRemoved { id, notification } => {
                     Link::notification_removed(emitter, id.as_str(), &notification).await?;

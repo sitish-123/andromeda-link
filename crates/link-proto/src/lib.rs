@@ -25,6 +25,8 @@ pub enum CloseCode {
     PairingFailed = 4,
     ProtocolError = 5,
     Busy = 6,
+    /// The desktop disconnected this phone; it admits no session until the user connects it again.
+    Paused = 7,
 }
 
 impl CloseCode {
@@ -37,6 +39,7 @@ impl CloseCode {
             4 => Self::PairingFailed,
             5 => Self::ProtocolError,
             6 => Self::Busy,
+            7 => Self::Paused,
             _ => return None,
         })
     }
@@ -50,6 +53,7 @@ impl CloseCode {
             Self::PairingFailed => "pairing failed",
             Self::ProtocolError => "protocol error",
             Self::Busy => "busy",
+            Self::Paused => "paused",
         }
     }
 }

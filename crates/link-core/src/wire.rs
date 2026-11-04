@@ -168,6 +168,13 @@ impl SendStream {
         }
     }
 
+    /// Queued data of higher priority goes first; Bluetooth's streams have none.
+    pub fn set_priority(&self, priority: i32) {
+        if let Self::Quic(stream) = self {
+            drop(stream.set_priority(priority));
+        }
+    }
+
     /// Abandons the stream with `code`; an already finished stream stays as it is.
     pub fn reset(&mut self, code: u32) {
         match self {

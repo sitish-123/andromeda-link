@@ -2,25 +2,23 @@ package org.andromeda.link.core.data
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.net.MacAddress
-import android.net.wifi.WpsInfo
 import android.net.wifi.p2p.WifiP2pConfig
-import android.net.wifi.p2p.WifiP2pDevice
+import android.net.wifi.p2p.WifiP2pGroup
 import android.net.wifi.p2p.WifiP2pManager
-import android.os.Build
-import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import org.andromeda.link.ffi.HotspotCredentials
 import org.andromeda.link.ffi.PhoneWifiDirect
+import java.security.SecureRandom
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * A Wi-Fi Direct group with a desktop, so the desktop keeps its own Wi-Fi while the session runs at full speed. Both
- * sides connect to each other at once: a connection this app starts needs no confirmation on the phone, which an
- * incoming one would (Android's "Invitation to connect"). The negotiation picks the owner; either role works, since
- * the desktop reports its address on the group. Needs Nearby devices (Android 13+) or location, like the hotspot.
+ * A Wi-Fi Direct group this phone owns, which a desktop joins with the credentials Link sends it over Bluetooth, so
+ * the phone keeps its own Wi-Fi and the desktop may keep its own. No peer negotiates: an incoming negotiation or
+ * invitation needs a tap on Android ("Invitation to connect"), and a client joining with the passphrase does not.
+ * Needs Nearby devices (Android 13+) or location, like the hotspot.
  */
 @SuppressLint("MissingPermission")
 class WifiDirectGroup(
@@ -28,66 +26,99 @@ class WifiDirectGroup(
 ) : PhoneWifiDirect {
     private val manager: WifiP2pManager? = context.getSystemService(WifiP2pManager::class.java)
     private var channel: WifiP2pManager.Channel? = null
+    private val random = SecureRandom()
 
-    override fun name(): String? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+    override fun start(): HotspotCredentials? {
         val (manager, channel) = ready() ?: return null
-        val answered = CountDownLatch(1)
-        var name: String? = null
-        guarded {
-            manager.requestDeviceInfo(channel) { device ->
-                name = device?.deviceName?.takeIf(String::isNotEmpty)
-                answered.countDown()
-            }
-        } ?: return null
-        answered.await(ANSWER_TIMEOUT_S, TimeUnit.SECONDS)
-        return name
-    }
-
-    override fun connect(peer: String): Boolean {
-        val (manager, channel) = ready() ?: return false
-        guarded { manager.discoverPeers(channel, logged("discovering peers")) } ?: return false
-        val device = find(manager, channel, peer) ?: return false.also { Log.i(TAG, "$peer did not show up") }
-        // The builder's group is temporary; the constructor's persistent default makes the next connect re-invoke the
-        // saved group by invitation, which NetworkManager cannot accept.
         val config =
-            WifiP2pConfig.Builder().setDeviceAddress(MacAddress.fromString(device.deviceAddress)).build().apply {
-                wps.setup = WpsInfo.PBC
-                // Preferred, not required: NetworkManager asks with intent 7, and the higher intent owns the group.
-                groupOwnerIntent = OWNER_INTENT
-            }
-        guarded { manager.connect(channel, config, logged("connecting to $peer")) } ?: return false
-        return formed(manager, channel)
+            WifiP2pConfig
+                .Builder()
+                // Android takes only names that start with "DIRECT-" and two characters.
+                .setNetworkName("DIRECT-${text(2)}-Link")
+                .setPassphrase(text(PASSPHRASE_LENGTH))
+                .setGroupOperatingBand(WifiP2pConfig.GROUP_OWNER_BAND_AUTO)
+                .build()
+        // A group left from an earlier attempt would make Android refuse a new one.
+        call(manager, channel, "removing the group", manager::removeGroup)
+        if (!created(manager, channel, config)) return null
+        val group = group(manager, channel) ?: return null.also { Log.i(TAG, "the group did not come up") }
+        return HotspotCredentials(group.networkName, group.passphrase ?: return null)
     }
 
     override fun stop() {
         val (manager, channel) = ready() ?: return
-        guarded {
-            removeGroup(manager, channel, REMOVE_ATTEMPTS)
-            manager.stopPeerDiscovery(channel, logged("stopping discovery"))
-        }
+        call(manager, channel, "removing the group", manager::removeGroup)
     }
 
     /** Retries while Android answers BUSY, as it does while it turns Wi-Fi Direct on for a freshly started app. */
-    private fun removeGroup(
+    private fun created(
         manager: WifiP2pManager,
         channel: WifiP2pManager.Channel,
-        attempts: Int,
-    ) {
-        manager.removeGroup(
-            channel,
+        config: WifiP2pConfig,
+    ): Boolean {
+        repeat(ATTEMPTS) {
+            val reason = call(manager, channel, "creating the group") { c, done -> manager.createGroup(c, config, done) }
+            if (reason == null) return true
+            if (reason != WifiP2pManager.BUSY) return false
+            SystemClock.sleep(RETRY_MS)
+        }
+        return false
+    }
+
+    /** The group once Android reports it up with this phone as its owner. */
+    private fun group(
+        manager: WifiP2pManager,
+        channel: WifiP2pManager.Channel,
+    ): WifiP2pGroup? {
+        val deadline = SystemClock.elapsedRealtime() + FORM_TIMEOUT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val answered = CountDownLatch(1)
+            var group: WifiP2pGroup? = null
+            try {
+                manager.requestGroupInfo(channel) {
+                    group = it
+                    answered.countDown()
+                }
+            } catch (error: SecurityException) {
+                return null.also { Log.w(TAG, "Wi-Fi Direct: ${error.message}") }
+            }
+            answered.await(ANSWER_TIMEOUT_S, TimeUnit.SECONDS)
+            group?.takeIf { it.isGroupOwner && it.networkName != null }?.let { return it }
+            SystemClock.sleep(POLL_MS)
+        }
+        return null
+    }
+
+    /** Runs a [WifiP2pManager] action and waits for it: null on success, else Android's failure reason. */
+    private fun call(
+        manager: WifiP2pManager,
+        channel: WifiP2pManager.Channel,
+        what: String,
+        action: (WifiP2pManager.Channel, WifiP2pManager.ActionListener) -> Unit,
+    ): Int? {
+        val answered = CountDownLatch(1)
+        var failure: Int? = ERROR_TIMEOUT
+        val listener =
             object : WifiP2pManager.ActionListener {
-                override fun onSuccess() = Unit
+                override fun onSuccess() {
+                    failure = null
+                    answered.countDown()
+                }
 
                 override fun onFailure(reason: Int) {
-                    if (reason == WifiP2pManager.BUSY && attempts > 1) {
-                        Handler(Looper.getMainLooper()).postDelayed({ guarded { removeGroup(manager, channel, attempts - 1) } }, RETRY_MS)
-                    } else {
-                        Log.i(TAG, "removing the group failed: $reason")
-                    }
+                    Log.i(TAG, "$what failed: $reason")
+                    failure = reason
+                    answered.countDown()
                 }
-            },
-        )
+            }
+        try {
+            action(channel, listener)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Wi-Fi Direct: ${error.message}")
+            return WifiP2pManager.ERROR
+        }
+        answered.await(ANSWER_TIMEOUT_S, TimeUnit.SECONDS)
+        return failure
     }
 
     private fun ready(): Pair<WifiP2pManager, WifiP2pManager.Channel>? {
@@ -99,80 +130,17 @@ class WifiDirectGroup(
         return manager to channel
     }
 
-    /** The peer whose device address, or else name, is [peer]. */
-    private fun find(
-        manager: WifiP2pManager,
-        channel: WifiP2pManager.Channel,
-        peer: String,
-    ): WifiP2pDevice? {
-        val deadline = SystemClock.elapsedRealtime() + FIND_TIMEOUT_MS
-        while (SystemClock.elapsedRealtime() < deadline) {
-            val answered = CountDownLatch(1)
-            var found: WifiP2pDevice? = null
-            guarded {
-                manager.requestPeers(channel) { peers ->
-                    found =
-                        peers?.deviceList?.firstOrNull {
-                            it.deviceAddress.equals(peer, ignoreCase = true) || it.deviceName == peer
-                        }
-                    answered.countDown()
-                }
-            } ?: return null
-            answered.await(ANSWER_TIMEOUT_S, TimeUnit.SECONDS)
-            found?.let { return it }
-            SystemClock.sleep(POLL_MS)
-        }
-        return null
-    }
-
-    private fun formed(
-        manager: WifiP2pManager,
-        channel: WifiP2pManager.Channel,
-    ): Boolean {
-        val deadline = SystemClock.elapsedRealtime() + FORM_TIMEOUT_MS
-        while (SystemClock.elapsedRealtime() < deadline) {
-            val answered = CountDownLatch(1)
-            var up = false
-            guarded {
-                manager.requestConnectionInfo(channel) { info ->
-                    up = info?.groupFormed == true
-                    answered.countDown()
-                }
-            } ?: return false
-            answered.await(ANSWER_TIMEOUT_S, TimeUnit.SECONDS)
-            if (up) return true
-            SystemClock.sleep(POLL_MS)
-        }
-        Log.i(TAG, "the group did not form")
-        return false
-    }
-
-    /** Runs [call] unless the app lacks the permission Wi-Fi Direct needs; null when it does. */
-    private fun guarded(call: () -> Unit): Unit? =
-        try {
-            call()
-        } catch (error: SecurityException) {
-            Log.w(TAG, "Wi-Fi Direct: ${error.message}")
-            null
-        }
-
-    private fun logged(what: String) =
-        object : WifiP2pManager.ActionListener {
-            override fun onSuccess() = Unit
-
-            override fun onFailure(reason: Int) {
-                Log.i(TAG, "$what failed: $reason")
-            }
-        }
+    private fun text(length: Int) = String(CharArray(length) { ALPHABET[random.nextInt(ALPHABET.length)] })
 
     private companion object {
         const val TAG = "WifiDirectGroup"
-        const val OWNER_INTENT = 15
+        const val ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        const val PASSPHRASE_LENGTH = 16
         const val ANSWER_TIMEOUT_S = 5L
-        const val FIND_TIMEOUT_MS = 15_000L
-        const val FORM_TIMEOUT_MS = 20_000L
-        const val POLL_MS = 500L
-        const val REMOVE_ATTEMPTS = 5
+        const val FORM_TIMEOUT_MS = 10_000L
+        const val POLL_MS = 300L
+        const val ATTEMPTS = 5
         const val RETRY_MS = 1_000L
+        const val ERROR_TIMEOUT = -1
     }
 }

@@ -64,7 +64,7 @@ def main() -> int:
         started = time.monotonic()
         reply, _ = bus.call_with_unix_fd_list_sync(NAME, PATH, IFACE, "SendFiles",
                                                    GLib.Variant("(sa(hs))", (device_id, files)),
-                                                   GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, -1, fds, None)
+                                                   GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 120_000, fds, None)
         state["id"] = reply.unpack()[0]
         state["status"] = state["early"].get(state["id"])
         if state["status"] is None:

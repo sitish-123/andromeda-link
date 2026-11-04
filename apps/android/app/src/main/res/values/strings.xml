@@ -54,6 +54,9 @@
     <string name="failure_unpaired">The desktop removed this phone. Pair again to reconnect.</string>
     <string name="failure_unreachable">Couldn\'t reach the desktop. Make sure both are on the same network and the desktop\'s firewall allows Andromeda Link (on the desktop: sudo ufw allow \"Andromeda Link\").</string>
     <string name="failure_rejected">Can\'t send this: %1$s</string>
+    <string name="scan_again">Scan again</string>
+    <string name="trash_prompt_title">Move a photo to the trash?</string>
+    <string name="trash_prompt_text">A computer asked to delete it. Tap to confirm.</string>
     <string name="failure_other">Something went wrong: %1$s</string>
     <string name="back">Back</string>
     <string name="cancel">Cancel</string>
@@ -160,6 +163,11 @@
     <string name="camera_request_text">Tap to open the camera. The photo goes to that computer.</string>
     <string name="camera_take">Take photo</string>
     <string name="screen_decline">Decline</string>
+    <string name="screen_ask_title">%1$s wants to show your screen</string>
+    <string name="screen_ask_text">Screen sharing is off for this computer. Allow turns it on.</string>
+    <string name="screen_ask_not_now">Not now</string>
+    <string name="screen_ask_refused">Not allowed on the phone</string>
+    <string name="screen_ask_switch_off">Screen sharing is off for this computer on the phone. Turn it on in Link on the phone.</string>
     <string name="screen_mirroring">Showing your screen on %1$s</string>
     <string name="screen_stop">Stop</string>
     <string name="screen_input_label">Link: control from the desktop</string>
@@ -174,6 +182,7 @@
     <string name="pair_code_title">Type the code</string>
     <string name="onboarding_next">Next</string>
     <string name="onboarding_done">Done</string>
+    <string name="onboarding_not_now">Not now</string>
     <string name="onboarding_allow">Allow access</string>
     <string name="onboarding_notifications_title">Notifications on your desktop</string>
     <string name="onboarding_notifications_body">Notification access lets your desktop show this phone\'s notifications and send back replies and actions. It also lets desktops control what this phone plays.</string>
@@ -223,7 +232,12 @@
     <string name="onboarding_clipboard_open">Open</string>
     <string name="onboarding_clipboard_restricted">Switch greyed out? Android limits this for apps installed outside a store: in App info, open the ⋮ menu and choose Allow restricted settings, then come back.</string>
     <string name="onboarding_clipboard_app_info">Open App info</string>
-    <string name="setup_banner">A few permissions are missing</string>
+    <string name="setup_card_title">Set up your device</string>
+    <plurals name="setup_card_progress">
+        <item quantity="one">%1$d of %2$d done</item>
+        <item quantity="other">%1$d of %2$d done</item>
+    </plurals>
+    <string name="setup_card_continue">Continue</string>
     <string name="setup_banner_action">Fix</string>
     <string name="home_this_phone">This phone</string>
     <string name="empty_desktop">No desktop paired</string>
@@ -264,6 +278,7 @@
     <string name="remote_title">Touchpad and keyboard</string>
     <string name="remote_hint">Move the pointer on %1$s. Tap to click. Use two fingers to scroll, or tap with two fingers to right-click.</string>
     <string name="remote_touchpad">Touchpad</string>
+    <string name="remote_multi_finger_grant">This phone takes 3-finger swipes for itself. To send them to the computer, run once: adb shell pm grant %1$s android.permission.WRITE_SECURE_SETTINGS</string>
     <string name="remote_left">Left click</string>
     <string name="remote_right">Right click</string>
     <string name="remote_type">Type here</string>
@@ -276,6 +291,7 @@
     <string name="viewer_direct">Direct touch</string>
     <string name="viewer_window_touchpad">On one window, only the touchpad moves the pointer.</string>
     <string name="viewer_keyboard">Keyboard</string>
+    <string name="viewer_shortcuts">Shortcuts</string>
     <string name="viewer_mute">Mute</string>
     <string name="viewer_unmute">Unmute</string>
     <string name="viewer_disconnect">Disconnect</string>
@@ -295,6 +311,7 @@
     <string name="home_via_searching">Connecting</string>
     <string name="home_last_seen">Last seen %1$s</string>
     <string name="home_battery">%1$d%%</string>
+    <string name="home_paused_by">Paused by %1$s. Resume from the desktop.</string>
     <string name="home_connected_via">Connected, %1$s</string>
     <string name="home_battery_charging">Charging</string>
     <string name="home_battery_discharging">On battery</string>
@@ -306,12 +323,17 @@
     <string name="home_pause">Pause</string>
     <string name="home_on_app">%1$s, on %2$s</string>
     <string name="key_lock">Lock</string>
+    <string name="home_lock_title">Lock %1$s?</string>
     <string name="key_sleep">Sleep</string>
     <string name="key_screen_off">Screen off</string>
     <string name="key_ring">Ring</string>
     <string name="key_ringing">Stop ringing</string>
     <string name="key_touchpad">Touchpad</string>
     <string name="key_presenter">Presenter</string>
+    <string name="key_screen">Screen</string>
+    <string name="home_mute">Mute or unmute</string>
+    <string name="shortcut_add">+ Add</string>
+    <string name="shortcut_hint">super+t</string>
     <string name="key_clipboard">Clipboard</string>
     <string name="key_dnd">Do not disturb</string>
     <string name="home_control_off">%1$s does not let this phone control it. Turn on Control system for this phone on %1$s.</string>
@@ -331,16 +353,6 @@
     <plurals name="recent_more_files">
         <item quantity="one">%1$s and %2$d more</item>
         <item quantity="other">%1$s and %2$d more</item>
-    </plurals>
-    <string name="missing_notification_access">Notification access is off</string>
-    <string name="missing_dnd">Ringing through Do Not Disturb is off</string>
-    <string name="missing_post">Alerts from Link are off</string>
-    <string name="missing_battery">Battery optimisation can stop Link</string>
-    <string name="missing_calls">Call access is off</string>
-    <string name="missing_bluetooth">Bluetooth access is off</string>
-    <plurals name="missing_more">
-        <item quantity="one">And %1$d more.</item>
-        <item quantity="other">And %1$d more.</item>
     </plurals>
     <string name="missing_turn_on">Turn on</string>
     <string name="home_key_not_allowed">Not allowed on the desktop</string>

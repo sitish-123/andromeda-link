@@ -50,6 +50,48 @@ impl From<link_core::Error> for LinkError {
 }
 
 /// One type of a phone clip: its text, or a snapshot file of its bytes.
+/// A screen's rounded corners (top-left, top-right, bottom-right, bottom-left) and cutouts, in its own pixels.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PixelShape {
+    pub width: u32,
+    pub height: u32,
+    pub corners: Vec<u32>,
+    pub cutouts: Vec<PixelRect>,
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct PixelRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PixelShape {
+    /// In 1/10000 of the width or height, clamped to what `screen-shape` allows.
+    fn units(&self) -> message::ScreenShape {
+        let unit = |value: u32, side: u32| {
+            u16::try_from(u64::from(value) * 10_000 / u64::from(side.max(1))).unwrap_or(10_000).min(10_000)
+        };
+        let mut corners = [0; 4];
+        for (corner, radius) in corners.iter_mut().zip(&self.corners) {
+            *corner = unit(*radius, self.width).min(5_000);
+        }
+        let cutouts = self
+            .cutouts
+            .iter()
+            .take(message::MAX_CUTOUTS)
+            .filter_map(|rect| {
+                let (x, y) = (unit(rect.x, self.width).min(9_999), unit(rect.y, self.height).min(9_999));
+                let width = unit(rect.width, self.width).min(10_000 - x);
+                let height = unit(rect.height, self.height).min(10_000 - y);
+                (width > 0 && height > 0).then_some(message::ShapeRect { x, y, width, height })
+            })
+            .collect();
+        message::ScreenShape { corners, cutouts }
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ClipType {
     pub mime: String,
@@ -157,6 +199,10 @@ pub enum LinkEvent {
     MirrorRequested {
         desktop_id: String,
     },
+    /// The desktop asked to mirror while its Screen switch is off: ask the user, then allow it or refuse it.
+    MirrorBlocked {
+        desktop_id: String,
+    },
     /// Input on the mirrored screen; coordinates are fractions of the video in units of 1/10000, a scroll's x2 and
     /// y2 a signed delta.
     MirrorInput {
@@ -168,6 +214,8 @@ pub enum LinkEvent {
         y2: Option<i32>,
         ms: Option<u32>,
         text: Option<String>,
+        code: Option<u32>,
+        meta: Option<u32>,
     },
     /// The desktop lost a frame: encode a keyframe next.
     MirrorKeyframeRequested {
@@ -206,6 +254,10 @@ pub enum LinkEvent {
     },
     /// The desktop unpaired this phone, which has forgotten it.
     Unpaired {
+        desktop_id: String,
+    },
+    /// The desktop disconnected this phone: it refuses it until the user connects it there. The phone keeps redialing.
+    Paused {
         desktop_id: String,
     },
     /// The desktop offers files; answer with `accept_transfer` or `decline_transfer` within 120 s.
@@ -347,6 +399,10 @@ pub enum InputAction {
     Click,
     Key,
     Text,
+    /// `text` is modifiers and one key joined by `+`, as `super+t`.
+    Shortcut,
+    /// `contacts` is every finger down now; only to a desktop whose capabilities list `touchpad`.
+    Touch,
 }
 
 #[derive(Debug, Clone, Copy, uniffi::Enum)]
@@ -385,6 +441,17 @@ pub struct InputEvent {
     pub button: Option<InputButton>,
     pub key: Option<InputKey>,
     pub text: Option<String>,
+    /// For touch: every finger down now.
+    #[uniffi(default = None)]
+    pub contacts: Option<Vec<TouchContact>>,
+}
+
+/// One finger on the touchpad: a stable id while it stays down, and its position from the pad's top left in 1/100 mm.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct TouchContact {
+    pub id: u8,
+    pub x: u32,
+    pub y: u32,
 }
 
 impl From<InputEvent> for message::RemoteInput {
@@ -399,6 +466,8 @@ impl From<InputEvent> for message::RemoteInput {
             InputAction::Click => A::Click,
             InputAction::Key => A::Key,
             InputAction::Text => A::Text,
+            InputAction::Shortcut => A::Shortcut,
+            InputAction::Touch => A::Touch,
         };
         let button = event.button.map(|button| match button {
             InputButton::Left => B::Left,
@@ -422,7 +491,10 @@ impl From<InputEvent> for message::RemoteInput {
             InputKey::PageDown => K::PageDown,
             InputKey::F5 => K::F5,
         });
-        Self { action, dx: event.dx, dy: event.dy, button, key, text: event.text }
+        let contacts = event
+            .contacts
+            .map(|contacts| contacts.into_iter().map(|c| message::TouchContact { id: c.id, x: c.x, y: c.y }).collect());
+        Self { action, dx: event.dx, dy: event.dy, button, key, text: event.text, contacts }
     }
 }
 
@@ -516,6 +588,14 @@ pub enum MirrorAction {
     Home,
     Recents,
     Text,
+    TouchDown,
+    TouchMove,
+    TouchUp,
+    Wheel,
+    KeyDown,
+    KeyUp,
+    ScreenOff,
+    ScreenOn,
 }
 
 impl From<message::MirrorAction> for MirrorAction {
@@ -529,6 +609,14 @@ impl From<message::MirrorAction> for MirrorAction {
             message::MirrorAction::Home => Self::Home,
             message::MirrorAction::Recents => Self::Recents,
             message::MirrorAction::Text => Self::Text,
+            message::MirrorAction::TouchDown => Self::TouchDown,
+            message::MirrorAction::TouchMove => Self::TouchMove,
+            message::MirrorAction::TouchUp => Self::TouchUp,
+            message::MirrorAction::Wheel => Self::Wheel,
+            message::MirrorAction::KeyDown => Self::KeyDown,
+            message::MirrorAction::KeyUp => Self::KeyUp,
+            message::MirrorAction::ScreenOff => Self::ScreenOff,
+            message::MirrorAction::ScreenOn => Self::ScreenOn,
         }
     }
 }
@@ -586,7 +674,7 @@ impl RemoteView {
 #[derive(uniffi::Object)]
 pub struct MirrorSession {
     runtime: tokio::runtime::Handle,
-    sender: Arc<tokio::sync::Mutex<Option<link_core::mirror::MirrorSender>>>,
+    sender: Arc<link_core::mirror::MirrorSender>,
 }
 
 #[uniffi::export]
@@ -596,23 +684,13 @@ impl MirrorSession {
     pub async fn send_unit(&self, pts_us: u64, flags: u8, data: Vec<u8>) -> Result<(), LinkError> {
         let unit = link_core::mirror::Unit { pts_us, flags, data };
         let sender = self.sender.clone();
-        let sent = self
-            .runtime
-            .spawn(async move {
-                match sender.lock().await.as_mut() {
-                    Some(stream) => stream.send(&unit).await,
-                    None => Err(link_core::Error::Stopped),
-                }
-            })
-            .await
-            .map_err(|_| stopped())?;
+        let sent = self.runtime.spawn(async move { sender.send(&unit).await }).await.map_err(|_| stopped())?;
         Ok(sent?)
     }
 
     pub async fn finish(&self) {
-        if let Some(sender) = self.sender.lock().await.take() {
-            sender.finish();
-        }
+        let sender = self.sender.clone();
+        drop(self.runtime.spawn(async move { sender.finish().await }).await);
     }
 }
 
@@ -626,7 +704,8 @@ pub struct LinkClient {
 }
 
 /// How the app reaches a desktop over Bluetooth: connect RFCOMM to `address` at Link's service UUID and return one
-/// end of a socket pair the app pumps that connection through, detached. -1 when it cannot connect. With `pair`, it
+/// end of a socket pair the app pumps that connection through, detached. Negative when it cannot connect: -2 without
+/// the Bluetooth permission, -3 with Bluetooth off, -4 when Bluetooth pairing failed, else -1. With `pair`, it
 /// first pairs Bluetooth with the desktop if they are not paired, which Link pairing alone asks for. Called off the
 /// main thread, and may block.
 #[uniffi::export(with_foreign)]
@@ -639,8 +718,15 @@ struct Opener(Arc<dyn BluetoothLink>);
 impl link_core::stream::BluetoothOpener for Opener {
     fn open(&self, address: &str, pair: bool) -> std::io::Result<OwnedFd> {
         let fd = self.0.open(address.to_owned(), pair);
-        if fd < 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "Bluetooth did not connect"));
+        let reason = match fd {
+            0.. => None,
+            -2 => Some("the Nearby devices permission is off"),
+            -3 => Some("Bluetooth is off on the phone"),
+            -4 => Some("the Bluetooth pairing was not accepted"),
+            _ => Some("the desktop did not answer"),
+        };
+        if let Some(reason) = reason {
+            return Err(std::io::Error::new(std::io::ErrorKind::NotConnected, reason));
         }
         // SAFETY: the app hands over a descriptor it detached and no longer uses, so nothing else owns or closes it.
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })
@@ -660,6 +746,11 @@ pub trait PhoneLibrary: Send + Sync {
     fn albums(&self) -> Vec<String>;
     fn album(&self, name: String) -> Vec<LibraryItem>;
     fn thumbnail(&self, path: String, px: u16) -> Option<Vec<u8>>;
+    /// The newest `count` photos of every album, newest first; None while Android withholds photo access.
+    fn recent(&self, count: u32) -> Option<Vec<RecentPhoto>>;
+    /// Moves the item at `path` to the trash (deletes it before Android 11); false when refused. May block while the
+    /// user confirms on the phone.
+    fn trash(&self, path: String) -> bool;
 }
 
 /// A photo or video; `mtime` in Unix seconds.
@@ -669,6 +760,13 @@ pub struct LibraryItem {
     pub path: String,
     pub size: u64,
     pub mtime: u64,
+}
+
+/// A photo with the album it is in; `mtime` in Unix seconds.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RecentPhoto {
+    pub album: String,
+    pub item: LibraryItem,
 }
 
 struct Library(Arc<dyn PhoneLibrary>);
@@ -690,6 +788,28 @@ impl link_core::browse::Library for Library {
 
     fn thumbnail(&self, path: &std::path::Path, px: u16) -> Option<Vec<u8>> {
         self.0.thumbnail(path.to_str()?.to_owned(), px)
+    }
+
+    fn recent(&self, count: usize) -> Option<Vec<link_core::browse::RecentItem>> {
+        let photos = self.0.recent(u32::try_from(count).unwrap_or(u32::MAX))?;
+        Some(
+            photos
+                .into_iter()
+                .map(|RecentPhoto { album, item }| link_core::browse::RecentItem {
+                    album,
+                    item: link_core::browse::LibraryItem {
+                        name: item.name,
+                        path: PathBuf::from(item.path),
+                        size: item.size,
+                        mtime: item.mtime,
+                    },
+                })
+                .collect(),
+        )
+    }
+
+    fn trash(&self, path: &std::path::Path) -> bool {
+        path.to_str().is_some_and(|path| self.0.trash(path.to_owned()))
     }
 }
 
@@ -857,30 +977,21 @@ impl link_core::hotspot::HotspotProvider for Hotspots {
     }
 }
 
-/// How the app forms a Wi-Fi Direct group with a desktop as its client, tried before the hotspot so the desktop keeps
-/// its own network. Blocking, called off the main thread: `name` is what peers see (None without the Nearby devices
-/// permission); `connect` finds `peer` (a device address, else a name), forms the group in either role, and returns
-/// whether it came up.
+/// How the app creates a Wi-Fi Direct group it owns, tried before the hotspot so the desktop may keep its own network.
+/// `start` blocks until the group is up and returns its credentials, or None when Android refused it. Called off the
+/// main thread.
 #[uniffi::export(with_foreign)]
 pub trait PhoneWifiDirect: Send + Sync {
-    fn name(&self) -> Option<String>;
-    fn connect(&self, peer: String) -> bool;
+    fn start(&self) -> Option<HotspotCredentials>;
     fn stop(&self);
 }
 
 struct WifiDirects(Arc<dyn PhoneWifiDirect>);
 
 impl link_core::hotspot::WifiDirectProvider for WifiDirects {
-    fn name(&self) -> std::io::Result<String> {
-        self.0.name().ok_or_else(|| std::io::Error::other("no Wi-Fi Direct name"))
-    }
-
-    fn connect(&self, peer: &str) -> std::io::Result<()> {
-        if self.0.connect(peer.to_owned()) {
-            Ok(())
-        } else {
-            Err(std::io::Error::other("Android did not form the group"))
-        }
+    fn start(&self) -> std::io::Result<link_core::proto::message::Hotspot> {
+        let group = self.0.start().ok_or_else(|| std::io::Error::other("Android did not create the group"))?;
+        Ok(link_core::proto::message::Hotspot { ssid: group.ssid, passphrase: group.passphrase })
     }
 
     fn stop(&self) {
@@ -1073,19 +1184,20 @@ impl LinkClient {
         self.broadcast(Message::MediaGone(message::MediaGone { player })).await
     }
 
-    /// Reports the call state to every connected desktop that takes calls; `number` and `name` only when known.
+    /// Reports the call state to every connected desktop that takes calls; `number`, `name` and `app` only when known.
     pub async fn report_call(
         &self,
         state: CallState,
         number: Option<String>,
         name: Option<String>,
+        app: Option<String>,
     ) -> Result<u32, LinkError> {
         let state = match state {
             CallState::Ringing => message::CallState::Ringing,
             CallState::Active => message::CallState::Active,
             CallState::Idle => message::CallState::Idle,
         };
-        self.broadcast(Message::Call(message::Call { state, number, name })).await
+        self.broadcast(Message::Call(message::Call { state, number, name, app })).await
     }
 
     /// Tells the desktop Android is about to pair Bluetooth with it (no `passkey`), so it accepts the connection; then
@@ -1178,10 +1290,14 @@ impl LinkClient {
     ) -> Result<Arc<MirrorSession>, LinkError> {
         let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
         let sender = self.run(async move { client.start_mirror(id, width, height).await }).await?;
-        Ok(Arc::new(MirrorSession {
-            runtime: self.runtime.handle().clone(),
-            sender: Arc::new(tokio::sync::Mutex::new(Some(sender))),
-        }))
+        Ok(Arc::new(MirrorSession { runtime: self.runtime.handle().clone(), sender: Arc::new(sender) }))
+    }
+
+    /// Tells the mirroring desktop the screen's rounded corners and cutouts, in pixels of a `width` x `height` screen.
+    pub async fn send_screen_shape(&self, desktop_id: String, shape: PixelShape) -> Result<(), LinkError> {
+        let (client, id) = (self.client.clone(), parse_id(&desktop_id)?);
+        let shape = shape.units();
+        self.run(async move { client.send_screen_shape(id, shape).await }).await
     }
 
     /// Ends mirroring, or refuses the desktop's request, with a reason when it failed.
@@ -1393,6 +1509,8 @@ fn translate(event: ClientEvent, runtime: &tokio::runtime::Handle) -> Option<Lin
             text: share.text,
         },
         ClientEvent::Unpaired { id } => LinkEvent::Unpaired { desktop_id: id.to_string() },
+        ClientEvent::Paused { id } => LinkEvent::Paused { desktop_id: id.to_string() },
+        ClientEvent::MirrorBlocked { from } => LinkEvent::MirrorBlocked { desktop_id: from.to_string() },
         ClientEvent::Transfer(TransferEvent::Mirror { from, stream }) => {
             let receiver = stream.take()?;
             LinkEvent::RemoteStream {
@@ -1445,6 +1563,8 @@ fn translate(event: ClientEvent, runtime: &tokio::runtime::Handle) -> Option<Lin
                     y2: input.y2,
                     ms: input.ms,
                     text: input.text,
+                    code: input.code,
+                    meta: input.meta,
                 },
                 Message::MirrorKeyframe => LinkEvent::MirrorKeyframeRequested { desktop_id },
                 Message::Commands(list) => LinkEvent::CommandsChanged {
@@ -1611,5 +1731,22 @@ impl From<message::MediaPlayer> for MediaPlayer {
             artwork: player.artwork,
             can: player.can.into_iter().map(Into::into).collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PixelRect, PixelShape};
+    use link_core::proto::message::Message;
+
+    #[test]
+    fn a_shape_past_the_screen_edges_still_makes_a_valid_message() {
+        let edge = PixelRect { x: 1400, y: 3100, width: 200, height: 200 };
+        let shape =
+            PixelShape { width: 1440, height: 3168, corners: vec![120, 120, 9000, 120], cutouts: vec![edge; 6] };
+        let units = shape.units();
+        assert_eq!(units.corners, [833, 833, 5000, 833]);
+        assert_eq!(units.cutouts.len(), 4);
+        assert!(Message::ScreenShape(units).validate().is_ok());
     }
 }

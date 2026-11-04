@@ -63,6 +63,11 @@ fn adopt_umbriel_state(dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The downloads folder as [`Paths::create`] picks it.
+pub fn downloads_dir() -> Option<PathBuf> {
+    download_dir(std::env::var_os("HOME").map(PathBuf::from).as_deref())
+}
+
 /// `$XDG_DOWNLOAD_DIR`, else the one in `user-dirs.dirs`, else `~/Downloads`.
 fn download_dir(home: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("XDG_DOWNLOAD_DIR") {

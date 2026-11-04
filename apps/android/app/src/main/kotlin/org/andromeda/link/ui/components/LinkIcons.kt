@@ -21,6 +21,11 @@ object LinkIcons {
             "Clipboard",
             "M9 2H15V4H18C19.1 4 20 4.9 20 6V20C20 21.1 19.1 22 18 22H6C4.9 22 4 21.1 4 20V6C4 4.9 4.9 4 6 4H9ZM6 6V20H18V6H16V8H8V6Z",
         )
+    val Muted =
+        glyph(
+            "Muted",
+            "M3 9V15H7L12 20V4L7 9ZM15.4 9.8L16.8 8.4L19 10.6L21.2 8.4L22.6 9.8L20.4 12L22.6 14.2L21.2 15.6L19 13.4L16.8 15.6L15.4 14.2L17.6 12Z",
+        )
     val Ring =
         glyph(
             "Ring",

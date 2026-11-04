@@ -74,6 +74,7 @@ trait Shell {
     #[zbus(property)]
     fn set_do_not_disturb(&self, on: bool) -> zbus::Result<()>;
     fn screen_off(&self) -> zbus::Result<()>;
+    fn lock_from_phone(&self) -> zbus::Result<()>;
 }
 
 /// The fields of `desktop-status` after volume and mute; `None` for what this desktop cannot tell.
@@ -235,7 +236,15 @@ impl System {
                 self.brightness = read_brightness(backlight);
                 Ok(())
             }
-            "lock" => self.session()?.lock().await.map_err(|e| failed("Locking", e)),
+            "lock" => {
+                // The shell keeps biometrics off until a password unlock; logind locks without that.
+                if let Some(shell) = &self.shell
+                    && shell.lock_from_phone().await.is_ok()
+                {
+                    return Ok(());
+                }
+                self.session()?.lock().await.map_err(|e| failed("Locking", e))
+            }
             "suspend" => {
                 let manager = self.manager.as_ref().ok_or("This desktop cannot suspend")?;
                 manager.suspend(false).await.map_err(|e| failed("Suspending", e))

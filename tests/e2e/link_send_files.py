@@ -18,9 +18,10 @@ def main() -> int:
         files.append((fds.append(os.open(path, os.O_RDONLY)), name or os.path.basename(path)))
     bus = Gio.bus_get_sync(Gio.BusType.SESSION)
     try:
+        # SendFiles may wait 60 s for the hotspot; GDBus gives up after 25 s by default.
         reply, _ = bus.call_with_unix_fd_list_sync(
             "org.andromeda.Link1", "/org/andromeda/Link1", "org.andromeda.Link1", "SendFiles",
-            GLib.Variant("(sa(hs))", (device, files)), GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, -1, fds,
+            GLib.Variant("(sa(hs))", (device, files)), GLib.VariantType("(s)"), Gio.DBusCallFlags.NONE, 120_000, fds,
             None)
     except GLib.Error as error:
         print(error.message, file=sys.stderr)

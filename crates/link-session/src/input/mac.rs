@@ -137,6 +137,8 @@ impl Mac {
             }
             Action::Key(keysym) => self.key(keysym)?,
             Action::Text(text) => self.text(&text)?,
+            // Its capabilities leave out `shortcuts`, so a phone does not send one.
+            Action::Shortcut(..) => anyhow::bail!("no shortcuts on macOS"),
         }
         Ok(())
     }

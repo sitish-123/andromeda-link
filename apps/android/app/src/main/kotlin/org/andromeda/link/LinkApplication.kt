@@ -36,11 +36,13 @@ import org.andromeda.link.notifications.Channels
 import org.andromeda.link.notifications.NotificationMirror
 import org.andromeda.link.notifications.ShareNotifier
 import org.andromeda.link.notifications.TransferNotifier
+import org.andromeda.link.notifications.showTrashPrompt
 import org.andromeda.link.presence.BluetoothBonding
 import org.andromeda.link.presence.PhoneControl
 import org.andromeda.link.presence.Presence
 import org.andromeda.link.presence.StatusReporter
 import org.andromeda.link.ring.Ringer
+import org.andromeda.link.screen.MirrorAsk
 import org.andromeda.link.screen.ScreenMirror
 import org.andromeda.link.transfer.TransferService
 import org.andromeda.link.widget.DesktopWidget
@@ -78,10 +80,11 @@ class AppContainer(
     private val widget = DesktopWidget(application, repository, scope)
     val ringer = Ringer(application, repository, scope)
     val screen = ScreenMirror(application, repository, scope)
-    val calls = Calls(application, repository, scope)
+    private val mirrorAsk = MirrorAsk(application, repository, scope)
+    val calls = Calls(application, repository, scope, mirror::appCall).also { mirror.onCallShown = it::appCallShown }
     private val bonding = BluetoothBonding(application, repository, scope)
     val files = PhoneFiles(application)
-    private val library = MediaLibrary(application)
+    private val library = MediaLibrary(application) { showTrashPrompt(application, it) }
     private val contacts = PhoneContacts(application) { scope.launch { repository.contactsChanged() } }
     private val texts = PhoneTexts(application) { scope.launch { repository.textsChanged() } }
     private val callLog = PhoneCallLog(application) { scope.launch { repository.callsChanged() } }
@@ -102,6 +105,7 @@ class AppContainer(
         scope.launch { repository.setCamera(PhoneCamera(application)) }
         ringer.start()
         screen.start()
+        mirrorAsk.start()
         calls.start()
         bonding.start()
         // All files access is granted in Settings, so the roots are rechecked whenever the app comes back.

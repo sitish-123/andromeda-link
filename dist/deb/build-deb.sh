@@ -35,6 +35,7 @@ install -Dm644 "$ROOT/dist/andromeda-link-localsend.firewalld.xml" \
   "$P/usr/lib/firewalld/services/andromeda-link-localsend.xml"
 install -Dm644 "$ROOT/dist/60-andromeda-link-bluetooth.conf" \
   "$P/usr/share/wireplumber/wireplumber.conf.d/60-andromeda-link-bluetooth.conf"
+install -Dm644 "$ROOT/dist/60-andromeda-link-uinput.rules" "$P/usr/lib/udev/rules.d/60-andromeda-link-uinput.rules"
 install -Dm644 "$ROOT/LICENSE" "$P/usr/share/doc/andromeda-link/copyright"
 # The app needs Qt 6.7. With QT_BUNDLE (a Qt prefix, as aqtinstall writes it) the .deb carries that Qt under
 # /usr/lib/andromeda-link/qt, so releases with older Qt (Ubuntu 24.04) install it the same way; the binary must then
@@ -50,7 +51,7 @@ if [[ -n $APP && -n ${QT_BUNDLE:-} ]]; then
     imageformats multimedia tls wayland-decoration-client wayland-graphics-integration-client wayland-shell-integration; do
     cp -a "$QT_BUNDLE/plugins/$dir" "$A$QT_DIR/plugins/"
   done
-  for module in QtQml QtQuick QtMultimedia; do cp -a "$QT_BUNDLE/qml/$module" "$A$QT_DIR/qml/"; done
+  (cd "$QT_BUNDLE/qml" && cp -a --parents QtQml QtQuick QtMultimedia Qt/labs/platform "$A$QT_DIR/qml/")
   # Every library of the Qt prefix that the app, a plugin or a QML module needs, until none is missing.
   while :; do
     missing=$(find "$A/usr/lib/andromeda-link" -type f \( -name '*.so*' -o -name andromeda-link \) -print0 \

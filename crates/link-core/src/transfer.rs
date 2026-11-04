@@ -177,6 +177,8 @@ pub struct TransferActor {
     next_seq: u64,
     busy: HashSet<DeviceId>,
     clips: Clips,
+    /// Each peer's latest mirror, which takes its later video streams.
+    mirrors: HashMap<DeviceId, crate::mirror::MirrorParts>,
 }
 
 /// The caller runs the actor in a task it owns and reads the events.
@@ -197,6 +199,7 @@ pub fn transfers(inbox: Inbox) -> (TransferHandle, TransferActor, mpsc::Unbounde
         next_seq: 0,
         busy: HashSet::new(),
         clips: Clips::default(),
+        mirrors: HashMap::new(),
     };
     actor.restore();
     (TransferHandle(commands_tx), actor, events_rx)
@@ -421,6 +424,7 @@ impl TransferActor {
             return;
         }
         self.sessions.remove(peer);
+        self.mirrors.remove(peer);
         let withdrawn: Vec<TransferId> = self
             .outgoing
             .iter()
@@ -758,10 +762,20 @@ impl TransferActor {
             Ok(Envelope { message: Message::FileData(header), .. }) => header,
             Ok(Envelope { message: Message::ClipData(header), .. }) => return self.on_clip_data(peer, recv, header),
             Ok(Envelope { message: Message::MirrorData(header), .. }) => {
-                let stream = crate::mirror::MirrorStream::new(crate::mirror::MirrorReceiver::new(recv, &header));
+                if let Some(gop) = header.gop {
+                    match self.mirrors.get(peer).filter(|parts| !parts.is_closed()) {
+                        Some(parts) => parts.add(gop, recv),
+                        None => recv.stop(0),
+                    }
+                    return;
+                }
+                let (receiver, parts) = crate::mirror::MirrorReceiver::new(recv, &header);
+                self.mirrors.insert(peer.clone(), parts);
+                let stream = crate::mirror::MirrorStream::new(receiver);
                 return self.emit(TransferEvent::Mirror { from: peer.clone(), stream });
             }
-            Err(Error::Timeout) => {
+            // A mirror's video stream may be reset before its header arrives.
+            Err(Error::Timeout | Error::StreamEnded) => {
                 recv.stop(PROTOCOL_ERROR);
                 return;
             }

@@ -72,4 +72,21 @@ sealed interface RemoteInput {
     data class Text(
         val text: String,
     ) : RemoteInput
+
+    /** Modifiers and one key joined by `+`, as `super+t`; only to a desktop that lists `shortcuts`. */
+    data class Shortcut(
+        val keys: String,
+    ) : RemoteInput
+
+    /** Every finger on the touchpad now, none once the last lifts; only to a desktop that lists `touchpad`. */
+    data class Touch(
+        val contacts: List<TouchContact>,
+    ) : RemoteInput
 }
+
+/** One finger: an [id] from 0 to 9 that stays while it is down, and its position from the pad's top left in 1/100 mm. */
+data class TouchContact(
+    val id: Int,
+    val x: Int,
+    val y: Int,
+)

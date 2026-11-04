@@ -1,0 +1,2 @@
+# Andromeda Link: the phone's touchpad is a uinput device, so the person at the seat may create one.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

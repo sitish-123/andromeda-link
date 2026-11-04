@@ -35,6 +35,8 @@ const AUDIO: u8 = 4;
 /// `PipeWire` sends a frame only on damage; a still screen repeats its last one this often, in ms.
 const KEEPALIVE_MS: i32 = 1000;
 const FIRST_FRAME: Duration = Duration::from_secs(5);
+/// Encoded frames waiting for the socket; the encoder waits when it is full.
+const QUEUED_FRAMES: usize = 4;
 
 pub enum Request {
     Show { device: String, source: Option<u32> },
@@ -337,16 +339,26 @@ impl Stream {
         let structure = caps.structure(0).context("empty caps")?;
         let (width, height) =
             (u32::try_from(structure.get::<i32>("width")?)?, u32::try_from(structure.get::<i32>("height")?)?);
-        write_video(&writer, &first).context("writing the first frame")?;
-        let counts = Arc::new((AtomicU64::new(1), AtomicU64::new(0)));
+        let counts = Arc::new((AtomicU64::new(0), AtomicU64::new(0)));
+        // The daemon gets the socket only after this returns, so a thread writes the frames: a keyframe larger than
+        // the socket buffer would otherwise block here for a reader that does not exist yet.
+        let (frames, queued) = std::sync::mpsc::sync_channel::<gst::Sample>(QUEUED_FRAMES);
+        frames.send(first)?;
         let video_writer = Arc::clone(&writer);
         let video_counts = Arc::clone(&counts);
+        std::thread::Builder::new().name("remote-video".into()).spawn(move || {
+            for sample in queued {
+                if let Err(error) = write_video(&video_writer, &sample) {
+                    return log::debug!("remote control video: {error}");
+                }
+                video_counts.0.fetch_add(1, Ordering::Relaxed);
+            }
+        })?;
         sink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |sink| {
                     let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                    write_video(&video_writer, &sample).map_err(|_| gst::FlowError::Error)?;
-                    video_counts.0.fetch_add(1, Ordering::Relaxed);
+                    frames.send(sample).map_err(|_| gst::FlowError::Error)?;
                     Ok(gst::FlowSuccess::Ok)
                 })
                 .build(),

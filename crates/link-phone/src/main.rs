@@ -53,7 +53,7 @@ struct Cli {
     /// The size `--mirror-file` is encoded at, as `<width>x<height>`.
     #[arg(long, default_value = "720x1280")]
     mirror_size: String,
-    /// Stands in for Wi-Fi Direct: the name this phone shows; forming a group always succeeds on the phone's side.
+    /// Stands in for Wi-Fi Direct: `<ssid>:<passphrase>` is what creating the group returns.
     #[arg(long)]
     wifi_direct: Option<String>,
     /// A folder a desktop with the browse switch on sees, as `<name>=<path>`; repeatable.
@@ -190,8 +190,10 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         let hotspot = Hotspot { ssid: ssid.to_owned(), passphrase: passphrase.to_owned() };
         phone.set_hotspot(std::sync::Arc::new(FixedHotspot(hotspot)));
     }
-    if let Some(name) = cli.wifi_direct {
-        phone.set_wifi_direct(std::sync::Arc::new(FixedWifiDirect(name)));
+    if let Some(group) = cli.wifi_direct {
+        let (ssid, passphrase) = group.split_once(':').context("--wifi-direct is <ssid>:<passphrase>")?;
+        let group = Hotspot { ssid: ssid.to_owned(), passphrase: passphrase.to_owned() };
+        phone.set_wifi_direct(std::sync::Arc::new(FixedWifiDirect(group)));
     }
     let inbox = || Inbox::new(cli.downloads.clone().unwrap_or_else(|| state.join("Downloads")), &state);
     match cli.command {
@@ -211,7 +213,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                     as Arc<dyn link_core::messages::Messages>
             });
             let options = present::Options { seconds, on_offer, status, mirror, messages };
-            return present::hold(phone, inbox()?, id, options).await;
+            return Box::pin(present::hold(phone, inbox()?, id, options)).await;
         }
         Command::Flood { kind, count } => {
             let id = only_desktop(&phone)?;
@@ -280,17 +282,13 @@ impl link_core::hotspot::HotspotProvider for FixedHotspot {
     }
 }
 
-/// A Wi-Fi Direct group the phone's side always forms; the desktop's join decides. Logged for the E2E.
-struct FixedWifiDirect(String);
+/// A Wi-Fi Direct group that is always up with the given credentials; creating and stopping it are logged for the E2E.
+struct FixedWifiDirect(Hotspot);
 
 impl link_core::hotspot::WifiDirectProvider for FixedWifiDirect {
-    fn name(&self) -> std::io::Result<String> {
+    fn start(&self) -> std::io::Result<Hotspot> {
+        log::info!("wifi-direct group created");
         Ok(self.0.clone())
-    }
-
-    fn connect(&self, peer: &str) -> std::io::Result<()> {
-        log::info!("wifi-direct group formed with {peer}");
-        Ok(())
     }
 
     fn stop(&self) {

@@ -11,7 +11,7 @@ use std::time::UNIX_EPOCH;
 
 use link_proto::message::{
     FsData, FsDelete, FsEntries, FsEntry, FsError, FsList, FsRead, FsRefusal, FsStat, FsThumb, FsWrite, MAX_FS_CHUNK,
-    MAX_FS_ENTRIES, MAX_FS_NAME, MAX_FS_READ, Message,
+    MAX_FS_ENTRIES, MAX_FS_NAME, MAX_FS_READ, Message, PhotosList, PhotosRecent, RecentPhoto, fs_path_valid,
 };
 
 use crate::session::SessionHandle;
@@ -27,6 +27,16 @@ pub trait Library: Send + Sync {
     fn album(&self, name: &str) -> Vec<LibraryItem>;
     /// A PNG of the image or video at `path`, at most `px` on its longer side; None when it has no picture.
     fn thumbnail(&self, path: &Path, px: u16) -> Option<Vec<u8>>;
+    /// The newest `count` photos (not videos) of every album, newest first; None while Android withholds photo access.
+    fn recent(&self, count: usize) -> Option<Vec<RecentItem>>;
+    /// Moves the photo or video at `path` to the phone's trash, or deletes it where there is no trash; false when the
+    /// user or the system refused. May wait for the user to confirm on the phone.
+    fn trash(&self, path: &Path) -> bool;
+}
+
+pub struct RecentItem {
+    pub album: String,
+    pub item: LibraryItem,
 }
 
 pub struct LibraryItem {
@@ -108,6 +118,22 @@ impl Roots {
         }
     }
 
+    /// The newest photos with their browse paths, as `fs-thumb` and `fs-read` take them.
+    fn recent(&self, count: u16) -> Result<Vec<RecentPhoto>, FsRefusal> {
+        let library = self.library.as_deref().ok_or(FsRefusal::NotFound)?;
+        // More than asked for, since names the protocol cannot carry are dropped below.
+        let items = library.recent(usize::from(count) * 2 + 16).ok_or(FsRefusal::Denied)?;
+        let photos = items.into_iter().filter_map(|RecentItem { album, item }| {
+            let path = format!("/{PHOTOS}/{album}/{}", item.name);
+            (named(&album) && named(&item.name) && fs_path_valid(&path)).then_some(RecentPhoto {
+                path,
+                name: item.name,
+                added: item.mtime,
+            })
+        });
+        Ok(photos.take(usize::from(count)).collect())
+    }
+
     fn stat(&self, path: &str) -> Result<FsEntry, FsRefusal> {
         let name = path.rsplit('/').next().filter(|name| !name.is_empty()).ok_or(FsRefusal::NotAFile)?;
         match self.resolve(path)? {
@@ -161,6 +187,11 @@ impl Roots {
     }
 
     fn delete(&self, path: &str) -> Result<(), FsRefusal> {
+        let root = path.strip_prefix('/').unwrap_or(path).split('/').next().unwrap_or_default();
+        if let Some(library) = self.library.as_deref().filter(|_| root == PHOTOS) {
+            let Target::Path(file) = self.resolve(path)? else { return Err(FsRefusal::NotAFile) };
+            return if library.trash(&file) { Ok(()) } else { Err(FsRefusal::Denied) };
+        }
         let path = self.writable(path)?;
         if fs::symlink_metadata(&path).map_err(|error| refusal(&error))?.is_dir() {
             return Err(FsRefusal::NotAFile);
@@ -184,6 +215,10 @@ pub async fn answer(roots: Roots, session: SessionHandle, request: Message) {
         Message::FsStat(stat) => vec![stat_reply(&roots, &stat)],
         Message::FsRead(read) => reading(&roots, &read),
         Message::FsThumb(thumb) => thumbnail(&roots, &thumb),
+        Message::PhotosRecent(PhotosRecent { req, count }) => vec![match roots.recent(count) {
+            Ok(photos) => Message::PhotosList(PhotosList { req, photos }),
+            Err(reason) => error(req, reason),
+        }],
         Message::FsWrite(write) => vec![match roots.write(&write) {
             Ok(entry) => Message::FsEntries(FsEntries { req: write.req, entries: vec![entry], next: None }),
             Err(reason) => error(write.req, reason),
@@ -210,6 +245,7 @@ pub fn request_id(message: &Message) -> Option<u64> {
         | Message::FsStat(FsStat { req, .. })
         | Message::FsRead(FsRead { req, .. })
         | Message::FsThumb(FsThumb { req, .. })
+        | Message::PhotosRecent(PhotosRecent { req, .. })
         | Message::FsWrite(FsWrite { req, .. })
         | Message::FsDelete(FsDelete { req, .. }) => Some(*req),
         _ => None,
@@ -320,5 +356,62 @@ fn refusal(error: &io::Error) -> FsRefusal {
         io::ErrorKind::NotFound => FsRefusal::NotFound,
         io::ErrorKind::PermissionDenied => FsRefusal::Denied,
         _ => FsRefusal::Io,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Photos(Option<Vec<(&'static str, &'static str, u64)>>);
+
+    impl Library for Photos {
+        fn albums(&self) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn album(&self, _: &str) -> Vec<LibraryItem> {
+            Vec::new()
+        }
+
+        fn thumbnail(&self, _: &Path, _: u16) -> Option<Vec<u8>> {
+            None
+        }
+
+        fn recent(&self, count: usize) -> Option<Vec<RecentItem>> {
+            let photos = self.0.as_ref()?;
+            let item = |(album, name, mtime): &(&str, &str, u64)| RecentItem {
+                album: (*album).to_owned(),
+                item: LibraryItem { name: (*name).to_owned(), path: PathBuf::new(), size: 1, mtime: *mtime },
+            };
+            Some(photos.iter().take(count).map(item).collect())
+        }
+
+        fn trash(&self, _: &Path) -> bool {
+            false
+        }
+    }
+
+    fn roots(photos: Option<Vec<(&'static str, &'static str, u64)>>) -> Roots {
+        Roots::new(Vec::new(), Some(Arc::new(Photos(photos))))
+    }
+
+    #[test]
+    fn denied_photo_access_is_an_error_not_an_empty_list() {
+        assert_eq!(roots(None).recent(5), Err(FsRefusal::Denied));
+        assert_eq!(roots(Some(Vec::new())).recent(5), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn photos_with_names_the_protocol_cannot_carry_do_not_cost_the_count() {
+        let photos = roots(Some(vec![("Camera", ".hidden.jpg", 9), ("Camera", "b.jpg", 8), ("Camera", "c.jpg", 7)]));
+        assert_eq!(photos.recent(2).map(|photos| photos.len()), Ok(2));
+    }
+
+    #[test]
+    fn recent_photos_carry_browse_paths_and_stop_at_the_count() {
+        let photos = roots(Some(vec![("Camera", "b.jpg", 9), ("Screenshots", "a.png", 5), ("Camera", "c.jpg", 1)]));
+        let got: Vec<_> = photos.recent(2).unwrap_or_default().into_iter().map(|p| (p.path, p.added)).collect();
+        assert_eq!(got, [("/Photos/Camera/b.jpg".to_owned(), 9), ("/Photos/Screenshots/a.png".to_owned(), 5)]);
     }
 }

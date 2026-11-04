@@ -77,6 +77,8 @@ impl X11 {
                     self.key(keysym)?;
                 }
             }
+            // Its capabilities leave out `shortcuts`, so a phone does not send one.
+            Action::Shortcut(..) => anyhow::bail!("no shortcuts through XTest"),
         }
         self.conn.flush()?;
         Ok(())

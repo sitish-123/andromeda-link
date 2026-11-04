@@ -18,6 +18,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 
 /**
  * Phone to desktop: Android never puts a screenshot on the clipboard, so each new one in the media store is offered as
@@ -48,33 +52,75 @@ class ScreenshotWatcher(
         if (!sync.sendsScreenshots) return
         val uri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
         scope.launch {
-            val png = withContext(Dispatchers.Default) { pngWhenWritten(uri, File(path)) } ?: return@launch
+            val image = withContext(Dispatchers.IO) { whenWritten(uri, File(path)) } ?: return@launch
             try {
-                sync.offerImage(Uri.fromFile(png), PNG)
+                sync.offerImage(image.first, image.second)
             } finally {
-                png.delete()
+                // A PNG is this watcher's own copy; the offer keeps a snapshot of it.
+                val own = image.first.path?.takeIf { image.second == PNG }
+                if (own != null) File(own).delete()
             }
         }
     }
 
     /**
-     * A pending screenshot is found as soon as it is inserted, often before its bytes are written; a partial file does
-     * not decode, so it is tried again. Only its owner may open a pending item, so until the screenshot app lets go of
-     * it (about 5 s) it is read by [path], which All files access allows.
+     * The screenshot and its type once its bytes are all written: found as soon as it is inserted, often before that.
+     * A JPEG is complete at its end marker, so the file is checked every [WRITE_CHECK_MS] instead of decoded. Only its
+     * owner may open a pending item, so until the screenshot app lets go of it (about 5 s) it is read by [path], which
+     * All files access allows. Any other format is sent as PNG once it decodes. The desktop makes PNG of a JPEG itself.
      */
-    private suspend fun pngWhenWritten(
+    private suspend fun whenWritten(
         uri: Uri,
         path: File,
-    ): File? {
-        repeat(WRITE_TRIES) {
+    ): Pair<Uri, String>? {
+        if (path.extension.lowercase() in setOf("jpg", "jpeg")) {
+            var last = -1L
+            var stableSince = 0L
+            repeat(WRITE_CHECKS) {
+                val (length, ended) = tail(uri, path)
+                val now = System.currentTimeMillis()
+                if (length != last) {
+                    last = length
+                    stableSince = now
+                }
+                // Some JPEGs carry data after their end marker; a length that stopped growing is done too.
+                if (ended || (length > 0 && now - stableSince >= STABLE_MS)) {
+                    return (if (path.canRead()) Uri.fromFile(path) else uri) to JPEG
+                }
+                delay(WRITE_CHECK_MS)
+            }
+            return null
+        }
+        repeat(WRITE_CHECKS) {
             val source = if (path.canRead()) ImageDecoder.createSource(path) else ImageDecoder.createSource(context.contentResolver, uri)
-            runCatching { png(source) }.onSuccess { return it }
-            delay(WRITE_RETRY_MS)
+            runCatching { png(source) }.onSuccess { return Uri.fromFile(it) to PNG }
+            delay(WRITE_CHECK_MS)
         }
         return null
     }
 
-    /** Desktop apps paste images as PNG, and many ask for nothing else; phones save screenshots as JPEG. */
+    /** The file's length and whether it ends with a JPEG end marker; by [uri] once [path] is gone, as on its rename. */
+    private fun tail(
+        uri: Uri,
+        path: File,
+    ): Pair<Long, Boolean> =
+        runCatching {
+            if (path.canRead()) {
+                RandomAccessFile(path, "r").use { tailOf(it.channel) }
+            } else {
+                context.contentResolver.openFileDescriptor(uri, "r")!!.use { FileInputStream(it.fileDescriptor).channel.use(::tailOf) }
+            }
+        }.getOrDefault(-1L to false)
+
+    private fun tailOf(channel: FileChannel): Pair<Long, Boolean> {
+        val length = channel.size()
+        if (length < 2) return length to false
+        val end = ByteBuffer.allocate(2)
+        channel.read(end, length - 2)
+        return length to (end.get(0) == 0xFF.toByte() && end.get(1) == 0xD9.toByte())
+    }
+
+    /** Desktop apps paste images as PNG, and many ask for nothing else. */
     private fun png(source: ImageDecoder.Source): File {
         val bitmap = ImageDecoder.decodeBitmap(source)
         val file = File.createTempFile("screenshot-", ".png", context.cacheDir)
@@ -110,7 +156,9 @@ class ScreenshotWatcher(
 
     private companion object {
         const val PNG = "image/png"
-        const val WRITE_TRIES = 40
-        const val WRITE_RETRY_MS = 250L
+        const val JPEG = "image/jpeg"
+        const val WRITE_CHECKS = 500
+        const val WRITE_CHECK_MS = 20L
+        const val STABLE_MS = 200L
     }
 }

@@ -35,6 +35,8 @@ data class OnboardingState(
 
     /** Required grants not given yet, in setup order. */
     val missing: List<Grant> get() = Grant.entries - OPTIONAL - granted
+
+    val required: Int get() = Grant.entries.size - OPTIONAL.size
 }
 
 /** The permission onboarding: what is granted, rechecked whenever the app returns from Settings or a prompt. */

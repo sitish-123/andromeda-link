@@ -130,6 +130,24 @@ impl Ei {
                     self.key(keysym);
                 }
             }
+            Action::Shortcut(modifiers, keysym) => {
+                let codes: Vec<u32> = modifiers
+                    .iter()
+                    .filter_map(|modifier| self.keymap.as_ref().and_then(|keymap| keymap.find(modifier.keysym())))
+                    .map(|(code, _)| code)
+                    .collect();
+                self.on::<ei::Keyboard>(|keyboard| {
+                    for code in &codes {
+                        keyboard.key(code - 8, ei::keyboard::KeyState::Press);
+                    }
+                });
+                self.key(keysym);
+                self.on::<ei::Keyboard>(|keyboard| {
+                    for code in codes.iter().rev() {
+                        keyboard.key(code - 8, ei::keyboard::KeyState::Released);
+                    }
+                });
+            }
         }
         self.connection.flush()?;
         Ok(())

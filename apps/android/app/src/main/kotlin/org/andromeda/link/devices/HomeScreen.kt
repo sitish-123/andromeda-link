@@ -73,6 +73,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -97,10 +98,12 @@ import org.andromeda.link.files.PickerViewModel
 import org.andromeda.link.files.sendLabel
 import org.andromeda.link.onboarding.Grant
 import org.andromeda.link.ui.components.ConnectionOrb
+import org.andromeda.link.ui.components.DashboardCard
 import org.andromeda.link.ui.components.Glyph
 import org.andromeda.link.ui.components.Label
 import org.andromeda.link.ui.components.LinkIcons
 import org.andromeda.link.ui.components.PillButton
+import org.andromeda.link.ui.components.PillKind
 import org.andromeda.link.ui.components.PullRefresh
 import org.andromeda.link.ui.components.Readout
 import org.andromeda.link.ui.components.Screen
@@ -123,6 +126,8 @@ fun HomeScreen(
     picker: PickerViewModel,
     /** Required grants not given yet, in setup order. */
     missing: List<Grant>,
+    /** How many grants setup requires, for the card's progress. */
+    required: Int,
     /** Both grants automatic clipboard needs are given, so Home stops offering to set it up. */
     autoClipboard: Boolean,
     onPair: () -> Unit,
@@ -133,6 +138,7 @@ fun HomeScreen(
     onActivity: () -> Unit,
     onRemote: (Desktop) -> Unit,
     onPresenter: (Desktop) -> Unit,
+    onViewer: (Desktop) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
@@ -192,10 +198,12 @@ fun HomeScreen(
                 val desk = state.desk
                 val player = desk.player(primary.id)?.takeIf { primary.connected }
                 val clipboardSetup = primary.sharing.clipboard && !autoClipboard
-                val alert = missing.isNotEmpty() || clipboardSetup
                 Section {
                     HomeHeader(primary, desk.statuses[primary.id], state.refreshing, { viewModel.connect(primary) }) { onDesktop(primary) }
                     if (state.desktops.size > 1) DesktopSwitcher(state.desktops, primary, viewModel::selectDesktop)
+                }
+                if (missing.isNotEmpty()) {
+                    Section { SetupCard(required - missing.size, required, onSetup) }
                 }
                 if (player != null) {
                     Section {
@@ -213,6 +221,7 @@ fun HomeScreen(
                         onDesktop,
                         onRemote,
                         onPresenter,
+                        onViewer,
                     ) {
                         viewModel.sendClipboard(primary, context.getSystemService(ClipboardManager::class.java).primaryClip)
                     }
@@ -236,14 +245,8 @@ fun HomeScreen(
                         )
                     }
                 }
-                if (alert) {
-                    Section {
-                        if (missing.isNotEmpty()) {
-                            MissingLine(missing, onSetup)
-                        } else {
-                            MissingLine(stringResource(R.string.home_clipboard_setup), null, onClipboardSetup)
-                        }
-                    }
+                if (missing.isEmpty() && clipboardSetup) {
+                    Section { MissingLine(stringResource(R.string.home_clipboard_setup), null, onClipboardSetup) }
                 }
                 Spacer(Modifier.height(Space.s32))
             }
@@ -296,7 +299,7 @@ private fun HomeHeader(
                 )
             desktop.connected -> stringResource(R.string.home_connected_via, stringResource(R.string.home_via_wifi))
             refreshing -> stringResource(R.string.home_via_searching)
-            else -> stringResource(R.string.home_last_seen, lastSeen(desktop.lastSeen))
+            else -> disconnectedLine(desktop)
         }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
@@ -351,7 +354,7 @@ private fun HomeHeader(
             }
         }
     }
-    if (!desktop.connected) {
+    if (!desktop.connected && !desktop.paused) {
         PillButton(stringResource(R.string.connect), onConnect, Modifier.padding(top = Space.s16), enabled = !refreshing)
     }
 }
@@ -488,10 +491,8 @@ private fun PlayerCard(
                 onCommand(MediaCommandKind.Next, null)
             }
         }
-        player.lengthMs?.let { length ->
-            Seek(player.positionMs, length, player.receivedAt, playing, MediaCommandKind.Seek in player.can) {
-                onCommand(MediaCommandKind.Seek, it)
-            }
+        Seek(player.positionMs, player.lengthMs, player.receivedAt, playing, MediaCommandKind.Seek in player.can) {
+            onCommand(MediaCommandKind.Seek, it)
         }
     }
 }
@@ -534,7 +535,7 @@ private fun MediaButton(
 @Composable
 private fun Seek(
     positionMs: Long,
-    lengthMs: Long,
+    lengthMs: Long?,
     receivedAt: Long,
     playing: Boolean,
     seekable: Boolean,
@@ -550,6 +551,11 @@ private fun Seek(
         }
     }
     val position = if (playing) positionMs + (now - receivedAt) else positionMs
+    // A player without a length (a live stream, or media still loading) cannot seek: only the elapsed time shows.
+    if (lengthMs == null) {
+        Label(clock(position), LinkTheme.type.labelMedium, colors.textTertiary, Modifier.padding(top = Space.s10))
+        return
+    }
     val fraction = (position.toFloat() / lengthMs.coerceAtLeast(1)).coerceIn(0f, 1f)
     Row(
         Modifier.padding(top = Space.s10),
@@ -684,6 +690,7 @@ private fun Controls(
     onDesktop: (Desktop) -> Unit,
     onRemote: (Desktop) -> Unit,
     onPresenter: (Desktop) -> Unit,
+    onViewer: (Desktop) -> Unit,
     onClipboard: () -> Unit,
 ) {
     val can = capabilities.orEmpty()
@@ -691,16 +698,18 @@ private fun Controls(
     // As on the Device page: a desktop that does not list its capabilities hides nothing.
     val input = capabilities?.contains(CAN_INPUT) ?: true
     val live = desktop.connected
+    var confirmLock by remember { mutableStateOf(false) }
     Column {
         val dim = Modifier.alpha(if (live) 1f else DISABLED)
         volume?.let { volume ->
             LevelSlider(
-                LinkIcons.Ring,
+                if (volume.muted) LinkIcons.Muted else LinkIcons.Ring,
                 stringResource(R.string.home_volume),
                 volume.percent,
                 live && granted,
                 dim,
-            ) { viewModel.setVolume(desktop, it) }
+                onIcon = { viewModel.setMuted(desktop, !volume.muted) },
+            ) { viewModel.setVolume(desktop, it, unmute = volume.muted) }
         }
         val brightness = status?.brightness
         if (brightness != null && "brightness" in can) {
@@ -712,7 +721,7 @@ private fun Controls(
         val shared = { on: Boolean -> if (on) KeyState.Off else KeyState.NotAllowed }
         val keys =
             listOfNotNull(
-                system("lock")?.let { Key(LinkIcons.Lock, R.string.key_lock, it) { viewModel.lock(desktop) } },
+                system("lock")?.let { Key(LinkIcons.Lock, R.string.key_lock, it) { confirmLock = true } },
                 system("suspend")?.let { Key(LinkIcons.Sleep, R.string.key_sleep, it) { viewModel.sleep(desktop) } },
                 system("screen-off")?.let { Key(LinkIcons.ScreenOff, R.string.key_screen_off, it) { viewModel.screenOff(desktop) } },
                 Key(
@@ -721,6 +730,11 @@ private fun Controls(
                     if (ringing) KeyState.On else shared(desktop.sharing.ring),
                 ) { viewModel.ring(desktop, !ringing) },
                 Key(LinkIcons.Touchpad, R.string.key_touchpad, shared(desktop.control && input)) { onRemote(desktop) },
+                if (CAN_SCREEN in can) {
+                    Key(LinkIcons.Computer, R.string.key_screen, shared(desktop.control && input)) { onViewer(desktop) }
+                } else {
+                    null
+                },
                 Key(LinkIcons.Presenter, R.string.key_presenter, shared(desktop.control && input)) { onPresenter(desktop) },
                 // A clip sent while the desktop is away waits for it, so Clipboard works offline too.
                 Key(LinkIcons.Clipboard, R.string.key_clipboard, shared(desktop.sharing.clipboard), offline = true, onClick = onClipboard),
@@ -778,6 +792,23 @@ private fun Controls(
                     .clickable(role = Role.Button) { onDesktop(desktop) }
                     .padding(vertical = Space.s8),
             )
+        }
+        if (confirmLock) {
+            Dialog(onDismissRequest = { confirmLock = false }) {
+                DashboardCard(Modifier.fillMaxWidth()) {
+                    Label(stringResource(R.string.home_lock_title, desktop.name), LinkTheme.type.headlineLarge)
+                    PillButton(
+                        stringResource(R.string.key_lock),
+                        {
+                            confirmLock = false
+                            viewModel.lock(desktop)
+                        },
+                        Modifier.fillMaxWidth(),
+                        PillKind.Filled,
+                    )
+                    PillButton(stringResource(R.string.cancel), { confirmLock = false }, Modifier.fillMaxWidth(), PillKind.Quiet)
+                }
+            }
         }
     }
 }
@@ -863,6 +894,8 @@ private fun LevelSlider(
     percent: Int,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    /** Tapping the icon, as mute; null when the icon is only a label. */
+    onIcon: (() -> Unit)? = null,
     onSet: (Int) -> Unit,
 ) {
     val colors = LinkTheme.colors
@@ -889,7 +922,16 @@ private fun LevelSlider(
                 .background(if (enabled) colors.accent else colors.textDisabled),
         )
         Row(Modifier.fillMaxWidth().padding(horizontal = Space.s16), verticalAlignment = Alignment.CenterVertically) {
-            Glyph(icon, colors.onAccent, Size.icon - 4.dp)
+            val tap =
+                if (onIcon != null && enabled) {
+                    Modifier
+                        .clip(
+                            Radius.pill,
+                        ).clickable(role = Role.Button, onClickLabel = stringResource(R.string.home_mute), onClick = onIcon)
+                } else {
+                    Modifier
+                }
+            Box(tap.size(36.dp), contentAlignment = Alignment.Center) { Glyph(icon, colors.onAccent, Size.icon - 4.dp) }
             Spacer(Modifier.weight(1f))
             Label("${(value * 100).roundToInt()}", LinkTheme.type.titleMedium, colors.textSecondary)
         }
@@ -1041,24 +1083,37 @@ private fun RecentList(
     }
 }
 
-/** The first missing grant, said as what is off, and the way to turn it on. */
+/** The setup card on Home while required grants are missing; it has no close, so it stays until setup is done. */
 @Composable
-private fun MissingLine(
-    missing: List<Grant>,
-    onSetup: () -> Unit,
+private fun SetupCard(
+    done: Int,
+    total: Int,
+    onContinue: () -> Unit,
 ) {
-    val first =
-        when (missing.first()) {
-            Grant.NotificationAccess -> R.string.missing_notification_access
-            Grant.DoNotDisturb -> R.string.missing_dnd
-            Grant.PostNotifications -> R.string.missing_post
-            Grant.Battery -> R.string.missing_battery
-            Grant.Calls -> R.string.missing_calls
-            Grant.Bluetooth -> R.string.missing_bluetooth
-            Grant.Texts, Grant.AutoClipboard -> R.string.setup_banner
+    val colors = LinkTheme.colors
+    DashboardCard(Modifier.fillMaxWidth(), onClick = onContinue) {
+        Label(stringResource(R.string.setup_card_title), LinkTheme.type.titleMedium, modifier = Modifier.padding(top = Space.s8))
+        Label(pluralStringResource(R.plurals.setup_card_progress, total, done, total), LinkTheme.type.bodyMedium, colors.textSecondary)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(Radius.pill)
+                .background(colors.surfacePrimary),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(done.toFloat() / total)
+                    .height(6.dp)
+                    .clip(Radius.pill)
+                    .background(colors.accent),
+            )
         }
-    val more = if (missing.size > 1) pluralStringResource(R.plurals.missing_more, missing.size - 1, missing.size - 1) else null
-    MissingLine(stringResource(first), more, onSetup)
+        Row(Modifier.fillMaxWidth().padding(bottom = Space.s8)) {
+            Spacer(Modifier.weight(1f))
+            PillButton(stringResource(R.string.setup_card_continue), onContinue)
+        }
+    }
 }
 
 @Composable

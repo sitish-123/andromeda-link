@@ -91,13 +91,13 @@ impl Link {
 }
 
 #[cfg(target_os = "linux")]
-fn anonymous_file() -> std::io::Result<std::fs::File> {
+pub fn anonymous_file() -> std::io::Result<std::fs::File> {
     Ok(rustix::fs::memfd_create("link-clipboard", rustix::fs::MemfdFlags::CLOEXEC)?.into())
 }
 
 /// macOS has no memfd: a private file in the temporary directory, unlinked once open.
 #[cfg(target_os = "macos")]
-fn anonymous_file() -> std::io::Result<std::fs::File> {
+pub fn anonymous_file() -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);

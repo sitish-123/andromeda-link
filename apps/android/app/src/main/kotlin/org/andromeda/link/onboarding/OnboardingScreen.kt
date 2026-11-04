@@ -159,6 +159,7 @@ fun OnboardingScreen(
                 stringResource(R.string.onboarding_count, state.granted.count { grant -> PAGES.any { it.grant == grant } }, PAGES.size),
                 modifier = Modifier.weight(1f),
             )
+            if (!last) PillButton(stringResource(R.string.onboarding_not_now), onDone, kind = PillKind.Quiet)
             PillButton(
                 stringResource(if (last) R.string.onboarding_done else R.string.onboarding_next),
                 onClick = { if (last) onDone() else scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },

@@ -1,8 +1,9 @@
-//! `andromeda-link-mirror`: a phone's screen in a window, from `andromeda-linkd`'s `OpenMirror`, with taps, swipes,
-//! scrolls, keys, and Back/Home/Recents going back as `MirrorInput`, and its sound on the speakers. `--frames` decodes
+//! `andromeda-link-mirror`: a phone's screen in a window, from `andromeda-linkd`'s `OpenMirror`, with touches, the
+//! wheel, keys, and the phone's buttons going back as `MirrorInput`, and its sound on the speakers. `--frames` decodes
 //! to PNG files and a WAV file instead, `--luma` to each frame's brightness and time, for tests.
 
 mod input;
+mod keys;
 mod stream;
 
 use std::path::PathBuf;
@@ -16,7 +17,7 @@ use gtk4::{gio, glib};
 const LINK: &str = "org.andromeda.Link1";
 const LINK_PATH: &str = "/org/andromeda/Link1";
 /// The phone asks the user first; the daemon gives up after 60 s.
-const OPEN_TIMEOUT_MS: i32 = 90_000;
+pub const OPEN_TIMEOUT_MS: i32 = 90_000;
 
 #[derive(Parser)]
 #[command(about = "Mirror a paired phone's screen")]
@@ -61,11 +62,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
     // The paintable sink needs a GDK display before its pipeline starts.
     gtk4::init()?;
-    let display = std::rc::Rc::new(stream::Display::new(socket)?);
-    input::keyframe(&bus, &cli.device);
+    let display = std::rc::Rc::new(stream::Display::new());
+    let socket = std::cell::Cell::new(Some(socket));
     let app = gtk4::Application::builder().application_id("org.andromeda.LinkMirror").build();
     let (device, name) = (cli.device, cli.name);
-    app.connect_activate(move |app| input::window(app, &bus, &device, &name, &display, width, height));
+    app.connect_activate(move |app| {
+        if let Some(socket) = socket.take() {
+            input::window(app, &bus, &device, &name, &display, socket, width, height);
+        }
+    });
     let status = app.run_with_args::<&str>(&[]);
     if status == glib::ExitCode::SUCCESS { Ok(()) } else { bail!("the window ended with {status:?}") }
 }
@@ -86,9 +91,16 @@ fn open(bus: &gio::DBusConnection, device: &str) -> anyhow::Result<(std::os::uni
             None::<&gio::Cancellable>,
         )
         .context("the phone did not start mirroring")?;
+    opened(&(reply, fds))
+}
+
+/// `OpenMirror`'s reply: the stream and its size.
+pub fn opened(
+    (reply, fds): &(glib::Variant, Option<gio::UnixFDList>),
+) -> anyhow::Result<(std::os::unix::net::UnixStream, u32, u32)> {
     let (handle, width, height) =
         reply.get::<(glib::variant::Handle, u32, u32)>().context("a malformed OpenMirror reply")?;
-    let fds = fds.context("OpenMirror passed no descriptor")?;
+    let fds = fds.as_ref().context("OpenMirror passed no descriptor")?;
     let fd = fds.get(handle.0).context("OpenMirror's descriptor is missing")?;
     Ok((std::os::unix::net::UnixStream::from(fd), width, height))
 }

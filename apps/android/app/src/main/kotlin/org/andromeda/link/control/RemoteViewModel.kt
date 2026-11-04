@@ -3,10 +3,16 @@ package org.andromeda.link.control
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.domain.LinkFailure
@@ -32,6 +38,22 @@ class RemoteViewModel(
     private var point: RemoteInput.Point? = null
     private val _failure = MutableStateFlow<LinkFailure?>(null)
     val failure: StateFlow<LinkFailure?> = _failure
+    private val _held = MutableStateFlow<Set<String>>(emptySet())
+
+    /** The modifiers held for the next key, as `super` or `ctrl`. */
+    val held: StateFlow<Set<String>> = _held
+
+    /** The desktop takes shortcuts: its input can hold modifiers. */
+    val shortcuts: StateFlow<Boolean> =
+        repository.capabilities
+            .map { SHORTCUTS in it[desktopId].orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** The desktop makes a real touchpad of raw finger contacts, so its own touchpad settings and gestures apply. */
+    val touchpad: StateFlow<Boolean> =
+        repository.capabilities
+            .map { TOUCHPAD in it[desktopId].orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
         viewModelScope.launch {
@@ -40,10 +62,8 @@ class RemoteViewModel(
             }
         }
         viewModelScope.launch {
-            for (ignored in wake) {
-                delay(FRAME_MS)
-                flush()
-            }
+            // One send per touch frame: the display rate, with the frame's samples summed.
+            for (ignored in wake) flush()
         }
     }
 
@@ -73,7 +93,17 @@ class RemoteViewModel(
         wake.trySend(Unit)
     }
 
+    private val _ticks = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /** A click, a key from the shortcut bar, or a gesture start, for the screen to make felt. */
+    val ticks: SharedFlow<Unit> = _ticks
+
+    fun tick() {
+        _ticks.tryEmit(Unit)
+    }
+
     fun send(input: RemoteInput) {
+        if (input is RemoteInput.Click || input is RemoteInput.Press) tick()
         flush()
         outbox.trySend(input)
     }
@@ -87,7 +117,31 @@ class RemoteViewModel(
     ) {
         val kept = before.commonPrefixWith(after).length
         repeat(before.length - kept) { key(RemoteKey.Backspace) }
-        if (after.length > kept) send(RemoteInput.Text(after.substring(kept)))
+        val added = after.substring(kept)
+        when {
+            added.isEmpty() -> Unit
+            _held.value.isNotEmpty() && added.length == 1 -> shortcut(added.lowercase())
+            else -> send(RemoteInput.Text(added))
+        }
+    }
+
+    /** The first tap holds [modifier] for the next key; a second tap, with no key between, presses it alone. */
+    fun hold(modifier: String) {
+        if (modifier in _held.value) {
+            _held.update { it - modifier }
+            shortcut(modifier)
+        } else {
+            tick()
+            _held.update { it + modifier }
+        }
+    }
+
+    /** [key] with the held modifiers, which let go after it; [key] may carry its own, as `alt+tab`. */
+    fun shortcut(key: String) {
+        tick()
+        val held = MODIFIERS.filter { it in _held.value }
+        send(RemoteInput.Shortcut((held + key).joinToString("+")))
+        _held.value = emptySet()
     }
 
     /** The presenter opened or closed: the desktop stays awake meanwhile. Runs even as the view model clears. */
@@ -117,7 +171,11 @@ class RemoteViewModel(
     }
 
     private companion object {
-        const val FRAME_MS = 16L
+        const val SHORTCUTS = "shortcuts"
+        const val TOUCHPAD = "touchpad"
+
+        /** In the order a shortcut names them. */
+        val MODIFIERS = listOf("super", "ctrl", "alt", "shift")
         const val POINTER_SPEED = 1.5f
     }
 }

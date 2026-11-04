@@ -10,11 +10,9 @@ AbstractButton {
     property bool video
     property string durationText
     property bool selected
+    signal selectClicked()
 
-    checkable: true
-    checked: selected
     text: name
-    Accessible.role: Accessible.CheckBox
     Accessible.name: name
 
     background: Item {
@@ -44,6 +42,15 @@ AbstractButton {
             color: cell.selected ? Theme.acc : Qt.alpha("black", 0.35)
             border.width: cell.selected ? 0 : 1.5
             border.color: "white"
+            Accessible.role: Accessible.CheckBox
+            Accessible.name: "Select " + cell.name
+            Accessible.checked: cell.selected
+            // Larger than the circle, so the check mark is easy to hit.
+            TapHandler {
+                margin: 8
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+                onTapped: cell.selectClicked()
+            }
             Icon {
                 anchors.centerIn: parent
                 visible: cell.selected

@@ -87,6 +87,9 @@ class NotificationMirror(
     private val fullWhileLocked get() = _fullWhileLocked.value
     private val _fullWhileLocked = MutableStateFlow(prefs.getBoolean(KEY_FULL_WHILE_LOCKED, true))
 
+    /** Runs when an app posts a call notification, which can come after the call's state. */
+    var onCallShown: () -> Unit = {}
+
     /** Settings' "Full content while locked" switch. */
     val fullContentWhileLocked: StateFlow<Boolean> = _fullWhileLocked.asStateFlow()
 
@@ -127,6 +130,7 @@ class NotificationMirror(
         sbn: StatusBarNotification,
         ranking: RankingMap?,
     ) {
+        if (sbn.notification.category == Notification.CATEGORY_CALL) onCallShown()
         val notification = build(sbn, ranking)
         if (notification == null) {
             if (mirrored.remove(sbn.key)) remove(sbn.key)
@@ -134,6 +138,21 @@ class NotificationMirror(
         }
         mirrored += sbn.key
         scope.launch { repository.postNotification(notification).onFailure { log("posting", it) } }
+    }
+
+    /** The caller and app of the call notification now showing, such as Messenger's; null without one or without access. */
+    fun appCall(): AppCall? {
+        val sbn =
+            runCatching { listener?.activeNotifications }.getOrNull()?.firstOrNull {
+                it.notification.category == Notification.CATEGORY_CALL && it.packageName != context.packageName
+            } ?: return null
+        val pm = context.packageManager
+        val app = runCatching { pm.getApplicationLabel(pm.getApplicationInfo(sbn.packageName, 0)).toString() }.getOrNull()
+        val caller =
+            sbn.notification.extras
+                .getCharSequence(Notification.EXTRA_TITLE)
+                ?.toString()
+        return AppCall(caller?.takeIf { it.isNotBlank() }, app?.takeIf { it.isNotBlank() } ?: return null)
     }
 
     fun removed(sbn: StatusBarNotification) {
@@ -356,3 +375,8 @@ class NotificationMirror(
         const val EXTRA_APP_INFO = "android.appInfo"
     }
 }
+
+data class AppCall(
+    val caller: String?,
+    val app: String,
+)

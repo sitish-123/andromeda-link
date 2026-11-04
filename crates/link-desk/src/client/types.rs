@@ -172,6 +172,12 @@ pub enum Event {
         device: String,
         address: String,
     },
+    /// The mirroring phone's corner radii and cutouts (x, y, width, height), in 1/10000 of the picture.
+    ScreenShape {
+        device: String,
+        corners: Vec<u16>,
+        cutouts: Vec<(u16, u16, u16, u16)>,
+    },
     /// Device id to its calls, newest first.
     Calls(HashMap<String, Vec<LoggedCall>>),
     /// Device id to why its phone refused the call log.
@@ -196,6 +202,12 @@ pub enum Event {
     },
     /// A PNG thumbnail of a phone file, written to the cache; None when the phone gave none.
     Thumbnail {
+        device: String,
+        path: String,
+        file: Option<PathBuf>,
+    },
+    /// A phone file copied whole into the cache for the photo viewer; None when the copy failed.
+    Viewed {
         device: String,
         path: String,
         file: Option<PathBuf>,
@@ -299,6 +311,11 @@ pub enum Command {
         device: String,
         path: String,
         size: u16,
+    },
+    /// Copies a whole phone file into the cache once, for the photo viewer.
+    View {
+        device: String,
+        path: String,
     },
     /// Copies phone files into this folder.
     Fetch {

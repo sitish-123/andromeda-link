@@ -65,7 +65,8 @@ impl Default for Limits {
             // A media volume drag sends a status every 150 ms; other changes come at most every 10 s.
             statuses: Bucket::new(10, Duration::from_millis(150)),
             hotspots: Bucket::new(2, Duration::from_secs(30)),
-            inputs: Bucket::new(120, Duration::from_millis(10)),
+            // A 120 Hz touchpad sends a move each frame, beside scrolls and keys.
+            inputs: Bucket::new(240, Duration::from_millis(4)),
             mirror_requests: Bucket::new(2, Duration::from_secs(10)),
             taps: Bucket::new(5, Duration::from_secs(2)),
             // A phone asks every 30 s while on Bluetooth and once per joined hotspot.

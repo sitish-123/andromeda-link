@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Scanning the desktop's pairing QR code inside the app. -->
@@ -35,6 +36,8 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_LOGS" />
+    <!-- Granted over adb: turns off OxygenOS 3-finger gestures while the touchpad is open. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <!-- "Display over other apps": the watcher reads the clipboard from the background through a focused overlay window. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
@@ -149,6 +152,13 @@
             android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
+        <!-- The same helper reads mirror input here; InputCommandProvider checks the uid too. -->
+        <provider
+            android:name=".screen.InputCommandProvider"
+            android:authorities="${applicationId}.inputhelper"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <service
             android:name=".clipboard.ClipboardTileService"
             android:exported="true"
@@ -205,7 +215,8 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name=".screen.CaptureConsentActivity"
-            android:exported="false"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:taskAffinity=""

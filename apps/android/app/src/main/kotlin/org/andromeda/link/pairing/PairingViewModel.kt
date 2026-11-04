@@ -48,6 +48,8 @@ class PairingViewModel(
         _state.value = PairingState()
     }
 
+    fun scanAgain() = _state.update { it.copy(failure = null) }
+
     fun dismissLink() = _state.update { it.copy(link = null, failure = null) }
 
     fun updateCode(input: String) =

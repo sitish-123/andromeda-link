@@ -135,7 +135,7 @@ fun SettingsScreen(
                                 if (desktop.bluetooth) R.string.settings_connected_bluetooth else R.string.settings_connected_wifi,
                             )
                         } else {
-                            stringResource(R.string.home_last_seen, lastSeen(desktop.lastSeen))
+                            disconnectedLine(desktop)
                         },
                     divided = index > 0,
                     onClick = { onDesktop(desktop) },

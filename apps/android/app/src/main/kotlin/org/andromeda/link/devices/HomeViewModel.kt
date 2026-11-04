@@ -195,10 +195,20 @@ class HomeViewModel(
 
     fun notificationsAllowed() = presence.notificationsAllowed()
 
+    /** Sets the level; a muted desktop is unmuted first, since a level alone would stay silent. */
     fun setVolume(
         desktop: Desktop,
         percent: Int,
-    ) = act { repository.setDesktopVolume(desktop.id, percent) }
+        unmute: Boolean,
+    ) = act {
+        if (unmute) repository.setDesktopMuted(desktop.id, false)
+        repository.setDesktopVolume(desktop.id, percent)
+    }
+
+    fun setMuted(
+        desktop: Desktop,
+        muted: Boolean,
+    ) = act { repository.setDesktopMuted(desktop.id, muted) }
 
     fun setBrightness(
         desktop: Desktop,

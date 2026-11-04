@@ -158,6 +158,7 @@ fun LinkApp(
                             viewModel = home,
                             picker = picker,
                             missing = setup.missing,
+                            required = setup.required,
                             autoClipboard = Grant.AutoClipboard in setup.granted,
                             onPair = openPair,
                             onDesktop = openDesktop,
@@ -175,6 +176,10 @@ fun LinkApp(
                             onPresenter = {
                                 desktopId = it.id
                                 screen = Screen.Presenter
+                            },
+                            onViewer = {
+                                desktopId = it.id
+                                screen = Screen.Viewer
                             },
                         )
                     Screen.Activity ->
@@ -235,7 +240,12 @@ fun LinkApp(
                             onPaired = { desktop ->
                                 container.presence.paired()
                                 home.announce(desktop)
-                                screen = returnScreen
+                                if (setup.complete) {
+                                    screen = returnScreen
+                                } else {
+                                    setupStart = null
+                                    screen = Screen.Setup
+                                }
                             },
                         )
                     Screen.Setup ->

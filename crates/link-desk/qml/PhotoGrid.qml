@@ -13,6 +13,7 @@ Item {
     readonly property real cell: (width - 16 - 8 * (columns - 1)) / columns
     readonly property alias count: list.count
     signal toggled(string path)
+    signal opened(string path)
     // A cell without a thumbnail came on screen.
     signal wanted(string path)
 
@@ -57,7 +58,8 @@ Item {
                         video: modelData.video
                         durationText: modelData.durationText
                         selected: !!grid.selected[path]
-                        onClicked: grid.toggled(path)
+                        onClicked: grid.opened(path)
+                        onSelectClicked: grid.toggled(path)
                         Component.onCompleted: if (thumbUrl.toString() === "") grid.wanted(path)
                     }
                 }

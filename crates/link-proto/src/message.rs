@@ -22,10 +22,9 @@ pub struct Hello {
 /// Bluetooth skip it, since it is not a socket address.
 pub const BLUETOOTH_SCHEME: &str = "bt:";
 
-/// A phone's hello carries this among its `addresses` when it finds a desktop over Wi-Fi Direct by the `address` of a
-/// `wifi-direct-ready`; a desktop sends that field only then, since older phones close a session on an unknown field.
-/// Older desktops ignore a phone's addresses.
-pub const WIFI_DIRECT_BY_ADDRESS: &str = "feature:wifi-direct-address";
+/// A desktop's hello carries this among its `addresses` when it joins a phone's Wi-Fi Direct group by the credentials
+/// in `wifi-direct`; phones send that message only then, since older desktops expect a different body.
+pub const WIFI_DIRECT_JOIN: &str = "feature:wifi-direct-join";
 
 /// A desktop's hello carries this among its `addresses` when it takes `bt-pairing`; older desktops close a session on
 /// the unknown type, and phones skip entries that are not socket addresses.
@@ -46,11 +45,17 @@ pub const FS_WRITE: &str = "feature:fs-write";
 /// A phone's hello carries this when it answers `photo-request`; older phones close a session on the type.
 pub const CAMERA: &str = "feature:camera";
 
+/// A phone's hello carries this when it answers `photos-recent`; older phones close a session on the type.
+pub const PHOTOS_RECENT: &str = "feature:photos-recent";
+
 /// A hello carries this when its side takes the contacts and text message types; older peers close a session on them.
 pub const MESSAGES: &str = "feature:messages";
 
 /// A hello carries this when its side takes the call log and dial types; older peers close a session on them.
 pub const CALLS: &str = "feature:calls";
+
+/// A desktop's hello carries this when its `call` takes `app`; older desktops close a session on the field.
+pub const CALL_APP: &str = "feature:call-app";
 
 /// A desktop's hello carries this when it takes `notification-snapshot`, `alert_once`, and `status`'s
 /// `notifications_off`, and answers with `notification-pull`; older desktops close a session on them.
@@ -59,6 +64,13 @@ pub const NOTIFICATION_SYNC: &str = "feature:notification-sync";
 /// Both hellos carry this when the peer takes `clip-offer`'s `sizes`, `origin`, and `at`, and serves each type's own
 /// bytes; older peers close a session on those fields.
 pub const CLIP_ITEMS: &str = "feature:clip-items";
+
+/// A desktop's hello carries this when it takes a mirror's video as one stream per keyframe (`mirror-data`'s `gop`);
+/// phones send older desktops video and sound on one stream.
+pub const MIRROR_STREAMS: &str = "feature:mirror-streams";
+
+/// A desktop's hello carries this when it takes `screen-shape`; phones send older desktops no shape.
+pub const SCREEN_SHAPE: &str = "feature:screen-shape";
 
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
@@ -412,8 +424,8 @@ pub struct HotspotEnd {
     pub reason: Option<String>,
 }
 
-/// Desktop to phone: it can join a Wi-Fi Direct group, and shows as `name` while looking for one. `address` is its
-/// P2P device address, which the phone matches on since `wpa_supplicant` leaves the name blank unless configured.
+/// Desktop to phone, from older desktops only: it could join a Wi-Fi Direct group the phone negotiated with it. Phones
+/// ignore it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WifiDirectReady {
@@ -433,20 +445,47 @@ pub struct BtPairing {
     pub passkey: Option<u32>,
 }
 
-/// Phone to desktop, instead of the hotspot: the phone, shown as `name`, is forming a Wi-Fi Direct group with the
-/// desktop as its client. The desktop answers like a hotspot: `hotspot-joined` or `hotspot-end`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WifiDirect {
-    pub name: String,
-}
-
 /// Phone to desktop, once the user allowed capture: the video that follows on a `mirror-data` stream is this size.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MirrorStarted {
     pub width: u32,
     pub height: u32,
+}
+
+/// Phone to desktop while mirroring, after `mirror-started` and after each rotation: the screen's rounded corners and
+/// camera cutouts as they sit in the picture. Lengths are in 1/10000 of the picture's width (x, radii) or height (y).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScreenShape {
+    /// Top-left, top-right, bottom-right, bottom-left.
+    pub corners: [u16; 4],
+    pub cutouts: Vec<ShapeRect>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShapeRect {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+pub const MAX_CUTOUTS: usize = 4;
+
+impl ScreenShape {
+    fn valid(&self) -> bool {
+        let unit = 1..=10_000;
+        self.corners.iter().all(|corner| *corner <= 5_000)
+            && self.cutouts.len() <= MAX_CUTOUTS
+            && self.cutouts.iter().all(|rect| {
+                unit.contains(&rect.width)
+                    && unit.contains(&rect.height)
+                    && u32::from(rect.x) + u32::from(rect.width) <= 10_000
+                    && u32::from(rect.y) + u32::from(rect.height) <= 10_000
+            })
+    }
 }
 
 /// Either side ends mirroring, with a reason when it failed or was refused.
@@ -471,6 +510,18 @@ pub enum MirrorAction {
     Recents,
     /// `text` into the focused field.
     Text,
+    /// One finger at (x, y) that follows the pointer until `touch-up`.
+    TouchDown,
+    TouchMove,
+    TouchUp,
+    /// A wheel turn at (x, y): (x2, y2) in 1/[`WHEEL_STEP`] of a step, positive right and down.
+    Wheel,
+    /// An Android `KeyEvent` key `code` with its `meta` state.
+    KeyDown,
+    KeyUp,
+    /// The phone's own panel off or on; mirroring goes on.
+    ScreenOff,
+    ScreenOn,
 }
 
 /// Desktop to phone: input on the mirrored screen. Coordinates are fractions of the video's width and height in
@@ -491,6 +542,10 @@ pub struct MirrorInput {
     pub ms: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<u32>,
 }
 
 /// The header of the phone's video stream: H.264 access units follow, each a big-endian u32 length, a big-endian u64
@@ -501,6 +556,10 @@ pub struct MirrorInput {
 pub struct MirrorData {
     pub width: u32,
     pub height: u32,
+    /// Absent on the mirror's first stream, which carries everything, or only the sound under [`MIRROR_STREAMS`].
+    /// From 1 up on each later stream: one keyframe and the video after it, until a stream with a higher number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gop: Option<u64>,
 }
 
 /// The whole width or height in [`MirrorInput`] coordinates.
@@ -510,12 +569,18 @@ pub const MIRROR_KEYFRAME: u8 = 1;
 pub const MIRROR_CONFIG: u8 = 2;
 /// One Opus packet of the phone's sound, 48 kHz stereo, instead of video.
 pub const MIRROR_AUDIO: u8 = 4;
+/// The desktop daemon's last, empty unit to a viewer when the phone ended mirroring on purpose; never on the wire.
+pub const MIRROR_END: u8 = 8;
 /// A 1080p access unit stays well under this.
 pub const MAX_MIRROR_UNIT: usize = 4 * 1024 * 1024;
 pub const MAX_MIRROR_SIDE: u32 = 4096;
 pub const MAX_MIRROR_TEXT_LEN: usize = 4096;
 /// A swipe or long press held longer than this is refused.
 pub const MAX_GESTURE_MS: u32 = 10_000;
+/// One wheel step in a `wheel` input's (x2, y2).
+pub const WHEEL_STEP: i32 = 100;
+/// Android's `KeyEvent` codes stay under this.
+pub const MAX_KEY_CODE: u32 = 400;
 
 impl MirrorInput {
     fn valid(&self) -> bool {
@@ -524,11 +589,22 @@ impl MirrorInput {
         let delta = |value: Option<i32>| value.is_some_and(|value| (-MIRROR_UNIT..=MIRROR_UNIT).contains(&value));
         let held = self.ms.is_none_or(|ms| ms <= MAX_GESTURE_MS);
         held && match self.action {
-            MirrorAction::Tap | MirrorAction::LongPress => point,
+            MirrorAction::Tap
+            | MirrorAction::LongPress
+            | MirrorAction::TouchDown
+            | MirrorAction::TouchMove
+            | MirrorAction::TouchUp => point,
             MirrorAction::Swipe => point && fraction(self.x2) && fraction(self.y2),
-            MirrorAction::Scroll => point && delta(self.x2) && delta(self.y2),
-            MirrorAction::Back | MirrorAction::Home | MirrorAction::Recents => true,
+            MirrorAction::Scroll | MirrorAction::Wheel => point && delta(self.x2) && delta(self.y2),
+            MirrorAction::Back
+            | MirrorAction::Home
+            | MirrorAction::Recents
+            | MirrorAction::ScreenOff
+            | MirrorAction::ScreenOn => true,
             MirrorAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
+            MirrorAction::KeyDown | MirrorAction::KeyUp => {
+                self.code.is_some_and(|code| (1..=MAX_KEY_CODE).contains(&code))
+            }
         }
     }
 }
@@ -707,6 +783,32 @@ pub struct PhotoTaken {
     pub refused: Option<PhotoRefusal>,
 }
 
+/// Asks for the phone's newest photos; answered by `photos-list`, or `fs-error` (`denied` while Android withholds photo access).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhotosRecent {
+    pub req: u64,
+    pub count: u16,
+}
+
+/// A photo as `photos-list` gives it: its browse path under the Photos root, for `fs-thumb` and `fs-read`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecentPhoto {
+    pub path: String,
+    pub name: String,
+    /// Unix seconds.
+    pub added: u64,
+}
+
+/// The newest photos first, at most the count asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhotosList {
+    pub req: u64,
+    pub photos: Vec<RecentPhoto>,
+}
+
 /// Asks for one entry; answered by `fs-entries` holding that entry alone, or `fs-error`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -778,6 +880,8 @@ pub const MAX_FS_NAME: usize = 255;
 pub const MAX_FS_ENTRIES: usize = 128;
 pub const MAX_FS_READ: u32 = 1024 * 1024;
 pub const MAX_FS_THUMB_PX: u16 = 1024;
+/// Photos per `photos-list`, so the longest paths still fit a control frame.
+pub const MAX_RECENT_PHOTOS: u16 = 64;
 /// Bytes per `fs-data`, so a read never holds the control stream for long.
 pub const MAX_FS_CHUNK: usize = 48 * 1024;
 
@@ -992,9 +1096,12 @@ pub struct Call {
     pub state: CallState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number: Option<String>,
-    /// The contact's name, when the phone may read contacts.
+    /// The contact's name, when the phone may read contacts; for an app call, the caller the app shows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The app of a call without a number, such as Messenger.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1592,7 +1699,33 @@ pub enum InputAction {
     Key,
     /// `text` typed into the focused window.
     Text,
+    /// A shortcut in `text`: modifiers and one key joined by `+`, as `super+t` or `ctrl+shift+escape`. Only to a
+    /// desktop whose capabilities list `shortcuts`.
+    Shortcut,
+    /// Every finger on the phone's touchpad now, in `contacts`; none when the last one lifts. Only to a desktop whose
+    /// capabilities list `touchpad`.
+    Touch,
 }
+
+/// One finger on the phone's touchpad: a stable `id` while it stays down, and its position from the pad's top left in
+/// 1/100 mm, so the desktop's touchpad settings see real distances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TouchContact {
+    pub id: u8,
+    pub x: u32,
+    pub y: u32,
+}
+
+/// The most fingers in one [`InputAction::Touch`].
+pub const MAX_TOUCH_CONTACTS: usize = 5;
+/// The largest [`TouchContact`] id.
+pub const MAX_TOUCH_ID: u8 = 9;
+/// The largest touch position: 300 mm in 1/100 mm.
+pub const MAX_TOUCH_POSITION: u32 = 30_000;
+
+/// The longest [`InputAction::Shortcut`], in bytes.
+pub const MAX_SHORTCUT_LEN: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1637,6 +1770,8 @@ pub struct RemoteInput {
     pub key: Option<InputKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contacts: Option<Vec<TouchContact>>,
 }
 
 pub const MAX_INPUT_DELTA: i32 = 10_000;
@@ -1654,6 +1789,15 @@ impl RemoteInput {
             InputAction::Press | InputAction::Release | InputAction::Click => self.button.is_some(),
             InputAction::Key => self.key.is_some(),
             InputAction::Text => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_MIRROR_TEXT_LEN)),
+            InputAction::Shortcut => self.text.as_ref().is_some_and(|text| sized(text, 1, MAX_SHORTCUT_LEN)),
+            InputAction::Touch => self.contacts.as_ref().is_some_and(|contacts| {
+                let ids: std::collections::HashSet<u8> = contacts.iter().map(|contact| contact.id).collect();
+                contacts.len() <= MAX_TOUCH_CONTACTS
+                    && ids.len() == contacts.len()
+                    && contacts.iter().all(|contact| {
+                        contact.id <= MAX_TOUCH_ID && contact.x <= MAX_TOUCH_POSITION && contact.y <= MAX_TOUCH_POSITION
+                    })
+            }),
         }
     }
 }
@@ -1749,10 +1893,13 @@ pub enum Message {
     HotspotEnd(HotspotEnd),
     Punch(Punch),
     WifiDirectReady(WifiDirectReady),
-    WifiDirect(WifiDirect),
+    /// Phone to desktop, instead of the hotspot: the credentials of a Wi-Fi Direct group the phone owns. The desktop
+    /// answers like a hotspot: `hotspot-joined` or `hotspot-end`.
+    WifiDirect(Hotspot),
     BtPairing(BtPairing),
     MirrorRequest,
     MirrorStarted(MirrorStarted),
+    ScreenShape(ScreenShape),
     MirrorStop(MirrorStop),
     MirrorInput(MirrorInput),
     MirrorKeyframe,
@@ -1771,6 +1918,8 @@ pub enum Message {
     FsDelete(FsDelete),
     PhotoRequest(PhotoRequest),
     PhotoTaken(PhotoTaken),
+    PhotosRecent(PhotosRecent),
+    PhotosList(PhotosList),
     ContactsList(ContactsList),
     Contacts(Contacts),
     /// The phone's contacts changed; a desktop that keeps them asks again.
@@ -1841,6 +1990,7 @@ impl Message {
             Self::BtPairing(_) => "bt-pairing",
             Self::MirrorRequest => "mirror-request",
             Self::MirrorStarted(_) => "mirror-started",
+            Self::ScreenShape(_) => "screen-shape",
             Self::MirrorStop(_) => "mirror-stop",
             Self::MirrorInput(_) => "mirror-input",
             Self::MirrorKeyframe => "mirror-keyframe",
@@ -1859,6 +2009,8 @@ impl Message {
             Self::FsDelete(_) => "fs-delete",
             Self::PhotoRequest(_) => "photo-request",
             Self::PhotoTaken(_) => "photo-taken",
+            Self::PhotosRecent(_) => "photos-recent",
+            Self::PhotosList(_) => "photos-list",
             Self::ContactsList(_) => "contacts-list",
             Self::Contacts(_) => "contacts",
             Self::ContactsChanged => "contacts-changed",
@@ -1920,14 +2072,14 @@ impl Message {
             Self::ClipOffer(body) => Value::serialized(body),
             Self::ClipPull(body) | Self::ClipData(body) => Value::serialized(body),
             Self::Status(body) => Value::serialized(body),
-            Self::Hotspot(body) => Value::serialized(body),
+            Self::Hotspot(body) | Self::WifiDirect(body) => Value::serialized(body),
             Self::HotspotJoined(body) => Value::serialized(body),
             Self::HotspotEnd(body) => Value::serialized(body),
             Self::Punch(body) => Value::serialized(body),
             Self::WifiDirectReady(body) => Value::serialized(body),
-            Self::WifiDirect(body) => Value::serialized(body),
             Self::BtPairing(body) => Value::serialized(body),
             Self::MirrorStarted(body) => Value::serialized(body),
+            Self::ScreenShape(body) => Value::serialized(body),
             Self::MirrorStop(body) | Self::RemoteStop(body) => Value::serialized(body),
             Self::MirrorInput(body) => Value::serialized(body),
             Self::MirrorData(body) => Value::serialized(body),
@@ -1944,6 +2096,8 @@ impl Message {
             Self::FsDelete(body) => Value::serialized(body),
             Self::PhotoRequest(body) => Value::serialized(body),
             Self::PhotoTaken(body) => Value::serialized(body),
+            Self::PhotosRecent(body) => Value::serialized(body),
+            Self::PhotosList(body) => Value::serialized(body),
             Self::ContactsList(body) => Value::serialized(body),
             Self::Contacts(body) => Value::serialized(body),
             Self::TextsList(body) => Value::serialized(body),
@@ -2022,6 +2176,7 @@ impl Message {
             "wifi-direct" => Self::WifiDirect(body.deserialized()?),
             "bt-pairing" => Self::BtPairing(body.deserialized()?),
             "mirror-started" => Self::MirrorStarted(body.deserialized()?),
+            "screen-shape" => Self::ScreenShape(body.deserialized()?),
             "mirror-stop" => Self::MirrorStop(body.deserialized()?),
             "mirror-input" => Self::MirrorInput(body.deserialized()?),
             "mirror-data" => Self::MirrorData(body.deserialized()?),
@@ -2039,6 +2194,8 @@ impl Message {
             "fs-delete" => Self::FsDelete(body.deserialized()?),
             "photo-request" => Self::PhotoRequest(body.deserialized()?),
             "photo-taken" => Self::PhotoTaken(body.deserialized()?),
+            "photos-recent" => Self::PhotosRecent(body.deserialized()?),
+            "photos-list" => Self::PhotosList(body.deserialized()?),
             "contacts-list" => Self::ContactsList(body.deserialized()?),
             "contacts" => Self::Contacts(body.deserialized()?),
             "contacts-changed" => {
@@ -2118,6 +2275,7 @@ impl Message {
             Self::Call(call) => {
                 call.number.as_ref().is_none_or(|number| sized(number, 1, MAX_NUMBER_LEN))
                     && call.name.as_ref().is_none_or(|name| sized(name, 1, MAX_CALLER_LEN))
+                    && call.app.as_ref().is_none_or(|app| sized(app, 1, MAX_CALLER_LEN))
             }
             Self::Share(share) => share.check().is_ok(),
             Self::NotificationPosted(posted) => posted.valid(),
@@ -2135,15 +2293,17 @@ impl Message {
             Self::Offer(offer) => offer.is_valid(),
             Self::OfferReply(reply) => reply.accepted == reply.reason.is_none(),
             Self::ResumeAt(at) => unique(at.offsets.iter().map(|offset| offset.file)),
-            Self::Hotspot(hotspot) => hotspot.valid(),
+            Self::Hotspot(hotspot) | Self::WifiDirect(hotspot) => hotspot.valid(),
             Self::HotspotJoined(joined) => joined.address.parse::<std::net::SocketAddr>().is_ok(),
             Self::HotspotEnd(end) => end.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN)),
             Self::Punch(punch) => {
                 punch.addresses.len() <= MAX_PUNCH_ADDRESSES
                     && punch.addresses.iter().all(|address| address.parse::<std::net::SocketAddr>().is_ok())
             }
-            Self::MirrorStarted(MirrorStarted { width, height }) | Self::MirrorData(MirrorData { width, height }) => {
-                mirror_size_valid(*width, *height)
+            Self::MirrorStarted(MirrorStarted { width, height }) => mirror_size_valid(*width, *height),
+            Self::ScreenShape(shape) => shape.valid(),
+            Self::MirrorData(MirrorData { width, height, gop }) => {
+                mirror_size_valid(*width, *height) && *gop != Some(0)
             }
             Self::MirrorStop(stop) | Self::RemoteStop(stop) => {
                 stop.reason.as_ref().is_none_or(|reason| sized(reason, 1, MAX_REASON_LEN))
@@ -2156,7 +2316,6 @@ impl Message {
             Self::WifiDirectReady(WifiDirectReady { name, address }) => {
                 sized(name, 1, MAX_P2P_NAME_LEN) && address.as_ref().is_none_or(|address| hardware_address(address))
             }
-            Self::WifiDirect(WifiDirect { name }) => sized(name, 1, MAX_P2P_NAME_LEN),
             Self::BtPairing(BtPairing { passkey }) => passkey.is_none_or(|passkey| passkey <= 999_999),
             Self::FsList(list) => fs_path_valid(&list.path),
             Self::FsEntries(page) => {
@@ -2168,6 +2327,11 @@ impl Message {
             Self::FsThumb(thumb) => fs_path_valid(&thumb.path) && (1..=MAX_FS_THUMB_PX).contains(&thumb.px),
             Self::FsWrite(write) => fs_path_valid(&write.path) && write.data.len() <= MAX_FS_CHUNK,
             Self::FsDelete(delete) => fs_path_valid(&delete.path),
+            Self::PhotosRecent(recent) => (1..=MAX_RECENT_PHOTOS).contains(&recent.count),
+            Self::PhotosList(list) => {
+                list.photos.len() <= usize::from(MAX_RECENT_PHOTOS)
+                    && list.photos.iter().all(|photo| fs_path_valid(&photo.path) && fs_name_valid(&photo.name))
+            }
             Self::PhotoTaken(taken) => {
                 taken.path.as_ref().is_some_and(|path| fs_path_valid(path)) != taken.refused.is_some()
             }

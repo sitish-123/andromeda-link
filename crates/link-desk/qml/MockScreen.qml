@@ -6,6 +6,9 @@ QtObject {
     property string error: ""
     property int videoWidth: 1080
     property int videoHeight: 2376
+    property bool screenOff: false
+    property var corners: []
+    property var cutouts: []
 
     function start() { state = "live" }
     function stop() { state = "idle" }
@@ -14,6 +17,10 @@ QtObject {
     function recents() {}
     function keyframe() {}
     function setSink(sink) {}
-    function input(action, x, y, x2, y2, ms) {}
+    function input(action, x, y, x2, y2) {}
+    function key(key, modifiers, text, pressed) { return true }
+    function releaseKeys() {}
+    function press(code) {}
+    function toggleScreen() { screenOff = !screenOff }
     function typeText(text) {}
 }

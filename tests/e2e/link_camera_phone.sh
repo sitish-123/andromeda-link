@@ -3,7 +3,7 @@
 # 1. The page's camera button opens the phone's camera (Link may draw over apps, so it starts at once).
 # 2. After the shot (KEYCODE_CAMERA, then the camera's Done), the JPEG lands in Pictures/Phone on this computer and
 #    is handed to the desktop's opener (offscreen Qt has none; it logs the openDocument request instead).
-# Needs ANDROID_SERIAL (the emulator, whose virtual camera works), the debug APKs, and the app built (cargo build -p
+# Needs ANDROID_SERIAL (the emulator's virtual camera, or the OnePlus camera), the debug APKs, and the app built (cargo build -p
 # link-desk). Run under flock /tmp/link-emulator.lock. Writes steps.txt, app.log, linkd.log, ui-*.xml, the photo, and
 # photos-light.png / photos-dark.png to $OUT (default ./artifacts/link-camera-phone).
 set -euo pipefail
@@ -57,9 +57,13 @@ for try in $(seq 40); do
   done
   at=$(bounds "camera-$try" Done)
   [[ -n $at ]] || at=$(bounds "camera-$try" "*done*")
+  [[ -n $at || -z $shot ]] || at=$(bounds "camera-$try" done_button)
   if [[ -n $at ]]; then adb shell input tap $at; break; fi
   if [[ -z $shot ]] && [[ -n $(bounds "camera-$try" "Shutter") ]]; then
     adb shell input keyevent KEYCODE_CAMERA
+    shot=1
+  elif [[ -z $shot ]] && at=$(bounds "camera-$try" shutter_button) && [[ -n $at ]]; then
+    adb shell input tap $at
     shot=1
   fi
   camera_up || break

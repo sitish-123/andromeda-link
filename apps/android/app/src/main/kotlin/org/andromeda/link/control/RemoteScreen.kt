@@ -32,14 +32,17 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -66,6 +69,8 @@ fun RemoteScreen(
     onBack: () -> Unit,
 ) {
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val haptic = LocalHapticFeedback.current
+    LaunchedEffect(viewModel) { viewModel.ticks.collect { haptic.performHapticFeedback(HapticFeedbackType.ContextClick) } }
     val resources = LocalContext.current.resources
     Screen(
         title = stringResource(R.string.remote_title),
@@ -109,7 +114,12 @@ fun RemoteScreen(
                     "Home" to RemoteKey.Home,
                     "End" to RemoteKey.End,
                     "Del" to RemoteKey.Delete,
-                ).forEach { (label, key) -> PillButton(label, { viewModel.key(key) }, kind = PillKind.Quiet) }
+                ).forEach { (label, key) ->
+                    PillButton(label, {
+                        viewModel.tick()
+                        viewModel.key(key)
+                    }, kind = PillKind.Quiet)
+                }
             }
         }
     }
@@ -120,39 +130,63 @@ private fun Touchpad(
     viewModel: RemoteViewModel,
     modifier: Modifier = Modifier,
 ) {
+    val raw by viewModel.touchpad.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    DisposableEffect(raw) {
+        val restore = if (raw) keepMultiFingerTouches(context) else null
+        onDispose { restore?.invoke() }
+    }
+    val area = modifier.clip(Radius.list).background(LinkTheme.colors.surfaceTertiary)
     Box(
-        modifier.clip(Radius.list).background(LinkTheme.colors.surfaceTertiary).pointerInput(viewModel) {
-            awaitEachGesture {
-                val down = awaitFirstDown()
-                var fingers = 1
-                var travelled = 0f
-                var lifted = down.uptimeMillis
-                do {
-                    val event = awaitPointerEvent()
-                    val pressed = event.changes.filter { it.pressed }
-                    fingers = maxOf(fingers, pressed.size)
-                    if (pressed.isNotEmpty()) {
-                        val delta = pressed.fold(Offset.Zero) { sum, change -> sum + change.positionChange() } / pressed.size.toFloat()
-                        travelled += delta.getDistance()
-                        if (pressed.size >= 2) {
-                            viewModel.scroll(delta.x, delta.y)
-                        } else if (fingers == 1) {
-                            viewModel.move(delta.x, delta.y)
-                        }
-                    }
-                    event.changes.forEach {
-                        lifted = it.uptimeMillis
-                        it.consume()
-                    }
-                } while (pressed.isNotEmpty())
-                if (lifted - down.uptimeMillis < TAP_MS && travelled < viewConfiguration.touchSlop) {
-                    viewModel.send(RemoteInput.Click(if (fingers >= 2) PointerButton.Right else PointerButton.Left))
-                }
+        if (raw) {
+            area.rawTouchpad(LocalContext.current.resources.displayMetrics, onTick = viewModel::tick) {
+                viewModel.send(RemoteInput.Touch(it))
             }
+        } else {
+            area.pointerInput(viewModel) { interpret(viewModel) }
         },
         contentAlignment = Alignment.Center,
     ) {
         Label(stringResource(R.string.remote_touchpad), LinkTheme.type.bodyMedium, LinkTheme.colors.textTertiary)
+        if (raw && needsMultiFingerGrant(context)) {
+            Label(
+                stringResource(R.string.remote_multi_finger_grant, context.packageName),
+                LinkTheme.type.bodySmall,
+                LinkTheme.colors.textTertiary,
+                Modifier.align(Alignment.BottomCenter).padding(Space.s16),
+            )
+        }
+    }
+}
+
+/** For a desktop without a real touchpad: one finger moves and taps, two fingers scroll and tap to right-click. */
+private suspend fun PointerInputScope.interpret(viewModel: RemoteViewModel) {
+    awaitEachGesture {
+        val down = awaitFirstDown()
+        var fingers = 1
+        var travelled = 0f
+        var lifted = down.uptimeMillis
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.filter { it.pressed }
+            fingers = maxOf(fingers, pressed.size)
+            if (pressed.isNotEmpty()) {
+                val delta = pressed.fold(Offset.Zero) { sum, change -> sum + change.positionChange() } / pressed.size.toFloat()
+                travelled += delta.getDistance()
+                if (pressed.size >= 2) {
+                    viewModel.scroll(delta.x, delta.y)
+                } else if (fingers == 1) {
+                    viewModel.move(delta.x, delta.y)
+                }
+            }
+            event.changes.forEach {
+                lifted = it.uptimeMillis
+                it.consume()
+            }
+        } while (pressed.isNotEmpty())
+        if (lifted - down.uptimeMillis < TAP_MS && travelled < viewConfiguration.touchSlop) {
+            viewModel.send(RemoteInput.Click(if (fingers >= 2) PointerButton.Right else PointerButton.Left))
+        }
     }
 }
 

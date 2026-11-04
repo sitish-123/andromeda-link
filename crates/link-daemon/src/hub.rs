@@ -12,9 +12,9 @@ use link_core::proto::CloseCode;
 use link_core::proto::message::{
     CALLS, CAMERA, CAN_CONTROL, CAN_INPUT, CAPABILITIES, CLIP_ITEMS, CONTROL, Call, CallState, Capabilities,
     DesktopStatus, FEATURE, FS_STAT, FS_WRITE, FsRefusal, Hello, Hotspot, HotspotEnd, HotspotJoined,
-    MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull, PhotoRefusal, Ping,
-    RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemCommandKind, SystemResult, Text,
-    TransferId, WIFI_DIRECT_BY_ADDRESS, WifiDirect, WifiDirectReady,
+    MAX_SYSTEM_ERROR_LEN, MESSAGES, MediaPlayer, Message, NotificationPosted, NotificationPull, PHOTOS_RECENT,
+    PhotoRefusal, Ping, RemoteInput, Ringer, SYSTEM, SYSTEM_CONTROL, Share, Status, SystemCommand, SystemCommandKind,
+    SystemResult, Text, TransferId,
 };
 use link_core::proto::pairing::{Secret, Secrets};
 use link_core::session::{Route, SessionEvent, SessionHandle};
@@ -33,6 +33,8 @@ const DESKTOP_STATUS_EVERY: Duration = Duration::from_millis(150);
 const SYSTEM_TIMEOUT: Duration = Duration::from_secs(5);
 /// Joining a hotspot takes the desktop off its Wi-Fi, so it waits this long for the user to allow it.
 const HOTSPOT_ASK_TIMEOUT: Duration = Duration::from_secs(30);
+/// Looking for a spare Wi-Fi interface asks `NetworkManager` and `iw`, which the hub waits for no longer than this.
+const SPARE_TIMEOUT: Duration = Duration::from_secs(10);
 const HOTSPOT_DECLINED: &str = "the hotspot was not allowed on this computer";
 use tokio::task::JoinSet;
 use tokio::time::Instant;
@@ -69,6 +71,8 @@ pub struct Snapshot {
     pub pairing: bool,
     /// Devices whose file offers are accepted without asking, the D-Bus `AutoAccept` property.
     pub auto_accept: Vec<String>,
+    /// Devices the user disconnected, the D-Bus `Paused` property.
+    pub paused: Vec<String>,
     /// Device id to granted features, the D-Bus `Grants` property.
     pub grants: Vec<(String, Vec<String>)>,
     /// Connected device id to `(battery, charging, network, signal)`, the D-Bus `DeviceStatus` property.
@@ -140,6 +144,10 @@ pub enum Event {
     PhoneRinging {
         id: DeviceId,
         on: bool,
+    },
+    ScreenShape {
+        id: DeviceId,
+        shape: link_core::proto::message::ScreenShape,
     },
     Call {
         id: DeviceId,
@@ -222,6 +230,7 @@ enum Command {
     StartPairing { reply: oneshot::Sender<anyhow::Result<(String, String)>> },
     CancelPairing,
     Unpair { id: DeviceId, reply: oneshot::Sender<bool> },
+    SetPaused { id: DeviceId, paused: bool, reply: oneshot::Sender<bool> },
     AnswerHotspot { id: DeviceId, allow: bool },
     ConfirmBtPairing { passkey: u32, reply: oneshot::Sender<bool> },
     Admit { spki: Spki, reply: oneshot::Sender<Admission> },
@@ -304,10 +313,10 @@ pub struct Hub {
     joining: JoinSet<(DeviceId, Option<String>, Result<hotspot::Joined, String>)>,
     /// Phones whose hotspot this desktop is joining now.
     joining_hotspots: HashSet<DeviceId>,
+    /// Phones whose Wi-Fi Direct group this desktop is joining now.
+    joining_groups: HashSet<DeviceId>,
     /// Hotspots waiting for the user's answer, with their SSID.
     hotspot_asks: HashMap<DeviceId, (oneshot::Sender<bool>, String)>,
-    /// How phones find this desktop over Wi-Fi Direct, when it can join a group.
-    wifi_direct_peer: Option<WifiDirectReady>,
     /// The code a phone with a session reported while Android pairs Bluetooth with it, until when it counts.
     bt_pairing: Option<(u32, Instant)>,
     /// This desktop's Bluetooth adapter, named in the QR code, and the deadline that keeps it open to pairing.
@@ -406,8 +415,8 @@ impl Hub {
             hotspots: HashMap::new(),
             joining: JoinSet::new(),
             joining_hotspots: HashSet::new(),
+            joining_groups: HashSet::new(),
             hotspot_asks: HashMap::new(),
-            wifi_direct_peer: None,
             bt_pairing: None,
             bluetooth: None,
             waiting: Vec::new(),
@@ -430,7 +439,6 @@ impl Hub {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        self.wifi_direct_peer = crate::wifi_direct::local_peer().await;
         if self.store.localsend {
             self.localsend.set_visible(true).await;
         }
@@ -499,6 +507,7 @@ impl Hub {
                 self.forget_notifications(&id).await;
                 let _ = reply.send(unpaired);
             }
+            Command::SetPaused { id, paused, reply } => drop(reply.send(self.set_paused(&id, paused))),
             Command::Admit { spki, reply } => drop(reply.send(self.admit(&spki))),
             Command::Paired { spki, name, window } => self.paired(&spki, name, window).await,
             Command::PairingFailed { reason, window } => {
@@ -688,12 +697,9 @@ impl Hub {
                 self.media.disconnected(&from).await;
                 self.forget_notifications(&from).await;
             }
-            SessionEvent::Message {
-                from,
-                message: answer @ (Message::FsEntries(_) | Message::FsData(_) | Message::FsError(_)),
-            } => {
+            SessionEvent::Message { from, message } if browse::is_answer(&message) => {
                 // Answers to this desktop's own requests, which need no grant of the phone's here.
-                if let Some(next) = self.browsing.on_answer(&from, answer)
+                if let Some(next) = self.browsing.on_answer(&from, message)
                     && let Some(session) = self.sessions.get(&from)
                     && session.send(next).await.is_err()
                 {
@@ -807,8 +813,9 @@ impl Hub {
                 self.emit(Event::Call { id: from, call }).await;
             }
             Message::Ringing(ringing) => self.emit(Event::PhoneRinging { id: from, on: ringing.on }).await,
+            Message::ScreenShape(shape) => self.emit(Event::ScreenShape { id: from, shape }).await,
             Message::Hotspot(offered) => self.join_hotspot(from, offered).await,
-            Message::WifiDirect(group) => self.join_wifi_direct(from, group),
+            Message::WifiDirect(group) => self.join_wifi_direct(from, group).await,
             Message::HotspotEnd(end) => {
                 log::info!("{from}: the phone ended its hotspot: {:?}", end.reason);
                 let reason = end.reason.unwrap_or_else(|| "the phone ended its hotspot".to_owned());
@@ -932,6 +939,9 @@ impl Hub {
             self.save();
             return Admission::Reject(CloseCode::Unpaired);
         }
+        if self.store.peer(&id).is_some_and(|peer| peer.paused) {
+            return Admission::Reject(CloseCode::Paused);
+        }
         if self.store.peer(&id).is_some() {
             return Admission::Session;
         }
@@ -965,6 +975,9 @@ impl Hub {
         let Some(peer) = self.store.peer_mut(&id) else {
             return session.close(CloseCode::NotPaired);
         };
+        if peer.paused {
+            return session.close(CloseCode::Paused);
+        }
         peer.name = hello.name;
         peer.touch();
         self.save();
@@ -1000,17 +1013,6 @@ impl Hub {
         self.send_commands(&id).await;
         self.send_capabilities(&id).await;
         self.send_desktop_status(&id).await;
-        let by_address = hello.addresses.iter().any(|entry| entry == WIFI_DIRECT_BY_ADDRESS);
-        let ready = self
-            .wifi_direct_peer
-            .clone()
-            .map(|peer| WifiDirectReady { address: peer.address.filter(|_| by_address), ..peer });
-        if !on_ip
-            && let Some(ready) = ready
-            && let Err(error) = session.send(Message::WifiDirectReady(ready)).await
-        {
-            log::info!("{id}: offering Wi-Fi Direct: {error}");
-        }
         if on_ip {
             self.send_waiting(&id).await;
         } else {
@@ -1032,6 +1034,9 @@ impl Hub {
                 let reason = if granted { FsRefusal::Denied } else { FsRefusal::NotAllowed };
                 return drop(reply.send(Err(browse::Failure::Refused(reason))));
             }
+        }
+        if matches!(request, browse::Request::Recent { .. }) && !self.phone_has(&id, PHOTOS_RECENT) {
+            return drop(reply.send(Err(browse::Failure::Refused(FsRefusal::NotFound))));
         }
         let request = if self.phone_has(&id, FS_STAT) { Ok(request) } else { request.for_older_phone() };
         let request = match request {
@@ -1465,7 +1470,7 @@ impl Hub {
         let session = self.sessions.get(&id).filter(|session| session.is_live()).cloned();
         let session = session.ok_or_else(|| format!("{id} is not connected"))?;
         session.send(Message::RemoteStarted(stream.started)).await.map_err(|error| error.to_string())?;
-        let sender = link_core::mirror::MirrorSender::open(&session, stream.width, stream.height)
+        let sender = link_core::mirror::MirrorSender::open(&session, stream.width, stream.height, false)
             .await
             .map_err(|error| error.to_string())?;
         log::info!("{id}: showing the screen at {}x{}", stream.width, stream.height);
@@ -1486,15 +1491,36 @@ impl Hub {
         }
     }
 
-    /// Joins the phone's Wi-Fi Direct group off the actor, like a hotspot.
-    fn join_wifi_direct(&mut self, id: DeviceId, group: WifiDirect) {
+    /// Joins the phone's Wi-Fi Direct group off the actor, like a hotspot. Without a spare Wi-Fi interface the desktop
+    /// leaves its own network for it, so the shell asks first, as for the hotspot.
+    async fn join_wifi_direct(&mut self, id: DeviceId, group: Hotspot) {
         let on_bluetooth = self.sessions.get(&id).is_some_and(|session| session.connection().quic().is_none());
-        if !on_bluetooth || self.hotspots.contains_key(&id) || self.wifi_direct_peer.is_none() {
+        if !on_bluetooth || self.hotspots.contains_key(&id) || self.joining_groups.contains(&id) {
             return log::info!("{id}: ignoring a Wi-Fi Direct group this session does not need");
         }
-        log::info!("{id}: joining the phone's Wi-Fi Direct group as {:?}", group.name);
+        self.joining_groups.insert(id.clone());
+        // `spare` may remove a stale spare interface, so not while a group of this desktop may be on it.
+        let spare_in_use = self.joining_groups.len() > 1 || self.hotspots.values().any(crate::wifi_direct::on_spare);
+        let spare = if spare_in_use {
+            None
+        } else {
+            tokio::time::timeout(SPARE_TIMEOUT, crate::wifi_direct::spare()).await.ok().flatten()
+        };
+        if let Some(spare) = spare {
+            log::info!("{id}: joining the phone's Wi-Fi Direct group {:?} beside this desktop's network", group.ssid);
+            self.joining.spawn(async move {
+                let joined = crate::wifi_direct::join(spare, &group.ssid, &group.passphrase).await;
+                (id, None, joined)
+            });
+            return;
+        }
+        log::info!("{id}: asking whether to leave this desktop's Wi-Fi for the phone's group {:?}", group.ssid);
+        let answered = self.ask_hotspot(&id, &group.ssid).await;
         self.joining.spawn(async move {
-            let joined = crate::wifi_direct::join(&group.name).await;
+            let joined = match tokio::time::timeout(HOTSPOT_ASK_TIMEOUT, answered).await {
+                Ok(Ok(true)) => hotspot::join(&group.ssid, &group.passphrase).await,
+                _ => Err(HOTSPOT_DECLINED.to_owned()),
+            };
             (id, None, joined)
         });
     }
@@ -1510,9 +1536,7 @@ impl Hub {
         let abandoned = self.hotspots.remove(&id);
         log::info!("{id}: asking whether to join the phone's hotspot {:?}", offered.ssid);
         self.joining_hotspots.insert(id.clone());
-        let (answer, answered) = oneshot::channel();
-        self.hotspot_asks.insert(id.clone(), (answer, offered.ssid.clone()));
-        self.emit(Event::HotspotAsk { id: id.clone(), ssid: offered.ssid.clone() }).await;
+        let answered = self.ask_hotspot(&id, &offered.ssid).await;
         self.joining.spawn(async move {
             if let Some(group) = abandoned {
                 hotspot::leave(&group).await;
@@ -1525,9 +1549,20 @@ impl Hub {
         });
     }
 
+    /// Asks the shell whether the desktop may leave its Wi-Fi for `ssid`; the answer comes through `AnswerHotspot`.
+    async fn ask_hotspot(&mut self, id: &DeviceId, ssid: &str) -> oneshot::Receiver<bool> {
+        let (answer, answered) = oneshot::channel();
+        self.hotspot_asks.insert(id.clone(), (answer, ssid.to_owned()));
+        self.emit(Event::HotspotAsk { id: id.clone(), ssid: ssid.to_owned() }).await;
+        answered
+    }
+
     /// Answers the phone with where the desktop listens on its hotspot or group. A failed hotspot fails the sends
     /// waiting for it; a failed group does not, since the phone falls back to its hotspot.
     async fn hotspot_joined(&mut self, id: DeviceId, ssid: Option<String>, joined: Result<hotspot::Joined, String>) {
+        if ssid.is_none() {
+            self.joining_groups.remove(&id);
+        }
         if ssid.is_some() {
             self.joining_hotspots.remove(&id);
             if self.hotspot_asks.remove(&id).is_some() {
@@ -1540,6 +1575,8 @@ impl Hub {
                 hotspot::leave(&joined.active).await;
             }
             return;
+        } else if self.hotspot_asks.remove(&id).is_some() {
+            self.emit(Event::HotspotAsk { id: id.clone(), ssid: String::new() }).await;
         }
         let Some(session) = self.sessions.get(&id).cloned() else {
             let declined = joined.as_ref().is_err_and(|reason| reason == HOTSPOT_DECLINED);
@@ -1580,6 +1617,17 @@ impl Hub {
             hotspot::leave(&active).await;
             self.emit(Event::Hotspot { id: id.clone(), ssid: None }).await;
         }
+    }
+
+    fn set_paused(&mut self, id: &DeviceId, paused: bool) -> bool {
+        let Some(peer) = self.store.peer_mut(id) else { return false };
+        peer.paused = paused;
+        if paused && let Some(session) = self.sessions.get(id) {
+            session.close(CloseCode::Paused);
+        }
+        self.save();
+        self.publish();
+        true
     }
 
     fn unpair(&mut self, id: &DeviceId) -> bool {
@@ -1643,6 +1691,7 @@ impl Hub {
             .collect();
         let auto_accept =
             self.store.peers.iter().filter(|peer| peer.auto_accept).map(|peer| peer.id.to_string()).collect();
+        let paused = self.store.peers.iter().filter(|peer| peer.paused).map(|peer| peer.id.to_string()).collect();
         let grants = self.store.peers.iter().map(|peer| (peer.id.to_string(), peer.grants.names())).collect();
         let mut status: Vec<_> = self
             .status
@@ -1681,6 +1730,7 @@ impl Hub {
                 info,
                 pairing,
                 auto_accept,
+                paused,
                 grants,
                 status,
                 controls,
@@ -1779,6 +1829,11 @@ impl HubHandle {
 
     pub async fn unpair(&self, id: DeviceId) -> bool {
         self.request(|reply| Command::Unpair { id, reply }).await.unwrap_or(false)
+    }
+
+    /// Disconnects `id` and keeps it out until `paused` is false; false for an unknown device.
+    pub async fn set_paused(&self, id: DeviceId, paused: bool) -> bool {
+        self.request(|reply| Command::SetPaused { id, paused, reply }).await.unwrap_or(false)
     }
 
     pub async fn admit(&self, spki: Spki) -> Admission {

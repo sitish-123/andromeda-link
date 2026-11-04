@@ -398,7 +398,11 @@ ApplicationWindow {
                      remove: path => { window.files.remove(path); return true } },
             photos: { index: 3, ready: () => window.photos.photos.rowCount() > 0,
                       state: () => ({ photos: window.photos.photos.rowCount(), error: window.photos.error }),
-                      camera: () => { photosPage.taking = true; window.photos.takePhoto(); return true } }
+                      camera: () => { photosPage.taking = true; window.photos.takePhoto(); return true } },
+            screen: { index: 5, ready: () => true,
+                      state: () => ({ state: window.mirror.state, error: window.mirror.error,
+                                      width: window.mirror.videoWidth, height: window.mirror.videoHeight }),
+                      start: () => { window.mirror.start(); return true } }
         })
         property int ticks: 0
         property int step: 0

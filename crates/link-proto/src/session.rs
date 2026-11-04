@@ -88,10 +88,12 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::WifiDirect(_)
         | Message::BtPairing(_)
         | Message::MirrorStarted(_)
+        | Message::ScreenShape(_)
         | Message::FsEntries(_)
         | Message::FsData(_)
         | Message::FsError(_)
         | Message::PhotoTaken(_)
+        | Message::PhotosList(_)
         | Message::Contacts(_)
         | Message::ContactsChanged
         | Message::Texts(_)
@@ -121,6 +123,7 @@ fn receives(role: Role, message: &Message) -> bool {
         | Message::FsWrite(_)
         | Message::FsDelete(_)
         | Message::PhotoRequest(_)
+        | Message::PhotosRecent(_)
         | Message::ContactsList(_)
         | Message::TextsList(_)
         | Message::TextSend(_)
@@ -401,6 +404,7 @@ mod tests {
                 state: CallState::Ringing,
                 number: number.map(str::to_owned),
                 name: name.map(str::to_owned),
+                app: None,
             })
         };
         let action = Message::CallAction(CallAction { action: CallActionKind::Decline });
@@ -467,6 +471,43 @@ mod tests {
         assert_eq!(
             SessionState::new(Role::Phone).on_message(envelope(1, Message::Unpair)),
             Err(SessionError::Unexpected("unpair"))
+        );
+    }
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "a failed step fails the test")]
+    fn recent_photos_round_trip_and_keep_their_limits() {
+        use crate::message::{MAX_RECENT_PHOTOS, PhotosList, PhotosRecent, RecentPhoto};
+        let photo = |n: u64| RecentPhoto {
+            path: format!("/Photos/Camera/IMG_{n}.jpg"),
+            name: format!("IMG_{n}.jpg"),
+            added: n,
+        };
+        let list = Message::PhotosList(PhotosList { req: 3, photos: vec![photo(2), photo(1)] });
+        let ask = Message::PhotosRecent(PhotosRecent { req: 3, count: 2 });
+        for message in [list, ask] {
+            let decoded = Envelope::from_cbor(&Envelope::new(5, message.clone()).to_cbor());
+            assert_eq!(decoded.expect("valid").message, message);
+        }
+        let bad = [
+            Message::PhotosRecent(PhotosRecent { req: 1, count: 0 }),
+            Message::PhotosRecent(PhotosRecent { req: 1, count: MAX_RECENT_PHOTOS + 1 }),
+            Message::PhotosList(PhotosList {
+                req: 1,
+                photos: vec![RecentPhoto { path: "Camera".to_owned(), ..photo(1) }],
+            }),
+        ];
+        for message in bad {
+            let kind = message.kind();
+            let decoded = Envelope::from_cbor(&Envelope::new(1, message).to_cbor());
+            assert!(matches!(decoded, Err(DecodeError::Invalid(k)) if k == kind), "{kind} decoded as {decoded:?}");
+        }
+        let (phone, desktop) = (Role::Phone, Role::Desktop);
+        let ask = Message::PhotosRecent(PhotosRecent { req: 1, count: 1 });
+        assert!(SessionState::new(phone).on_message(envelope(1, ask.clone())).is_ok());
+        assert_eq!(
+            SessionState::new(desktop).on_message(envelope(1, ask)),
+            Err(SessionError::Unexpected("photos-recent"))
         );
     }
 }

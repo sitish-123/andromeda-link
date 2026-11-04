@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- hiddenapibypass 6.2 needs compileSdk 37. -->
+    <issue id="NewerVersionAvailable">
+        <ignore regexp="hiddenapibypass" />
+    </issue>
+</lint>

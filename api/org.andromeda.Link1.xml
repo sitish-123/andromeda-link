@@ -1,6 +1,8 @@
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
   "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
-<!-- Served by andromeda-linkd on the session bus at /org/andromeda/Link1. -->
+<!-- Served by andromeda-linkd on the session bus at /org/andromeda/Link1. Any process of the user may call every method
+     (docs/link-v2.md, rule 8): no method checks its caller, so Unpair, SetAutoAccept, Disconnect, Connect, and SavePhoto
+     are open to the user's own processes. -->
 <node>
   <interface name="org.andromeda.Link1">
     <!-- Opens a 120 s pairing window accepting one attempt; replaces an open window. -->
@@ -60,6 +62,21 @@
       <arg name="size" type="q" direction="in"/>
       <arg name="png" type="ay" direction="out"/>
     </method>
+    <!-- The count (1 to 64) newest photos on a connected phone, newest first: path (for Thumbnail, ReadFile, and
+         SavePhoto), name, time in Unix seconds. Errors as ListFiles; .Refused("denied") while Android withholds photo
+         access on the phone, .Refused("not-found") from a phone without feature:photos-recent. -->
+    <method name="RecentPhotos">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="count" type="q" direction="in"/>
+      <arg name="photos" type="a(sst)" direction="out"/>
+    </method>
+    <!-- Copies a photo of the last RecentPhotos answer for this device into the downloads folder, named from its own
+         name (cleaned, never replacing a file), and returns the saved path. Errors: .Rejected for any other path. -->
+    <method name="SavePhoto">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="saved" type="s" direction="out"/>
+    </method>
     <!-- Up to length bytes (1 byte to 1 MiB) of a file on a connected phone from offset; fewer at its end, none
          past it. Errors as ListFiles. -->
     <method name="ReadFile">
@@ -94,7 +111,8 @@
     <!-- Asks a connected phone to mirror its screen and returns the viewer's end of the video with its size once the
          phone's user allowed capture (up to 60 s). The socket carries H.264 access units, each a big-endian u32 length,
          u64 presentation time in microseconds, and flags byte (1 keyframe, 2 codec configuration, 4 audio: an Opus
-         packet of 48 kHz stereo), then the bytes; closing it tells the phone to stop. On Bluetooth the request first
+         packet of 48 kHz stereo, 8 end: an empty last unit when the phone ended mirroring on purpose; a socket that
+         closes without it lost the stream), then the bytes; closing it tells the phone to stop. On Bluetooth the request first
          waits up to 60 s for the session to move to the phone's hotspot. Errors: .NotConnected, .Refused with the
          phone's reason (its screen switch is off, declined on the phone), .Failed when the hotspot did not come up
          ("mirroring needs Wi-Fi"), a phone already mirroring, or no answer in time. -->
@@ -105,8 +123,14 @@
       <arg name="height" type="u" direction="out"/>
     </method>
     <!-- Input on the mirrored screen. action: tap, long-press (x, y, ms?), swipe (x, y, x2, y2, ms?), scroll (x, y and
-         a signed delta x2, y2), back, home, recents, text (text; U+0008 deletes, "\n" presses Enter). Coordinates are
-         int32 in 1/10000 of the video's width and height; ms is uint32. Errors: .Rejected for anything out of range. -->
+         a signed delta x2, y2), back, home, recents, text (text; U+0008 deletes, "\n" presses Enter); touch-down,
+         touch-move, touch-up (x, y: one finger that follows the pointer); wheel (x, y, and x2, y2 the wheel's turn in
+         1/100 of a step, positive right and down); key-down, key-up (code: an Android KeyEvent key code 1..400, meta?:
+         its meta state); screen-off, screen-on (the phone's own panel; mirroring goes on). Coordinates are int32 in
+         1/10000 of the video's width and height; ms, code and meta are int32 or uint32. The phone's shell helper, when
+         it runs, injects these as real events; without it touch and wheel become gestures, keys map to the few
+         Accessibility actions (Back, Home, Recents, Enter, Backspace, volume, power as lock), and screen-off does
+         nothing. Errors: .Rejected for anything out of range. -->
     <method name="MirrorInput">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="action" type="s" direction="in"/>
@@ -127,6 +151,15 @@
     <!-- Either direction; the device is told and partial files are deleted. -->
     <method name="CancelTransfer">
       <arg name="transfer_id" type="s" direction="in"/>
+    </method>
+    <!-- Ends the session with the device and refuses it until Connect, also after a daemon restart. The device stays
+         paired. Errors: InvalidArgs for an unknown device. -->
+    <method name="Disconnect">
+      <arg name="device_id" type="s" direction="in"/>
+    </method>
+    <!-- Lifts Disconnect. The daemon cannot dial: the phone reconnects at its next retry, within 30 s. -->
+    <method name="Connect">
+      <arg name="device_id" type="s" direction="in"/>
     </method>
     <!-- Accept this device's offers without a TransferOffered. Off for a newly paired device. -->
     <method name="SetAutoAccept">
@@ -172,6 +205,8 @@
     <property name="DeviceInfo" type="a{sa{sv}}" access="read"/>
     <!-- Devices whose offers are accepted without asking. -->
     <property name="AutoAccept" type="as" access="read"/>
+    <!-- Devices the user disconnected; they stay paired and cannot connect until Connect. -->
+    <property name="Paused" type="as" access="read"/>
     <!-- Connected device id to (battery percent, charging, network, signal); network is wifi, cellular, ethernet,
          none, or other; signal is cellular bars, 0 to 4, or -1 without service. A device appears once it reported,
          and leaves when it disconnects. -->
@@ -259,19 +294,20 @@
       <!-- False for an update that replaces the shown notification without a sound or a popup. -->
       <arg name="alert" type="b"/>
     </signal>
-    <!-- action is "mute" (silence the ringer until the call ends) or "decline" (end the ringing call). Returns once sent.
+    <!-- action is "mute" (silence the ringer until the call ends) or "decline" (end the ringing or active call). Returns once sent.
          Errors: .NotConnected, .Rejected for another action. -->
     <method name="CallAction">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="action" type="s" direction="in"/>
     </method>
     <!-- The phone's call state changed: state is "ringing", "active", or "idle"; number and name are empty when the
-         phone may not read them. -->
+         phone may not read them. app names the app of a call without a number, such as Messenger; else empty. -->
     <signal name="Call">
       <arg name="device_id" type="s"/>
       <arg name="state" type="s"/>
       <arg name="number" type="s"/>
       <arg name="name" type="s"/>
+      <arg name="app" type="s"/>
     </signal>
     <!-- Starts (true) or stops ringing the phone. Returns once sent. Errors: .NotConnected. -->
     <method name="Ring">
@@ -307,6 +343,14 @@
       <arg name="device_id" type="s"/>
       <arg name="ssid" type="s"/>
     </signal>
+    <!-- The mirroring phone's screen shape, after the mirror starts and after each turn: rounded-corner radii
+         (top-left, top-right, bottom-right, bottom-left; all 0 when the phone does not know them) and camera cutouts
+         as (x, y, width, height), in 1/10000 of the picture's width (x, radii) or height (y). -->
+    <signal name="ScreenShape">
+      <arg name="device_id" type="s"/>
+      <arg name="corners" type="aq"/>
+      <arg name="cutouts" type="a(qqqq)"/>
+    </signal>
     <!-- The phone's own ringing started or stopped, for any reason. -->
     <signal name="PhoneRinging">
       <arg name="device_id" type="s"/>
@@ -333,6 +377,13 @@
       <arg name="dx" type="i"/>
       <arg name="dy" type="i"/>
       <arg name="detail" type="s"/>
+    </signal>
+    <!-- A phone holding the input grant moved its fingers on its touchpad: every finger down now as (id, x, y), the
+         position from the pad's top left in 1/100 mm; empty when the last finger lifts. link-session feeds them to a
+         uinput touchpad, so the desktop's own touchpad settings and gestures apply. -->
+    <signal name="RemoteTouch">
+      <arg name="device_id" type="s"/>
+      <arg name="contacts" type="a(yuu)"/>
     </signal>
     <!-- A phone holding the input grant, on the same network, asks for this desktop's screen (remote control):
          source indexes the sources last served to it, -1 for the first. The session answers with

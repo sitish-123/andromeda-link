@@ -152,6 +152,14 @@ pub(super) fn signal(message: zbus::Message) -> Option<Event> {
         let args = signal.args().ok()?;
         return Some(Event::Received { device: owned(args.device_id), text: owned(args.text) });
     }
+    if let Some(signal) = link_api::ScreenShape::from_message(message.clone()) {
+        let args = signal.args().ok()?;
+        return Some(Event::ScreenShape {
+            device: owned(args.device_id),
+            corners: args.corners,
+            cutouts: args.cutouts,
+        });
+    }
     if let Some(signal) = link_api::TextReceived::from_message(message.clone()) {
         let args = signal.args().ok()?;
         return Some(Event::TextReceived { device: owned(args.device_id), address: owned(args.address) });

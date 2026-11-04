@@ -113,6 +113,21 @@ Flickable {
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.b2 }
             RowLayout {
                 Layout.topMargin: 12
+                IconButton {
+                    // The phone has no media mute of its own: mute is level 0, and unmute brings back the level before.
+                    property int before: 50
+                    iconName: home.link.mediaVolume === 0 ? "vol-mute" : "vol"
+                    text: home.link.mediaVolume === 0 ? "Unmute phone media" : "Mute phone media"
+                    enabled: volume.enabled
+                    onClicked: {
+                        if (home.link.mediaVolume === 0) {
+                            home.link.setMediaVolume(before)
+                        } else {
+                            before = home.link.mediaVolume
+                            home.link.setMediaVolume(0)
+                        }
+                    }
+                }
                 Label {
                     Layout.fillWidth: true
                     text: "Media volume"

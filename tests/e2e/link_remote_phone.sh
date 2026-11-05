@@ -37,7 +37,7 @@ SESSION=(env -u DISPLAY -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u XDG_CACHE_HOME HO
 # The desktop: Andromeda with two headless outputs and the shell, as the superproject's E2Es boot it.
 mkdir -p "$RUNTIME/home/.config/noctalia" "$RUNTIME/home/.config/xdg-desktop-portal-andromeda"
 printf '[plugins]\nauto_update = "none"\n\n[shell]\nsetup_wizard_enabled = false\n' > "$RUNTIME/home/.config/noctalia/config.toml"
-printf '[general]\nautostart = []\nshow_cheatsheet = false\n' > "$RUNTIME/andromeda.toml"
+printf '[general]\nautostart = []\n' > "$RUNTIME/andromeda.toml"
 cat > "$RUNTIME/chooser" <<'PY'
 #!/usr/bin/env python3
 import json, sys

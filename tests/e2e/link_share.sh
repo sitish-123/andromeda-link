@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Link sessions and shares across two network namespaces joined by a veth pair, inside an unprivileged user namespace.
 # Proves: a present phone (keep-alive) shows connected on D-Bus and stays on the same connection through a 5 s black
-# hole; a 35 s black hole ends the session on both sides, D-Bus Share then fails as not connected, and the phone
+# hole; a black hole past the 90 s idle timeout ends the session on both sides, D-Bus Share then fails as not connected, and the phone
 # redials by itself once the path returns; it also redials after a daemon restart; text and links travel both ways
 # (D-Bus Share to the phone's event output, the phone's shares to the D-Bus Received signal); an oversized text and
 # non-http links are refused by D-Bus and by the phone before sending, and a hostile phone that skips its checks is
@@ -138,7 +138,7 @@ link Share "$ID" text "'after a short drop'" > /dev/null || fail "session did no
 record '{"step":"survives-short-drop","seconds":5}'
 
 blackhole
-wait_for 40 "desktop still shows the phone connected in a black hole" disconnected
+wait_for 100 "desktop still shows the phone connected in a black hole" disconnected
 wait_for 10 "phone never noticed the black hole" eval '[[ $(events disconnected) == 1 ]]'
 OUTPUT=$(link Share "$ID" text "'into the void'" 2>&1) && fail "Share succeeded during the black hole"
 [[ $OUTPUT == *NotConnected* ]] || fail "Share in the black hole: $OUTPUT"

@@ -138,7 +138,8 @@ link Share "$ID" text "'after a short drop'" > /dev/null || fail "session did no
 record '{"step":"survives-short-drop","seconds":5}'
 
 blackhole
-wait_for 100 "desktop still shows the phone connected in a black hole" disconnected
+# The idle timer restarts on the first ping after the last packet: 90 s IDLE_TIMEOUT + 30 s KEEP_ALIVE, plus margin.
+wait_for 130 "desktop still shows the phone connected in a black hole" disconnected
 wait_for 10 "phone never noticed the black hole" eval '[[ $(events disconnected) == 1 ]]'
 OUTPUT=$(link Share "$ID" text "'into the void'" 2>&1) && fail "Share succeeded during the black hole"
 [[ $OUTPUT == *NotConnected* ]] || fail "Share in the black hole: $OUTPUT"

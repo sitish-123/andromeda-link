@@ -104,7 +104,8 @@ async fn reply(session: &mut Session) -> Result<Message, Error> {
             | Message::DesktopStatus(_)
             | Message::MediaPlayer(_)
             | Message::ContactsList(_)
-            | Message::TextsList(_) => {}
+            | Message::TextsList(_)
+            | Message::CallsList(_) => {}
             message => return Ok(message),
         }
     }

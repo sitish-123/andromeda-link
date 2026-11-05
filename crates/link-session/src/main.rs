@@ -243,6 +243,8 @@ async fn main() -> anyhow::Result<()> {
     let mut remote: Option<(String, u64)> = None;
     let mut prefetch: Option<prefetch::Prefetch> = None;
     log::info!("running");
+    let replaced = replaced();
+    tokio::pin!(replaced);
     loop {
         tokio::select! {
             Some(signal) = posted.next() => {
@@ -307,7 +309,7 @@ async fn main() -> anyhow::Result<()> {
                     anyhow::bail!("the screen-sharing portal or the shell started after link-session; restarting to use it");
                 }
             }
-            () = replaced() => anyhow::bail!("an upgrade replaced andromeda-link-session; exiting to run the new one"),
+            () = &mut replaced => anyhow::bail!("an upgrade replaced andromeda-link-session; exiting to run the new one"),
             Some(signal) = remote_input.next() => {
                 // The daemon sends it only from devices holding the input grant.
                 let Ok(args) = signal.args() else { continue };

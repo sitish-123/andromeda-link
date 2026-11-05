@@ -169,11 +169,33 @@ fn bind(identity: &Identity, last: u16) -> anyhow::Result<(quinn::Endpoint, Punc
 /// Resolves when a package upgrade replaced this program's file, so the service manager restarts it into the new one.
 #[cfg(target_os = "linux")]
 async fn replaced() {
-    let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+    use rustix::fs::inotify;
+    let deleted =
+        || std::fs::read_link("/proc/self/exe").is_ok_and(|exe| exe.to_string_lossy().ends_with(" (deleted)"));
+    // Replacing or removing the file lowers its link count, which inotify reports as ATTRIB.
+    let watch = || -> std::io::Result<_> {
+        let fd = inotify::init(inotify::CreateFlags::NONBLOCK | inotify::CreateFlags::CLOEXEC)?;
+        inotify::add_watch(&fd, std::fs::read_link("/proc/self/exe")?, inotify::WatchFlags::ATTRIB)?;
+        // Sound for OwnedFd, whose descriptor never changes; `register` would need unsafe, which the workspace forbids.
+        #[allow(deprecated)]
+        tokio::io::unix::AsyncFd::new(fd)
+    };
+    let fd = match watch() {
+        Ok(fd) => fd,
+        Err(error) => {
+            log::warn!("cannot watch the program file for upgrades: {error}");
+            return std::future::pending().await;
+        }
+    };
+    let mut buf = [0u8; 1024];
     loop {
-        tick.tick().await;
-        if std::fs::read_link("/proc/self/exe").is_ok_and(|exe| exe.to_string_lossy().ends_with(" (deleted)")) {
+        if deleted() {
             return;
         }
+        let Ok(mut ready) = fd.readable().await else {
+            return std::future::pending().await;
+        };
+        while rustix::io::read(fd.get_ref(), &mut buf).is_ok() {}
+        ready.clear_ready();
     }
 }

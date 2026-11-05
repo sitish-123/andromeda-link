@@ -66,7 +66,10 @@ jobs:
       - run: >
           QMAKE="$QT_ROOT_DIR/bin/qmake" cargo rustc --release --locked -p link-desk --bin andromeda-link --
           -C link-arg=-Wl,-rpath,/usr/lib/andromeda-link/qt/lib
-      - run: QT_BUNDLE="$QT_ROOT_DIR" dist/deb/build-deb.sh target/release out
+      # A tag builds its own version; a manual run builds 0~r<count>, which sorts below every tag.
+      - run: |
+          [ "$GITHUB_REF_TYPE" = tag ] && export LINK_VERSION=${GITHUB_REF_NAME#v}
+          QT_BUNDLE="$QT_ROOT_DIR" dist/deb/build-deb.sh target/release out
       - uses: actions/upload-artifact@v4
         with: { name: deb, path: out/*.deb }
 
@@ -83,7 +86,7 @@ jobs:
       - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror -p link-desk
       - run: >
           rpmbuild -bb dist/rpm/andromeda-link.spec --define "linkroot $PWD" --define "linkbin $PWD/target/release"
-          --define "linkversion 0~r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)" --define "_rpmdir $PWD/out"
+          --define "linkversion $([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo "0~r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)")" --define "_rpmdir $PWD/out"
       - uses: actions/upload-artifact@v4
         with: { name: rpm, path: out/**/*.rpm }
 
@@ -143,7 +146,7 @@ jobs:
         with: { name: arch, path: arch }
       - run: |
           version=${GITHUB_REF_NAME#v}
-          sed -e "s/@VERSION@/$version/" -e "s/@SHA256@/$(sha256sum arch/*.pkg.tar.zst | cut -d' ' -f1)/" \
+          sed -e "s/@VERSION@/$version/" -e "s/@SHA256@/$(sha256sum $(ls arch/*.pkg.tar.zst | grep -v -- -debug-) | cut -d' ' -f1)/" \
             -e "s/@INSTALL_SHA256@/$(sha256sum dist/andromeda-link.install | cut -d' ' -f1)/" \
             dist/arch/andromeda-link-bin.PKGBUILD > PKGBUILD
           mkdir aur && mv PKGBUILD aur/ && cp dist/andromeda-link.install aur/

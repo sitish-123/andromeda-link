@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 BIN=${1:?target release dir}
 OUT=${2:?output dir}
-VERSION="0~r$(git -C "$ROOT" rev-list --count HEAD).g$(git -C "$ROOT" rev-parse --short HEAD)"
+VERSION=${LINK_VERSION:-"0~r$(git -C "$ROOT" rev-list --count HEAD).g$(git -C "$ROOT" rev-parse --short HEAD)"}
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 P=$STAGE/andromeda-link

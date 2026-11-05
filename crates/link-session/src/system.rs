@@ -2,16 +2,17 @@
 //! suspend, brightness, locked, idle), `UPower` (battery), power-profiles-daemon (profile), and the Andromeda shell
 //! (Do Not Disturb, screen off). A part whose service is missing is left out, and its commands say so.
 
+use std::io::{Read, Seek};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::time::Duration;
+use std::sync::Arc;
 
 use futures_util::stream::{SelectAll, Stream, StreamExt};
+use rustix::event::{PollFd, PollFlags, poll};
+use tokio::sync::Notify;
 
 /// Profiles in `set-profile` value order.
 const PROFILES: [&str; 3] = ["power-saver", "balanced", "performance"];
-/// sysfs gives no change events for the backlight, so it is read this often.
-const BACKLIGHT_EVERY: Duration = Duration::from_secs(1);
 
 #[zbus::proxy(
     interface = "org.freedesktop.login1.Session",
@@ -105,7 +106,8 @@ pub struct System {
     backlight: Option<Backlight>,
     changes: Changes,
     brightness: Option<u8>,
-    tick: tokio::time::Interval,
+    /// Woken on each backlight change (see `watch_backlight`).
+    brightness_changed: Arc<Notify>,
 }
 
 impl System {
@@ -162,9 +164,11 @@ impl System {
         }
         let backlight = backlight();
         let brightness = backlight.as_ref().and_then(read_brightness);
-        let mut tick = tokio::time::interval(BACKLIGHT_EVERY);
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        Self { session, manager, battery, profiles, shell, backlight, changes, brightness, tick }
+        let brightness_changed = Arc::new(Notify::new());
+        if let Some(b) = &backlight {
+            watch_backlight(&b.dir.join("actual_brightness"), brightness_changed.clone());
+        }
+        Self { session, manager, battery, profiles, shell, backlight, changes, brightness, brightness_changed }
     }
 
     /// What phones can ask of this desktop, as `SetSessionCapabilities` lists it.
@@ -211,7 +215,7 @@ impl System {
         loop {
             tokio::select! {
                 Some(()) = self.changes.next(), if !self.changes.is_empty() => return,
-                _ = self.tick.tick(), if self.backlight.is_some() => {
+                () = self.brightness_changed.notified() => {
                     let now = self.backlight.as_ref().and_then(read_brightness);
                     if now != self.brightness {
                         self.brightness = now;
@@ -283,6 +287,31 @@ fn backlight() -> Option<Backlight> {
     let name = dir.file_name()?.to_str()?.to_owned();
     let max = std::fs::read_to_string(dir.join("max_brightness")).ok()?.trim().parse().ok().filter(|max| *max > 0)?;
     Some(Backlight { dir, name, max })
+}
+
+/// The kernel marks `actual_brightness` (POLLPRI) on each brightness change; a thread waits for that and wakes
+/// `changed`. A plain file (the tests' fake backlight) never gets the mark.
+fn watch_backlight(path: &std::path::Path, changed: Arc<Notify>) {
+    let Ok(mut file) = std::fs::File::open(path) else { return };
+    let spawned = std::thread::Builder::new().name("backlight".into()).spawn(move || {
+        loop {
+            // Reading the file from the start arms its next mark.
+            if file.rewind().and_then(|()| file.read_to_string(&mut String::new())).is_err() {
+                return;
+            }
+            let mut fds = [PollFd::new(&file, PollFlags::PRI)];
+            match poll(&mut fds, None) {
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(_) => return,
+                Ok(_) if fds[0].revents().contains(PollFlags::NVAL) => return,
+                Ok(_) => {}
+            }
+            changed.notify_one();
+        }
+    });
+    if let Err(error) = spawned {
+        log::warn!("backlight watch: {error}");
+    }
 }
 
 #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped to 0 to 100 first")]

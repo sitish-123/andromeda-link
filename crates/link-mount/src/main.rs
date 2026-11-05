@@ -55,7 +55,10 @@ fn main() -> anyhow::Result<()> {
         anyhow::Ok(())
     })?;
     thumbnailer.abort();
-    session.umount_and_join().context("unmounting")
+    // The unmount is lazy: a join would wait for every process to leave the mount. Exiting closes the FUSE
+    // connection, so programs still in it get ENOTCONN.
+    drop(session);
+    Ok(())
 }
 
 /// Creates the mount point, or clears a mount left by a process that died.

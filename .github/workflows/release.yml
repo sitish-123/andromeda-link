@@ -14,11 +14,11 @@ jobs:
   android:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with: { distribution: temurin, java-version: "17" }
-      - uses: dtolnay/rust-toolchain@stable
-        with: { targets: "aarch64-linux-android,x86_64-linux-android" }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with: { toolchain: stable, targets: "aarch64-linux-android,x86_64-linux-android" }
       - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler && cargo install cargo-ndk --locked
       - name: Signing key
         env: { KEY: "${{ secrets.LINK_KEYSTORE_BASE64 }}" }
@@ -33,34 +33,36 @@ jobs:
           LINK_KEYSTORE_PASSWORD: ${{ secrets.LINK_KEYSTORE_PASSWORD }}
           LINK_KEY_ALIAS: ${{ secrets.LINK_KEY_ALIAS }}
         run: ./gradlew -q :app:assembleRelease
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: android, path: apps/android/app/build/outputs/apk/release/*.apk }
 
   macos:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: jurplel/install-qt-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with: { toolchain: stable }
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with: { version: "6.12.0", modules: qtmultimedia, cache: true }
       - run: brew install protobuf
       - run: cargo build --release --locked -p link-desk -p link-daemon -p link-session -p link-nowplaying
       - run: QT_MAC="$QT_ROOT_DIR" dist/macos/bundle.sh target/release "Andromeda Link.app"
       - run: ditto -c -k --keepParent "Andromeda Link.app" Andromeda-Link-macos-arm64.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: macos, path: Andromeda-Link-macos-arm64.zip }
 
   deb:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with: { toolchain: stable }
       - run: >
           sudo apt-get update && sudo apt-get install -y protobuf-compiler pkg-config libdbus-1-dev libfuse3-dev
           libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev
           libgl-dev libegl-dev libxkbcommon-dev
       # Ubuntu 24.04's Qt is too old for the app, so the .deb carries this Qt (see dist/deb/build-deb.sh).
-      - uses: jurplel/install-qt-action@v4
+      - uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06 # v4.5.0
         with: { version: "6.12.0", modules: qtmultimedia, cache: true }
       - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror
       - run: >
@@ -70,7 +72,7 @@ jobs:
       - run: |
           [ "$GITHUB_REF_TYPE" = tag ] && export LINK_VERSION=${GITHUB_REF_NAME#v}
           QT_BUNDLE="$QT_ROOT_DIR" dist/deb/build-deb.sh target/release out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: deb, path: out/*.deb }
 
   rpm:
@@ -81,13 +83,13 @@ jobs:
           dnf install -y git rust cargo rpm-build protobuf-compiler protobuf-devel pkgconf dbus-devel fuse3-devel gtk4-devel
           gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-bad-free-devel qt6-qtbase-devel
           qt6-qtdeclarative-devel qt6-qtmultimedia-devel clang lld
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: git config --global --add safe.directory "$PWD"
       - run: cargo build --release --locked -p link-daemon -p link-session -p link-mount -p link-mirror -p link-desk
       - run: >
           rpmbuild -bb dist/rpm/andromeda-link.spec --define "linkroot $PWD" --define "linkbin $PWD/target/release"
           --define "linkversion $([ "$GITHUB_REF_TYPE" = tag ] && echo "${GITHUB_REF_NAME#v}" || echo "0~r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)")" --define "_rpmdir $PWD/out"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: rpm, path: out/**/*.rpm }
 
   flatpak:
@@ -96,13 +98,13 @@ jobs:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
       options: --privileged
     steps:
-      - uses: actions/checkout@v4
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
         with:
           bundle: andromeda-link.flatpak
           manifest-path: dist/flatpak/org.andromeda.Link.yml
           upload-artifact: false
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: flatpak, path: andromeda-link.flatpak }
 
   arch:
@@ -112,22 +114,22 @@ jobs:
       - run: >
           pacman -Syu --noconfirm --needed base-devel git cargo protobuf clang lld dbus fuse3 gtk4 qt6-base
           qt6-declarative qt6-multimedia gstreamer gst-plugins-base-libs gst-plugins-bad gst-plugin-gtk4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # makepkg refuses to run as root.
       - run: useradd -m builder && chown -R builder "$PWD"
       - run: >
           su builder -c "cd dist/arch && sed -i 's/^pkgver=.*/pkgver=${GITHUB_REF_NAME#v}/' PKGBUILD
           && makepkg --nodeps --noconfirm"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: arch, path: dist/arch/*.pkg.tar.zst }
 
   publish:
     needs: [android, macos, deb, rpm, flatpak, arch]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { path: dist, merge-multiple: true }
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: dist/**/*
           generate_release_notes: true
@@ -141,8 +143,8 @@ jobs:
     # Without the key the release still publishes; the AUR package waits for the next tag.
     env: { AUR_KEY: "${{ secrets.AUR_SSH_KEY }}" }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: arch, path: arch }
       - run: |
           version=${GITHUB_REF_NAME#v}
@@ -150,7 +152,7 @@ jobs:
             -e "s/@INSTALL_SHA256@/$(sha256sum dist/andromeda-link.install | cut -d' ' -f1)/" \
             dist/arch/andromeda-link-bin.PKGBUILD > PKGBUILD
           mkdir aur && mv PKGBUILD aur/ && cp dist/andromeda-link.install aur/
-      - uses: KSXGitHub/github-actions-deploy-aur@v3
+      - uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050 # v4.2.0
         if: env.AUR_KEY != ''
         with:
           pkgname: andromeda-link-bin

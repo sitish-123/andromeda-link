@@ -37,7 +37,7 @@ jobs:
         with: { name: android, path: apps/android/app/build/outputs/apk/release/*.apk }
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

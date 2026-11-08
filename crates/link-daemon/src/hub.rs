@@ -61,13 +61,26 @@ pub struct Attempt {
     pub window: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceInfo {
+    pub id: String,
+    /// Unix seconds of the last session, kept in the device store.
+    pub last_seen: i64,
+    /// wifi, bluetooth, or empty when not connected.
+    pub transport: &'static str,
+    /// `(free, total)` bytes of the phone's shared storage, as last reported; kept in memory past the session.
+    pub storage: Option<(u64, u64)>,
+    /// Percent, while connected.
+    pub battery: Option<u8>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[expect(clippy::struct_excessive_bools, reason = "one field per D-Bus property")]
 pub struct Snapshot {
     /// `(device_id, name, connected)`, the D-Bus `Devices` property.
     pub devices: Vec<(String, String, bool)>,
-    /// `(device_id, last_seen, transport)`, the D-Bus `DeviceInfo` property; transport is wifi, bluetooth, or empty.
-    pub info: Vec<(String, i64, &'static str)>,
+    /// One per paired device, the D-Bus `DeviceInfo` property.
+    pub info: Vec<DeviceInfo>,
     pub pairing: bool,
     /// Devices whose file offers are accepted without asking, the D-Bus `AutoAccept` property.
     pub auto_accept: Vec<String>,
@@ -291,6 +304,8 @@ pub struct Hub {
     windows_opened: u64,
     sessions: HashMap<DeviceId, SessionHandle>,
     status: HashMap<DeviceId, Status>,
+    /// The last storage each phone reported, kept past its session.
+    storage: HashMap<DeviceId, link_core::proto::message::Storage>,
     notifications: Mirror,
     media: Media,
     /// Phones with a call ringing or active, during which the desktop's players stay paused.
@@ -399,6 +414,7 @@ impl Hub {
             windows_opened: 0,
             sessions: HashMap::new(),
             status: HashMap::new(),
+            storage: HashMap::new(),
             notifications,
             media,
             in_call: HashSet::new(),
@@ -629,7 +645,13 @@ impl Hub {
                 Signal::Offered { id, device: from.to_string(), files }
             }
             TransferEvent::Progress { id, bytes, total } => Signal::Progress { id, bytes, total },
-            TransferEvent::Finished { id, status, files, .. } => {
+            TransferEvent::Finished { id, peer, incoming, status, files } => {
+                if incoming {
+                    let name = self.store.peer(&peer).map_or("", |known| known.name.as_str());
+                    for file in &files {
+                        crate::save::mark_origin(&file.path, peer.as_str(), name);
+                    }
+                }
                 Signal::Finished { id, status, paths: files.into_iter().map(|file| file.path).collect() }
             }
             TransferEvent::ClipOffered { from, id, mimes, size, .. } => {
@@ -1208,6 +1230,9 @@ impl Hub {
     /// Records a phone's status; with Do Not Disturb sync, the phone's new DND goes to `link-session`. On connect the
     /// desktop's DND wins, so a DND set here while the phone was away stays.
     async fn on_status(&mut self, from: DeviceId, status: Status) {
+        if let Some(storage) = status.storage {
+            self.storage.insert(from.clone(), storage);
+        }
         let Some(before) = self.status.insert(from.clone(), status).map(|old| old.dnd) else {
             self.publish();
             self.sync_dnd_to_phones().await;
@@ -1686,7 +1711,13 @@ impl Hub {
                     .sessions
                     .get(&peer.id)
                     .map_or("", |session| if session.connection().quic().is_some() { "wifi" } else { "bluetooth" });
-                (peer.id.to_string(), i64::try_from(peer.last_seen).unwrap_or(0), transport)
+                DeviceInfo {
+                    id: peer.id.to_string(),
+                    last_seen: i64::try_from(peer.last_seen).unwrap_or(0),
+                    transport,
+                    storage: self.storage.get(&peer.id).map(|storage| (storage.free, storage.total)),
+                    battery: self.status.get(&peer.id).map(|status| status.battery),
+                }
             })
             .collect();
         let auto_accept =

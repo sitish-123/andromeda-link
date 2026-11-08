@@ -136,6 +136,8 @@ netem_off
 [[ $(sha "$RUNTIME/src/big.bin") == $(sha "$DOWNLOADS/big.bin") ]] || fail "the big file's hash differs"
 printf 'big.bin sent %s\nbig.bin received %s\n' "$(sha "$RUNTIME/src/big.bin")" "$(sha "$DOWNLOADS/big.bin")" >> "$OUT/hashes.txt"
 ls -A "$DOWNLOADS" | grep -q linkpart && fail "a part file was left behind"
+ORIGIN=$(python3 -c 'import os,sys; print(os.getxattr(sys.argv[1], "user.xdg.origin.url").decode())' "$DOWNLOADS/big.bin")
+[[ $ORIGIN == link://* ]] || fail "the received file has no link:// origin: $ORIGIN"
 record "{\"step\":\"address-change-mid-transfer\",\"part_bytes_at_move\":$MOVED_AT,\"migrated\":$( (( RESUMES == 1 )) && echo true || echo false),\"resumed_at\":$RESUME2}"
 python3 - "$OUT/throughput.json" 1073741824 "$STARTED" "$ENDED" "$KILLED_AT" "$RESUME1" "$MOVED_AT" "$RESUME2" <<'PY'
 import json, sys

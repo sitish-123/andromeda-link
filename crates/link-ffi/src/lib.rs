@@ -380,6 +380,13 @@ pub struct PhoneControls {
     pub locked: Option<bool>,
 }
 
+/// Bytes of the phone's primary shared storage.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct PhoneStorage {
+    pub free: u64,
+    pub total: u64,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct DesktopCommand {
     pub id: String,
@@ -1349,9 +1356,9 @@ impl LinkClient {
     }
 
     /// The phone's battery (percent), network (wifi, cellular, ethernet, none, or other), and cellular signal (0 to 4
-    /// bars, None without service), whether the user turned off notification access, and its controls, sent to every
-    /// desktop on
-    /// connect and, at most every 10 s, on change.
+    /// bars, None without service), whether the user turned off notification access, its controls, and its shared
+    /// storage, sent to every desktop on connect and, at most every 10 s, on change.
+    #[expect(clippy::too_many_arguments, reason = "one argument per status field the app reports")]
     pub async fn set_status(
         &self,
         battery: u8,
@@ -1360,6 +1367,7 @@ impl LinkClient {
         signal: Option<u8>,
         notifications_off: bool,
         controls: PhoneControls,
+        storage: Option<PhoneStorage>,
     ) -> Result<(), LinkError> {
         let ringer = match controls.ringer.as_deref() {
             None => None,
@@ -1380,6 +1388,7 @@ impl LinkClient {
             ringer,
             dnd: controls.dnd,
             locked: controls.locked,
+            storage: storage.map(|PhoneStorage { free, total }| message::Storage { free: free.min(total), total }),
         };
         let client = self.client.clone();
         self.run(async move { client.set_status(status).await }).await

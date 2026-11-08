@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# RecentPhotos, SavePhoto, and Disconnect/Connect through the real daemon and the headless phone (a folder of albums
+# RecentPhotos, SavePhoto, SavePhotoTo, DeviceInfo, and Disconnect/Connect through the real daemon and the headless phone (a folder of albums
 # stands in for Android's media store).
 #
 # Proves:
 # 1. With the phone's browse switch off, RecentPhotos is refused (not-allowed).
 # 2. With it on, RecentPhotos lists the photos newest first and stops at the count; a count of 0 or 65 is rejected.
 # 3. A `.denied` marker (Android withholding photo access) makes RecentPhotos fail with Refused "denied", not an empty list.
-# 4. SavePhoto copies a listed photo byte for byte into the downloads folder, adds " (2)" instead of overwriting, and
-#    rejects a path RecentPhotos did not give.
-# 5. Disconnect ends the session, the phone is refused with close code 7 (paused), the flag survives a daemon restart,
+# 4. SavePhoto copies a listed photo byte for byte into the downloads folder, tagged with its origin xattrs, adds " (2)"
+#    instead of overwriting, and rejects a path RecentPhotos did not give. SavePhotoTo does the same into a given
+#    folder and rejects a missing folder, a file, a relative path, and a folder of another user.
+# 5. DeviceInfo shows connected, battery, the phone's reported storage, and last_seen; after Disconnect it keeps the
+#    storage without the battery; after a daemon restart last_seen stays and the storage is gone.
+# 6. Disconnect ends the session, the phone is refused with close code 7 (paused), the flag survives a daemon restart,
 #    and Connect lets the phone back in.
 # Every message is checked against api/messages.cddl. Writes results.jsonl, transcript.jsonl, linkd.log, hold.log to
 # $OUT (default ./artifacts/link-photos-recent).
@@ -86,7 +89,7 @@ CODE=$(link StartPairing | sed -E "s/^\('([0-9]+)', .*/\1/")
 ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["peers"][0]["id"])' "$STORE")
 hold() {
   RUST_LOG=info "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name phone --transcript "$OUT/transcript.jsonl" \
-    --photos "$LIBRARY" hold >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
+    --photos "$LIBRARY" hold --status 80,0,wifi,storage=1000/5000 >> "$OUT/hold.jsonl" 2>> "$OUT/hold.log" &
   HOLD=$!
   wait_for 20 "the phone never connected" connected
 }
@@ -132,11 +135,47 @@ OUTPUT=$(link SavePhoto "$ID" "/Photos/Camera/../../etc/passwd" 2>&1) && fail "S
 [[ $(ls "$RUNTIME/downloads" | wc -l) == 2 ]] || fail "downloads holds: $(ls -a "$RUNTIME/downloads")"
 record '{"step":"save-photo","never_overwrites":true,"unlisted_rejected":true}'
 
+origin() { python3 -c 'import os,sys; print(os.getxattr(sys.argv[1], sys.argv[2]).decode())' "$1" "$2"; }
+[[ $(origin "$RUNTIME/downloads/newest.png" user.xdg.origin.url) == "link://$ID" ]] || fail "no origin url on the saved photo"
+[[ $(origin "$RUNTIME/downloads/newest.png" user.andromeda.origin) == phone ]] || fail "no origin name on the saved photo"
+record '{"step":"saved-photo-origin"}'
+
+PICKED=$RUNTIME/picked
+mkdir -p "$PICKED"
+SAVED=$(link SavePhotoTo "$ID" "/Photos/Screenshots/middle.png" "$PICKED") || fail "SavePhotoTo"
+[[ $SAVED == *"$PICKED/middle.png"* ]] || fail "SavePhotoTo returned $SAVED"
+link SavePhotoTo "$ID" "/Photos/Screenshots/middle.png" "$PICKED" > /dev/null || fail "SavePhotoTo again"
+cmp "$PICKED/middle.png" "$LIBRARY/Screenshots/middle.png" || fail "the photo saved to a folder differs"
+cmp "$PICKED/middle (2).png" "$LIBRARY/Screenshots/middle.png" || fail "the second save to a folder differs"
+for bad in "$RUNTIME/missing" "$PICKED/middle.png" "picked" /; do
+  OUTPUT=$(link SavePhotoTo "$ID" "/Photos/Screenshots/middle.png" "$bad" 2>&1) && fail "SavePhotoTo took folder $bad"
+  [[ $OUTPUT == *"Rejected"* ]] || fail "SavePhotoTo into $bad: $OUTPUT"
+done
+OUTPUT=$(link SavePhotoTo "$ID" "/Photos/Camera/../../etc/passwd" "$PICKED" 2>&1) && fail "SavePhotoTo took an unlisted path"
+[[ $OUTPUT == *"Rejected"* ]] || fail "SavePhotoTo of an unlisted path: $OUTPUT"
+[[ $(ls -A "$PICKED" | wc -l) == 2 ]] || fail "the picked folder holds: $(ls -A "$PICKED")"
+record '{"step":"save-photo-to","never_overwrites":true,"bad_folders_rejected":true}'
+
+info() { prop DeviceInfo; }
+INFO=$(info)
+for want in "'connected': <true>" "'storage_free': <uint64 1000>" "'storage_total': <uint64 5000>" "'battery': <80>"; do
+  [[ $INFO == *"$want"* ]] || fail "DeviceInfo lacks $want: $INFO"
+done
+SEEN=$(sed -nE "s/.*'last_seen': <int64 ([0-9]+)>.*/\1/p" <<< "$INFO")
+(( SEEN > 0 )) || fail "DeviceInfo has no last_seen: $INFO"
+record '{"step":"device-info-connected","storage":[1000,5000],"battery":80}'
+
 link Disconnect "$ID" > /dev/null || fail "Disconnect"
 wait_for 10 "the phone stayed connected after Disconnect" disconnected
 prop Paused | grep -q "$ID" || fail "Paused does not list the phone: $(prop Paused)"
 wait_for 20 "the phone was not told code 7" grep -qi "paused" "$OUT/hold.log"
 record '{"step":"disconnect-refuses-the-phone","close_code":7}'
+
+INFO=$(info)
+[[ $INFO == *"'connected': <false>"* && $INFO == *"'storage_free': <uint64 1000>"* ]] \
+  || fail "DeviceInfo after Disconnect: $INFO"
+[[ $INFO != *"'battery'"* ]] || fail "DeviceInfo keeps the battery of a disconnected phone: $INFO"
+record '{"step":"device-info-keeps-storage-offline"}'
 
 kill "$DAEMON"; wait "$DAEMON" 2>/dev/null || true
 grep -q '"paused": true' "$STORE" || fail "the flag was not stored: $(cat "$STORE")"
@@ -144,6 +183,11 @@ start_daemon
 for _ in $(seq 80); do connected && fail "a paused phone connected after a daemon restart"; sleep 0.1; done
 prop Paused | grep -q "$ID" || fail "Paused lost after the restart"
 record '{"step":"paused-survives-restart"}'
+INFO=$(info)
+AFTER=$(sed -nE "s/.*'last_seen': <int64 ([0-9]+)>.*/\1/p" <<< "$INFO" || true)
+(( ${AFTER:-0} >= SEEN )) || fail "last_seen lost after the restart: $INFO"
+[[ $INFO != *"storage_"* ]] || fail "storage survived a daemon restart: $INFO"
+record '{"step":"last-seen-survives-restart"}'
 
 link Connect "$ID" > /dev/null || fail "Connect"
 wait_for 45 "the phone did not come back after Connect" connected

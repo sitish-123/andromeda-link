@@ -9,7 +9,7 @@ use link_core::client::{self, Client, ClientEvent};
 use link_core::identity::DeviceId;
 use link_core::inbox::Inbox;
 use link_core::phone::{Phone, Session};
-use link_core::proto::message::{Message, NetworkKind, Share, ShareKind, Status};
+use link_core::proto::message::{Message, NetworkKind, Share, ShareKind, Status, Storage};
 use link_core::reach::Via;
 use link_core::transfer::{ClipBytes, LocalClip, TransferEvent};
 use serde_json::{Value, json};
@@ -96,7 +96,7 @@ pub async fn share(phone: Phone, inbox: Inbox, id: DeviceId, share: Share) -> an
 }
 
 /// The desktop's next message other than the ones it sends by itself on every connect.
-async fn reply(session: &mut Session) -> Result<Message, Error> {
+pub(crate) async fn reply(session: &mut Session) -> Result<Message, Error> {
     loop {
         match session.control.recv().await? {
             Message::Commands(_)
@@ -167,7 +167,7 @@ async fn send_line(client: &Client, id: &DeviceId, rest: &str) -> anyhow::Result
 
 /// `<battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]][,<key>=<value>]...`, as `--status` and a
 /// `status` line take it; the signal and notifications-off may be empty. Keys: media (percent), ringer (normal,
-/// vibrate, silent), dnd and locked (0 or 1).
+/// vibrate, silent), dnd and locked (0 or 1), storage (`<free>/<total>` bytes).
 pub fn parse_status(text: &str) -> anyhow::Result<Status> {
     let usage = "a status is <battery>,<charging 0|1>,<network>[,<signal bars>[,notifications-off]][,<key>=<value>]...";
     let (positional, keyed): (Vec<&str>, Vec<&str>) = text.split(',').partition(|part| !part.contains('='));
@@ -187,6 +187,7 @@ pub fn parse_status(text: &str) -> anyhow::Result<Status> {
         ringer: None,
         dnd: None,
         locked: None,
+        storage: None,
     };
     for part in keyed {
         let (key, value) = part.split_once('=').context(usage)?;
@@ -197,6 +198,12 @@ pub fn parse_status(text: &str) -> anyhow::Result<Status> {
             }
             "dnd" => status.dnd = Some(value == "1"),
             "locked" => status.locked = Some(value == "1"),
+            "storage" => {
+                let (free, total) = value.split_once('/').context("storage is <free>/<total> bytes")?;
+                let storage =
+                    Storage { free: free.parse().context("free bytes")?, total: total.parse().context("total bytes")? };
+                status.storage = Some(storage);
+            }
             _ => bail!("unknown status key {key}"),
         }
     }

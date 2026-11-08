@@ -9,7 +9,8 @@ use link_core::pairing::pair_as_server;
 use link_core::proto::message::Hello;
 use link_core::proto::message::{
     BLUETOOTH_SCHEME, BT_PAIRING, CALL_APP, CALLS, CAPABILITIES, CLIP_ITEMS, CONTROL, MESSAGES, MIRROR_STREAMS,
-    NOTIFICATION_SYNC, PRESENTING, SCREEN_SHAPE, STATUS_SIGNAL, SYSTEM, SYSTEM_CONTROL, WIFI_DIRECT_JOIN,
+    NOTIFICATION_SYNC, PRESENTING, SCREEN_SHAPE, STATUS_SIGNAL, STATUS_STORAGE, SYSTEM, SYSTEM_CONTROL,
+    WIFI_DIRECT_JOIN,
 };
 use link_core::proto::session::Role;
 use link_core::proto::{CloseCode, VERSION};
@@ -204,6 +205,7 @@ impl Context {
         addresses.extend(
             [
                 STATUS_SIGNAL,
+                STATUS_STORAGE,
                 MESSAGES,
                 CALLS,
                 CALL_APP,

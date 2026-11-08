@@ -1,8 +1,8 @@
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
   "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <!-- Served by andromeda-linkd on the session bus at /org/andromeda/Link1. Any process of the user may call every method
-     (docs/link-v2.md, rule 8): no method checks its caller, so Unpair, SetAutoAccept, Disconnect, Connect, and SavePhoto
-     are open to the user's own processes. -->
+     (docs/link-v2.md, rule 8): no method checks its caller, so Unpair, SetAutoAccept, Disconnect, Connect, SavePhoto, and
+     SavePhotoTo are open to the user's own processes. -->
 <node>
   <interface name="org.andromeda.Link1">
     <!-- Opens a 120 s pairing window accepting one attempt; replaces an open window. -->
@@ -75,6 +75,14 @@
     <method name="SavePhoto">
       <arg name="device_id" type="s" direction="in"/>
       <arg name="path" type="s" direction="in"/>
+      <arg name="saved" type="s" direction="out"/>
+    </method>
+    <!-- As SavePhoto, into folder: an absolute path to an existing directory this user owns. Errors: .Rejected for any
+         other folder, or a path not in the last RecentPhotos answer. -->
+    <method name="SavePhotoTo">
+      <arg name="device_id" type="s" direction="in"/>
+      <arg name="path" type="s" direction="in"/>
+      <arg name="folder" type="s" direction="in"/>
       <arg name="saved" type="s" direction="out"/>
     </method>
     <!-- Up to length bytes (1 byte to 1 MiB) of a file on a connected phone from offset; fewer at its end, none
@@ -201,7 +209,10 @@
     <!-- (device_id, name, connected) -->
     <property name="Devices" type="a(ssb)" access="read"/>
     <!-- Paired device id to its info: last_seen (x) is unix seconds of its last session, and transport (s) is wifi
-         or bluetooth while connected, else empty. -->
+         or bluetooth while connected, else empty; connected (b); storage_free and storage_total (t) are bytes of the
+         phone's shared storage as it last reported them, kept in memory after it disconnects, absent until the phone
+         reports them (older phones never do); battery (i) is its percent while connected. PropertiesChanged reports
+         each change. -->
     <property name="DeviceInfo" type="a{sa{sv}}" access="read"/>
     <!-- Devices whose offers are accepted without asking. -->
     <property name="AutoAccept" type="as" access="read"/>

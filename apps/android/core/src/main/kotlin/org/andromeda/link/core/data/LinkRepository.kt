@@ -76,6 +76,7 @@ import org.andromeda.link.ffi.OutgoingFile
 import org.andromeda.link.ffi.PhoneCamera
 import org.andromeda.link.ffi.PhoneLibrary
 import org.andromeda.link.ffi.PhoneMessages
+import org.andromeda.link.ffi.PhoneStorage
 import org.andromeda.link.ffi.PixelRect
 import org.andromeda.link.ffi.PixelShape
 import org.andromeda.link.ffi.RemoteView
@@ -166,7 +167,7 @@ class LinkRepository(
 
     /**
      * The battery (percent) and network (wifi, cellular, ethernet, none, or other) desktops show; [signal] is cellular
-     * bars, 0 to 4, or null without service.
+     * bars, 0 to 4, or null without service; [storage] is free and total bytes of shared storage.
      */
     suspend fun setStatus(
         battery: Int,
@@ -175,6 +176,7 @@ class LinkRepository(
         signal: Int?,
         notificationsOff: Boolean,
         controls: PhoneControls,
+        storage: Pair<Long, Long>?,
     ): Result<Unit> =
         call {
             val ffiControls =
@@ -191,6 +193,7 @@ class LinkRepository(
                 signal?.coerceIn(0, 4)?.toUByte(),
                 notificationsOff,
                 ffiControls,
+                storage?.let { (free, total) -> PhoneStorage(free.toULong(), total.toULong()) },
             )
         }
 

@@ -72,6 +72,9 @@ pub const MIRROR_STREAMS: &str = "feature:mirror-streams";
 /// A desktop's hello carries this when it takes `screen-shape`; phones send older desktops no shape.
 pub const SCREEN_SHAPE: &str = "feature:screen-shape";
 
+/// A desktop's hello carries this when its `status` takes `storage`; older desktops close a session on the field.
+pub const STATUS_STORAGE: &str = "feature:status-storage";
+
 /// The address in a `bt:` entry, upper-case, or None when `entry` is not one.
 pub fn bluetooth_address(entry: &str) -> Option<String> {
     let address = entry.strip_prefix(BLUETOOTH_SCHEME)?;
@@ -1283,6 +1286,17 @@ pub struct Status {
     pub dnd: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
+    /// [`STATUS_STORAGE`]: the phone's primary shared storage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<Storage>,
+}
+
+/// Bytes of a phone's primary shared storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Storage {
+    pub free: u64,
+    pub total: u64,
 }
 
 impl Status {
@@ -1290,6 +1304,7 @@ impl Status {
         self.battery <= 100
             && self.signal.is_none_or(|bars| bars <= 4)
             && self.media_volume.is_none_or(|percent| percent <= 100)
+            && self.storage.is_none_or(|storage| storage.free <= storage.total)
     }
 
     /// The status for a desktop without [`SYSTEM_CONTROL`].

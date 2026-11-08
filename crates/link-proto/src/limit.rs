@@ -130,6 +130,7 @@ mod tests {
             ringer: None,
             dnd: None,
             locked: None,
+            storage: None,
         });
         assert!(limits.admit(&status, now));
     }

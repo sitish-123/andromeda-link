@@ -24,6 +24,36 @@ pub fn safe_name(name: &str) -> String {
     if clean.is_empty() { "photo".to_owned() } else { clean.to_owned() }
 }
 
+/// `folder` resolved, when it is an absolute path to an existing directory the daemon's user owns.
+pub fn own_folder(folder: &str) -> Result<PathBuf, &'static str> {
+    use std::os::unix::fs::MetadataExt as _;
+    if !Path::new(folder).is_absolute() {
+        return Err("the folder is not an absolute path");
+    }
+    let resolved = fs::canonicalize(folder).map_err(|_| "the folder does not exist")?;
+    let meta = fs::metadata(&resolved).map_err(|_| "the folder does not exist")?;
+    if !meta.is_dir() {
+        return Err("not a folder");
+    }
+    if meta.uid() != rustix::process::getuid().as_raw() {
+        return Err("the folder belongs to another user");
+    }
+    Ok(resolved)
+}
+
+/// Tags a file saved from a phone with `user.xdg.origin.url` = `link://<device_id>` and `user.andromeda.origin` = the
+/// phone's name, for file managers; filesystems without user xattrs keep the file untagged.
+pub fn mark_origin(path: &Path, device_id: &str, name: &str) {
+    use rustix::fs::{XattrFlags, setxattr};
+    let url = format!("link://{device_id}");
+    for (key, value) in [("user.xdg.origin.url", url.as_str()), ("user.andromeda.origin", name)] {
+        match setxattr(path, key, value.as_bytes(), XattrFlags::empty()) {
+            Ok(()) | Err(rustix::io::Errno::NOTSUP) => {}
+            Err(error) => log::info!("tagging {} with {key}: {error}", path.display()),
+        }
+    }
+}
+
 /// Deletes the staging files an earlier run left in `dir` when it died.
 pub fn sweep(dir: &Path) {
     let Ok(entries) = fs::read_dir(dir) else { return };
@@ -173,6 +203,26 @@ mod tests {
         assert_ne!(first, second);
         assert!(save(&dir, b"three", &[no_links]).is_err(), "a failing method must report, not succeed");
         drop(fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "a failed step fails the test")]
+    fn only_an_existing_own_directory_is_a_save_folder() {
+        let dir = scratch("folder");
+        fs::create_dir_all(&dir).expect("dir");
+        fs::write(dir.join("file"), b"x").expect("file");
+        let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        let own = own_folder(&dir.to_string_lossy());
+        let (file, missing) = (own_folder(&path("file")), own_folder(&path("missing")));
+        drop(fs::remove_dir_all(&dir));
+        assert_eq!(
+            own.ok(),
+            fs::canonicalize(std::env::temp_dir()).ok().map(|tmp| tmp.join(dir.file_name().expect("name")))
+        );
+        assert_eq!(file, Err("not a folder"));
+        assert_eq!(missing, Err("the folder does not exist"));
+        assert_eq!(own_folder("relative"), Err("the folder is not an absolute path"));
+        assert_eq!(own_folder("/"), Err("the folder belongs to another user"));
     }
 
     #[test]

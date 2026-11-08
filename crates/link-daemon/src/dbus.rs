@@ -57,11 +57,26 @@ impl Link {
         Self { hub, snapshots, nearby, watched: std::sync::Arc::default(), recent: std::sync::Arc::default(), peer }
     }
 
-    /// Reads `path` from the phone into a staged file in the downloads folder and publishes it; the file work runs off
-    /// the runtime.
-    async fn copy_photo(&self, device_id: &str, path: &str) -> Result<String, LinkError> {
+    /// Copies a photo of the last `RecentPhotos` answer for this device into `dir`, one save at a time.
+    async fn save_recent(&self, device_id: &str, path: &str, dir: std::path::PathBuf) -> Result<String, LinkError> {
+        let known = self
+            .recent
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(device_id)
+            .is_some_and(|paths| paths.contains(path));
+        if !known {
+            return Err(LinkError::Rejected("not a path RecentPhotos gave for this device".to_owned()));
+        }
+        let _turn = SAVES.acquire().await.map_err(|_| LinkError::Failed("saving is closed".to_owned()))?;
+        tokio::time::timeout(SAVE_TIMEOUT, self.copy_photo(device_id, path, dir))
+            .await
+            .unwrap_or_else(|_| Err(LinkError::Failed("saving the photo took longer than 2 minutes".to_owned())))
+    }
+
+    /// Reads `path` from the phone into a staged file in `dir` and publishes it; the file work runs off the runtime.
+    async fn copy_photo(&self, device_id: &str, path: &str, dir: std::path::PathBuf) -> Result<String, LinkError> {
         let name = crate::save::safe_name(path.rsplit('/').next().unwrap_or_default());
-        let dir = crate::paths::downloads_dir().ok_or_else(|| LinkError::Failed("no downloads folder".to_owned()))?;
         let failed = |error: std::io::Error| LinkError::Failed(error.to_string());
         let blocking = |error: tokio::task::JoinError| LinkError::Failed(error.to_string());
         let mut staged = tokio::task::spawn_blocking(move || crate::save::Staged::create(&dir))
@@ -89,8 +104,16 @@ impl Link {
             .map_err(blocking)?
             .map_err(failed)?;
         }
-        let saved =
-            tokio::task::spawn_blocking(move || staged.publish(&name)).await.map_err(blocking)?.map_err(failed)?;
+        let phone = self.snapshots.borrow().devices.iter().find(|device| device.0 == device_id).map(|d| d.1.clone());
+        let id = device_id.to_owned();
+        let saved = tokio::task::spawn_blocking(move || {
+            let saved = staged.publish(&name)?;
+            crate::save::mark_origin(&saved, &id, phone.as_deref().unwrap_or_default());
+            Ok(saved)
+        })
+        .await
+        .map_err(blocking)?
+        .map_err(failed)?;
         Ok(saved.to_string_lossy().into_owned())
     }
 
@@ -457,19 +480,14 @@ impl Link {
     /// Copies a photo of the last `RecentPhotos` answer for this device into the downloads folder, under a free name
     /// made from the photo's own, and returns the saved path. `.Rejected` for any other path.
     async fn save_photo(&self, device_id: String, path: String) -> Result<String, LinkError> {
-        let known = self
-            .recent
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&device_id)
-            .is_some_and(|paths| paths.contains(&path));
-        if !known {
-            return Err(LinkError::Rejected("not a path RecentPhotos gave for this device".to_owned()));
-        }
-        let _turn = SAVES.acquire().await.map_err(|_| LinkError::Failed("saving is closed".to_owned()))?;
-        tokio::time::timeout(SAVE_TIMEOUT, self.copy_photo(&device_id, &path))
-            .await
-            .unwrap_or_else(|_| Err(LinkError::Failed("saving the photo took longer than 2 minutes".to_owned())))
+        let dir = crate::paths::downloads_dir().ok_or_else(|| LinkError::Failed("no downloads folder".to_owned()))?;
+        self.save_recent(&device_id, &path, dir).await
+    }
+
+    /// As `SavePhoto`, into `folder`: an existing directory the user owns. `.Rejected` for any other folder.
+    async fn save_photo_to(&self, device_id: String, path: String, folder: String) -> Result<String, LinkError> {
+        let dir = crate::save::own_folder(&folder).map_err(|reason| LinkError::Rejected(reason.to_owned()))?;
+        self.save_recent(&device_id, &path, dir).await
     }
 
     /// Up to `length` bytes (at most 1 MiB) of a file on a connected phone, from `offset`; fewer at its end.
@@ -588,14 +606,12 @@ impl Link {
         self.snapshots.borrow().devices.clone()
     }
 
-    /// Device id to `last_seen` (unix seconds) and `transport` (wifi, bluetooth, or empty when not connected).
+    /// Device id to `last_seen` (x, unix seconds), `transport` (s: wifi, bluetooth, or empty when not connected),
+    /// `connected` (b), `storage_free` and `storage_total` (t, bytes; absent when unknown), `battery` (i, percent;
+    /// absent when not connected).
     #[zbus(property)]
     fn device_info(&self) -> HashMap<String, HashMap<String, zbus::Variant<'static>>> {
-        let info = self.snapshots.borrow();
-        let fields = |seen: i64, transport: &'static str| {
-            HashMap::from([("last_seen".to_owned(), seen.into()), ("transport".to_owned(), transport.into())])
-        };
-        info.info.iter().map(|(id, seen, transport)| (id.clone(), fields(*seen, transport))).collect()
+        self.snapshots.borrow().info.iter().map(|info| (info.id.clone(), info_fields(info))).collect()
     }
 
     #[zbus(property)]
@@ -1056,6 +1072,22 @@ impl Link {
 
 fn parse_transfer(text: &str) -> Result<TransferId, LinkError> {
     TransferId::parse_hex(text).ok_or_else(|| LinkError::Rejected("not a transfer id".to_owned()))
+}
+
+fn info_fields(info: &crate::hub::DeviceInfo) -> HashMap<String, zbus::Variant<'static>> {
+    let mut fields = HashMap::from([
+        ("last_seen".to_owned(), info.last_seen.into()),
+        ("transport".to_owned(), info.transport.into()),
+        ("connected".to_owned(), (!info.transport.is_empty()).into()),
+    ]);
+    if let Some((free, total)) = info.storage {
+        fields.insert("storage_free".to_owned(), free.into());
+        fields.insert("storage_total".to_owned(), total.into());
+    }
+    if let Some(battery) = info.battery {
+        fields.insert("battery".to_owned(), i32::from(battery).into());
+    }
+    fields
 }
 
 async fn forward_transfer(emitter: &SignalEmitter<'_>, signal: Signal) -> zbus::Result<()> {

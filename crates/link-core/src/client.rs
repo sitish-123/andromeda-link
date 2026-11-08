@@ -11,8 +11,8 @@ use link_proto::message::{
     CALL_APP, CALLS, CAN_CONTROL, CLIP_ITEMS, Call, FsRefusal, Hotspot, HotspotEnd, MAX_PUNCH_ADDRESSES, MAX_SNAPSHOT,
     MESSAGES, MIRROR_STREAMS, Message, MessagesRefusal, MirrorStarted, MirrorStop, NOTIFICATION_SYNC, NetworkKind,
     NotificationDigest, NotificationPosted, NotificationRemoved, NotificationSnapshot, PRESENTING, PhotoRefusal, Punch,
-    SCREEN_SHAPE, STATUS_SIGNAL, SYSTEM_CONTROL, ScreenShape, Share, Status, SystemCommand, SystemResult, TransferId,
-    WIFI_DIRECT_JOIN,
+    SCREEN_SHAPE, STATUS_SIGNAL, STATUS_STORAGE, SYSTEM_CONTROL, ScreenShape, Share, Status, SystemCommand,
+    SystemResult, TransferId, WIFI_DIRECT_JOIN,
 };
 use link_proto::session::Role;
 use tokio::sync::{mpsc, oneshot};
@@ -1359,6 +1359,7 @@ impl ClientActor {
         let status = if has(SYSTEM_CONTROL) { status } else { status.without_control() };
         Message::Status(Status {
             signal: status.signal.filter(|_| has(STATUS_SIGNAL)),
+            storage: status.storage.filter(|_| has(STATUS_STORAGE)),
             notifications_off: status.notifications_off && has(NOTIFICATION_SYNC),
             ..status
         })

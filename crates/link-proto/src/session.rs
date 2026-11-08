@@ -449,6 +449,7 @@ mod tests {
             ringer: None,
             dnd: None,
             locked: None,
+            storage: None,
         };
         let desktop = SessionState::new(Role::Desktop).on_message(envelope(1, Message::Status(status)));
         assert_eq!(desktop, Ok(Inbound::Status(status)));

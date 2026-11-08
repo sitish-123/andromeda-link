@@ -117,6 +117,7 @@ status = {
   ? ringer: "normal" / "vibrate" / "silent",
   ? dnd: bool,
   ? locked: bool,
+  ? storage: { free: uint, total: uint }, ; bytes of shared storage, free <= total; only to feature:status-storage
 }
 ; Phone to desktop. Sizes are bytes of UTF-8; not acknowledged.
 notification-id = tstr .size (1..256)

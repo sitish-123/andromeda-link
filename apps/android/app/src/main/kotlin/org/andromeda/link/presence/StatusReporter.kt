@@ -9,12 +9,15 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import android.telephony.SignalStrength
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
@@ -22,10 +25,10 @@ import org.andromeda.link.core.data.LinkRepository
 import org.andromeda.link.core.domain.PhoneControls
 
 /**
- * Reports the battery, the network, the cellular signal, whether notification access is off, and the phone's controls
- * to desktops as they change; the core sends it on connect and rate-limits the rest. Battery changes arrive as the sticky
- * ACTION_BATTERY_CHANGED broadcast, networks through the default network callback, the signal through a telephony
- * callback (Android 12 and later), so nothing polls.
+ * Reports the battery, the network, the cellular signal, whether notification access is off, the phone's controls, and
+ * its shared storage to desktops as they change; the core sends it on connect and rate-limits the rest. Battery changes
+ * arrive as the sticky ACTION_BATTERY_CHANGED broadcast, networks through the default network callback, the signal
+ * through a telephony callback (Android 12 and later), so nothing polls; storage is read again on each battery change.
  */
 class StatusReporter(
     private val context: Context,
@@ -41,11 +44,13 @@ class StatusReporter(
         val signal: Int?,
         val notificationsOff: Boolean,
         val controls: PhoneControls,
+        val storage: Pair<Long, Long>?,
     )
 
     private val battery = MutableStateFlow<Pair<Int, Boolean>?>(null)
     private val network = MutableStateFlow("none")
     private val signal = MutableStateFlow<Int?>(null)
+    private val storage = MutableStateFlow(readStorage())
 
     fun start() {
         val receiver =
@@ -59,6 +64,7 @@ class StatusReporter(
                     if (level < 0 || scale <= 0) return
                     val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
                     battery.value = (level * 100 / scale) to plugged
+                    storage.value = readStorage()
                 }
             }
         context.registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -86,9 +92,12 @@ class StatusReporter(
                     notificationsOff,
                     controls,
                 ) { (level, charging), kind, bars, off, phone ->
-                    Status(level, charging, kind, bars, off, phone)
-                }.distinctUntilChanged()
-                .collect { repository.setStatus(it.battery, it.charging, it.network, it.signal, it.notificationsOff, it.controls) }
+                    Status(level, charging, kind, bars, off, phone, null)
+                }.combine(storage) { status, bytes -> status.copy(storage = bytes) }
+                .distinctUntilChanged()
+                .collect {
+                    repository.setStatus(it.battery, it.charging, it.network, it.signal, it.notificationsOff, it.controls, it.storage)
+                }
         }
     }
 
@@ -104,6 +113,12 @@ class StatusReporter(
             }
         telephony.registerTelephonyCallback(context.mainExecutor, listener)
     }
+
+    /** Free and total bytes of the primary shared storage; null when it is not mounted. */
+    private fun readStorage(): Pair<Long, Long>? =
+        runCatching { StatFs(Environment.getExternalStorageDirectory().path) }
+            .getOrNull()
+            ?.let { it.availableBytes to it.totalBytes }
 
     private fun kindOf(capabilities: NetworkCapabilities): String =
         when {

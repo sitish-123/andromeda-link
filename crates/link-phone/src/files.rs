@@ -114,7 +114,7 @@ pub async fn send_oversize(
     let file = FileMeta { id: 0, name, size: bytes.len() as u64, mime: OCTET_STREAM.to_owned(), sha256 };
     let mut session = phone.connect(&id).await.context("connecting")?;
     session.control.send(Message::Offer(Offer { transfer, files: vec![file] })).await?;
-    let reply = session.control.recv().await?;
+    let reply = crate::present::reply(&mut session).await?;
     let Message::OfferReply(reply) = reply else { bail!("desktop answered {}", reply.kind()) };
     if !reply.accepted {
         bail!("the desktop refused the offer; enable auto-accept first");
@@ -131,7 +131,7 @@ pub async fn send_oversize(
     };
     let write_error = written.await.err().map(|error| error.to_string());
     let stopped = tokio::time::timeout(CONSENT_TIMEOUT, send.stopped()).await?;
-    let done = session.control.recv().await?;
+    let done = crate::present::reply(&mut session).await?;
     let line = match done {
         Message::FileDone(done) => json!({
             "stopped_with": stopped, "write_error": write_error, "ok": done.ok,

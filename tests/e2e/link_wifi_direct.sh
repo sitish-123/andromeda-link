@@ -173,7 +173,7 @@ grep -q '"fails": true' "$OUT/nm.jsonl" || fail "the desktop did not try the fai
 grep -q "hotspot started" "$OUT/hold.log" || fail "the phone did not start its hotspot after the group failed"
 record '{"step":"failed-group-falls-back-to-hotspot","bytes":8388608,"sha256_match":true}'
 
-wait_for 90 "the fallback hotspot never ended" eval '[[ $(nm_calls deactivate) == 3 ]]'
+wait_for 90 "the fallback hotspot never ended" eval '[[ $(nm_calls deactivate) == 4 ]]'
 wait_for 20 "the phone was not back on Bluetooth after the fallback hotspot" eval '[[ $(last_via) == bluetooth ]]'
 kill "$HOLD"
 wait "$HOLD" || true

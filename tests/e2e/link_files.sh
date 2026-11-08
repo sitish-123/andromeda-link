@@ -124,6 +124,8 @@ wait_for 120 "no resume after the daemon restart" grep -q "transfer $BIG resumes
 RESUME1=$(grep "transfer $BIG resumes at" "$OUT/linkd.log" | tail -1 | grep -o 'offset: [0-9]*' | cut -d' ' -f2)
 record "{\"step\":\"daemon-killed-mid-transfer\",\"part_bytes_at_kill\":$KILLED_AT,\"resumed_at\":$RESUME1}"
 wait_for 600 "the big file never reached 640 MiB" eval '(( $(part_bytes "$DOWNLOADS") > 671088640 ))'
+# Without promote_secondaries (the CI default) deleting .2 also deletes .3, and the phone has no address left.
+in_phone sysctl -qw net.ipv4.conf.p0.promote_secondaries=1
 in_phone ip addr add 10.78.0.3/24 dev p0
 in_phone ip addr del 10.78.0.2/24 dev p0
 MOVED_AT=$(part_bytes "$DOWNLOADS")

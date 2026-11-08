@@ -17,8 +17,7 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 
-/// Advertised with a selection served for a phone, so a read of it is never sent back. The Andromeda shell's clipboard
-/// history knows it too.
+/// Advertised with a selection served for a phone, so a read of it is never sent back.
 pub const REMOTE_MIME: &str = "application/x-andromeda-link-remote";
 /// The protocol's limits on a clipboard offer.
 pub const MAX_BYTES: u64 = 64 << 20;

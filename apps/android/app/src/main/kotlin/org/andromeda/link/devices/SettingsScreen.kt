@@ -281,7 +281,7 @@ fun SettingsScreen(
                     chevron()
                 }
             }
-
+            SoftwareUpdate()
             PaperHeading(stringResource(R.string.settings_diagnostics))
             PaperRow(
                 stringResource(R.string.settings_log),

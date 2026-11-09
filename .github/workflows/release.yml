@@ -32,7 +32,11 @@ jobs:
         env:
           LINK_KEYSTORE_PASSWORD: ${{ secrets.LINK_KEYSTORE_PASSWORD }}
           LINK_KEY_ALIAS: ${{ secrets.LINK_KEY_ALIAS }}
-        run: ./gradlew -q :app:assembleRelease
+        # The in-app updater compares versionName with the release tag; Android installs only a higher versionCode.
+        run: |
+          v="${GITHUB_REF_NAME#v}"; IFS=. read -r major minor patch <<< "$v"
+          export LINK_VERSION_NAME="$v" LINK_VERSION_CODE=$((major * 10000 + minor * 100 + patch))
+          ./gradlew -q :app:assembleRelease
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: android, path: apps/android/app/build/outputs/apk/release/*.apk }
 

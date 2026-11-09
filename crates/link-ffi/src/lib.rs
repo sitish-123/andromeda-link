@@ -707,7 +707,7 @@ pub struct LinkClient {
     runtime: tokio::runtime::Runtime,
     client: Client,
     /// Only [`LinkClient::next_event`] reads it; the lock serialises callers, it guards no state.
-    events: Mutex<mpsc::Receiver<ClientEvent>>,
+    events: Mutex<mpsc::UnboundedReceiver<ClientEvent>>,
 }
 
 /// How the app reaches a desktop over Bluetooth: connect RFCOMM to `address` at Link's service UUID and return one

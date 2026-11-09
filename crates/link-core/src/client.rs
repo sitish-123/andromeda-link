@@ -180,7 +180,7 @@ pub struct Client {
 pub struct ClientActor {
     phone: Phone,
     commands: mpsc::Receiver<Command>,
-    events: mpsc::Sender<ClientEvent>,
+    events: mpsc::UnboundedSender<ClientEvent>,
     sessions: HashMap<DeviceId, SessionHandle>,
     running: JoinSet<Ended>,
     session_events_tx: mpsc::Sender<SessionEvent>,
@@ -248,9 +248,10 @@ struct Retry {
 }
 
 /// The caller runs the actor in a task it owns and reads the events. Received files go to `inbox`.
-pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::Receiver<ClientEvent>) {
+pub fn client(phone: Phone, inbox: Inbox) -> (Client, ClientActor, mpsc::UnboundedReceiver<ClientEvent>) {
     let (commands_tx, commands) = mpsc::channel(16);
-    let (events, events_rx) = mpsc::channel(64);
+    // Unbounded: the app may call the actor while it handles an event, so a full queue would block both forever.
+    let (events, events_rx) = mpsc::unbounded_channel();
     let (session_events_tx, session_events) = mpsc::channel(16);
     let (transfers, transfer_actor, transfer_events) = transfer::transfers(inbox);
     let actor = ClientActor {
@@ -777,7 +778,7 @@ impl ClientActor {
             }
             _ => {}
         }
-        self.emit(ClientEvent::Transfer(event)).await;
+        self.emit(ClientEvent::Transfer(event));
     }
 
     async fn pair(&mut self, target: PairTarget) -> Result<Peer, Error> {
@@ -801,9 +802,9 @@ impl ClientActor {
             Err(error) => {
                 if matches!(error, Error::Closed(CloseCode::Unpaired)) {
                     self.retries.remove(id);
-                    self.emit(ClientEvent::Unpaired { id: id.clone() }).await;
+                    self.emit(ClientEvent::Unpaired { id: id.clone() });
                 } else if matches!(error, Error::Closed(CloseCode::Paused)) {
-                    self.emit(ClientEvent::Paused { id: id.clone() }).await;
+                    self.emit(ClientEvent::Paused { id: id.clone() });
                 }
                 Err(error)
             }
@@ -855,7 +856,7 @@ impl ClientActor {
             }
         }
         self.send_notifications(&id, &handle, &[]).await;
-        self.emit(ClientEvent::Connected { desktop, addr, via, resumed }).await;
+        self.emit(ClientEvent::Connected { desktop, addr, via, resumed });
         handle
     }
 
@@ -912,15 +913,15 @@ impl ClientActor {
             handle.close(close_code_for(error));
         }
         log::info!("{id}: disconnected: {reason}");
-        self.emit(ClientEvent::Disconnected { id: id.clone(), reason }).await;
+        self.emit(ClientEvent::Disconnected { id: id.clone(), reason });
         if matches!(result, Err(Error::Closed(CloseCode::Unpaired))) {
             if let Err(error) = self.phone.forget(&id) {
                 log::error!("forgetting {id}: {error}");
             }
-            self.emit(ClientEvent::Unpaired { id }).await;
+            self.emit(ClientEvent::Unpaired { id });
         } else {
             if matches!(result, Err(Error::Closed(CloseCode::Paused))) {
-                self.emit(ClientEvent::Paused { id: id.clone() }).await;
+                self.emit(ClientEvent::Paused { id: id.clone() });
             }
             if self.wants(&id) {
                 self.retries.insert(id, Retry { at: Instant::now() + FIRST_RETRY, delay: FIRST_RETRY });
@@ -967,12 +968,12 @@ impl ClientActor {
                     log::error!("forgetting {id}: {error}");
                 }
                 self.retries.remove(&id);
-                return self.emit(ClientEvent::Unpaired { id }).await;
+                return self.emit(ClientEvent::Unpaired { id });
             }
             Err(error) => error,
         };
         if matches!(error, Error::Closed(CloseCode::Paused)) {
-            self.emit(ClientEvent::Paused { id: id.clone() }).await;
+            self.emit(ClientEvent::Paused { id: id.clone() });
         }
         if self.wants(&id) {
             let delay = (delay * 2).min(MAX_RETRY);
@@ -1464,7 +1465,7 @@ impl ClientActor {
                     self.finish_upgrades(&from, &Err(Error::Hotspot(reason)));
                 }
             }
-            SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }).await,
+            SessionEvent::Received { from, share } => self.emit(ClientEvent::Received { from, share }),
             SessionEvent::Message {
                 from,
                 message:
@@ -1482,7 +1483,7 @@ impl ClientActor {
                         self.controlled_by.remove(&from);
                     }
                 }
-                self.emit(ClientEvent::Message { from, message }).await;
+                self.emit(ClientEvent::Message { from, message });
             }
             SessionEvent::SystemCommand { from, id, command } => self.on_system_command(from, id, command).await,
             SessionEvent::Message { from, message } => {
@@ -1490,9 +1491,9 @@ impl ClientActor {
                     self.phone.desktops().iter().any(|peer| peer.id == from && peer.grants.allows(feature))
                 });
                 if allowed {
-                    self.emit(ClientEvent::Message { from, message }).await;
+                    self.emit(ClientEvent::Message { from, message });
                 } else if matches!(message, Message::MirrorRequest) {
-                    self.emit(ClientEvent::MirrorBlocked { from }).await;
+                    self.emit(ClientEvent::MirrorBlocked { from });
                 } else {
                     log::info!("{from}: dropped a {} its switch does not allow", message.kind());
                 }
@@ -1511,7 +1512,7 @@ impl ClientActor {
             None
         };
         match error {
-            None => self.emit(ClientEvent::SystemCommand { from, id, command }).await,
+            None => self.emit(ClientEvent::SystemCommand { from, id, command }),
             Some(error) => {
                 log::info!("{from}: refused a {:?}: {error}", command.command);
                 if let Some(session) = self.sessions.get(&from) {
@@ -1535,8 +1536,8 @@ impl ClientActor {
             .collect()
     }
 
-    async fn emit(&self, event: ClientEvent) {
-        if self.events.send(event).await.is_err() {
+    fn emit(&self, event: ClientEvent) {
+        if self.events.send(event).is_err() {
             log::debug!("nobody reads client events");
         }
     }

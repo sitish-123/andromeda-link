@@ -11,8 +11,11 @@ use link_proto::mux::{self, Frame, Header, MuxError};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Notify, Semaphore, mpsc, watch};
 
-/// No frame for this long ends a Bluetooth connection; a present phone pings every 10 s.
+/// No frame for this long ends a Bluetooth connection; the desktop pings every [`DESKTOP_KEEP_ALIVE`].
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+/// The desktop's PING interval over Bluetooth, a third of [`IDLE_TIMEOUT`]: a phone with its screen off has its own
+/// timer stopped, and the desktop's PING wakes it, as over QUIC.
+pub const DESKTOP_KEEP_ALIVE: Duration = Duration::from_secs(10);
 /// Bulk bytes queued for the writer before `write_all` waits, so a fast file never buffers without bound.
 const QUEUED: usize = 4 * mux::MAX_DATA;
 

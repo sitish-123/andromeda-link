@@ -19,7 +19,7 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::Error;
 use crate::identity::{Identity, Spki};
-use crate::mux::MuxConnection;
+use crate::mux::{DESKTOP_KEEP_ALIVE, MuxConnection};
 use crate::tls::{self, ServerPin};
 use crate::transport::tls13_provider;
 
@@ -95,7 +95,7 @@ impl StreamAcceptor {
         let tls = tokio::time::timeout(HANDSHAKE_TIMEOUT, self.acceptor.accept(io)).await??;
         let peer = spki(tls.get_ref().1.peer_certificates())?;
         let exporter = exporter(tls.get_ref().1)?;
-        Ok((MuxConnection::new(tls, false, None).with_exporter(exporter), peer))
+        Ok((MuxConnection::new(tls, false, Some(DESKTOP_KEEP_ALIVE)).with_exporter(exporter), peer))
     }
 }
 
@@ -164,5 +164,28 @@ impl AsyncWrite for FdStream {
 
     fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(rustix::net::shutdown(self.fd.get_ref(), rustix::net::Shutdown::Write).map_err(io::Error::from))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_phone_keeps_its_bluetooth_session_past_the_idle_timeout() -> Result<(), Error> {
+        let phone = Identity::generate()?;
+        let desktop = Identity::generate()?;
+        let (phone_io, desktop_io) = tokio::io::duplex(1 << 16);
+        let acceptor = StreamAcceptor::new(&desktop)?;
+        let dialer = StreamDialer::new(&phone)?;
+        // A phone with its screen off sends nothing of its own: no keep-alive.
+        let (on_desktop, on_phone) =
+            tokio::join!(acceptor.accept(desktop_io), dialer.connect(phone_io, desktop.spki().fingerprint(), None));
+        let (desktop_mux, _) = on_desktop?;
+        let (phone_mux, _) = on_phone?;
+        tokio::time::sleep(crate::mux::IDLE_TIMEOUT * 3).await;
+        assert!(desktop_mux.close_reason().is_none(), "desktop ended it: {:?}", desktop_mux.close_reason());
+        assert!(phone_mux.close_reason().is_none(), "phone ended it: {:?}", phone_mux.close_reason());
+        Ok(())
     }
 }

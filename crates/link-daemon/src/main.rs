@@ -75,8 +75,9 @@ async fn run() -> anyhow::Result<()> {
     let transfers = hub::Transfers { handle: transfers, events: transfer_events, localsend, localsend_signals };
     let (desktop_media, media_requests) = desktop_media::channel();
     wifi_direct::remove_stale().await;
+    let mdns = link_core::discovery::responder().inspect_err(|error| log::warn!("mdns: {error}")).ok();
     let (mut hub, handle, snapshots, events) =
-        hub::Hub::new(identity.spki().clone(), store, paths, desktop_media, transfers, puncher);
+        hub::Hub::new(identity.spki().clone(), store, paths, desktop_media, transfers, puncher, mdns.clone());
     let bluetooth = bluetooth::Bluetooth::start().await;
     if let Some(address) = &bluetooth.address {
         hub.set_bluetooth(address.clone(), bluetooth.pairing_window());
@@ -84,7 +85,7 @@ async fn run() -> anyhow::Result<()> {
     if let Transport::Bus(bus) = &transport {
         dbus::serve(bus, handle.clone(), snapshots.clone(), nearby.clone()).await?;
     }
-    let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir)?;
+    let (quick_share, qs_handle, qs_watches, qs_events) = quickshare::QuickShare::new(&name, &state_dir, mdns.clone())?;
     if let Transport::Bus(bus) = &transport {
         quickshare::serve(bus, qs_handle.clone(), qs_watches.clone(), name.clone()).await?;
     }
@@ -102,8 +103,11 @@ async fn run() -> anyhow::Result<()> {
     let mut terminate = signal(SignalKind::terminate())?;
     #[cfg(not(target_os = "linux"))]
     let replaced = std::future::pending::<()>;
+    #[cfg(not(target_os = "linux"))]
+    let follow_addresses = |_| std::future::pending::<()>();
     let result = tokio::select! {
         result = hub.run() => result,
+        () = follow_addresses(mdns) => Ok(()),
         () = replaced() => Err(anyhow::anyhow!("an upgrade replaced andromeda-linkd; exiting to run the new one")),
         () = transfer_actor.run() => Ok(()),
         result = listener.run() => result,
@@ -164,6 +168,47 @@ fn bind(identity: &Identity, last: u16) -> anyhow::Result<(quinn::Endpoint, Punc
         })
         .or_else(|_| transport::punchable_server_endpoint(identity, addr(0)))
         .context("binding the QUIC endpoint")
+}
+
+/// Never resolves; on each kernel address change it makes the mDNS responder recheck, so after resume or a network
+/// change the advertisement carries the new address at once.
+#[cfg(target_os = "linux")]
+async fn follow_addresses(mdns: Option<mdns_sd::ServiceDaemon>) {
+    use rustix::net::{AddressFamily, SocketFlags, SocketType, netlink};
+    const RTMGRP_IPV4_IFADDR: u32 = 0x10;
+    const RTMGRP_IPV6_IFADDR: u32 = 0x100;
+    let Some(mdns) = mdns else { return std::future::pending().await };
+    let watch = || -> std::io::Result<_> {
+        let fd = rustix::net::socket_with(
+            AddressFamily::NETLINK,
+            SocketType::RAW,
+            SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
+            None,
+        )?;
+        rustix::net::bind(&fd, &netlink::SocketAddrNetlink::new(0, RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR))?;
+        // Sound for OwnedFd, whose descriptor never changes; `register` would need unsafe, which the workspace forbids.
+        #[allow(deprecated)]
+        tokio::io::unix::AsyncFd::new(fd)
+    };
+    let fd = match watch() {
+        Ok(fd) => fd,
+        Err(error) => {
+            log::warn!("cannot watch interface addresses; mDNS sees changes within a minute: {error}");
+            return std::future::pending().await;
+        }
+    };
+    let mut buf = [0u8; 8192];
+    loop {
+        let Ok(mut ready) = fd.readable().await else {
+            return std::future::pending().await;
+        };
+        // One recheck covers a burst of messages; their content does not matter.
+        while rustix::io::read(fd.get_ref(), &mut buf).is_ok() {}
+        ready.clear_ready();
+        if let Err(error) = link_core::discovery::recheck_interfaces(&mdns) {
+            log::warn!("mdns: {error}");
+        }
+    }
 }
 
 /// Resolves when a package upgrade replaced this program's file, so the service manager restarts it into the new one.

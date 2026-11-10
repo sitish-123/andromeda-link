@@ -124,7 +124,8 @@ async fn receive_loop(
 ) -> anyhow::Result<()> {
     let listener = TcpListener::bind(("0.0.0.0", port)).await.context("listen")?;
     let port = listener.local_addr()?.port();
-    let _mdns = Mdns::advertise(own, port)?;
+    let daemon = mdns_sd::ServiceDaemon::new()?;
+    let _mdns = Mdns::advertise(&daemon, own, port)?;
     let _ble = match ble {
         Some(adapter) => Some(Ble::advertise(adapter).await.context("BLE advertisement")?),
         None => None,

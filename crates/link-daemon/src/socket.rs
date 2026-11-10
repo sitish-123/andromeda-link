@@ -101,7 +101,7 @@ fn broadcast<E: Clone>(sinks: &mut Vec<mpsc::Sender<E>>, event: &E) {
     });
 }
 
-/// One client's connection, until it closes; then the capabilities it reported are gone.
+/// One client's connection, until it closes; then the capabilities it reported and its discovery are gone.
 async fn client(
     stream: UnixStream,
     peer: String,
@@ -110,7 +110,12 @@ async fn client(
     quick_share_events: mpsc::Receiver<quickshare::Event>,
 ) -> anyhow::Result<()> {
     let link = dbus::Link::new(api.hub.clone(), api.snapshots.clone(), api.nearby.clone(), Some(peer.clone()));
-    let quick_share = quickshare::Interface::new(api.quick_share, api.quick_share_watches.clone(), api.name);
+    let quick_share = quickshare::Interface::new(
+        api.quick_share.clone(),
+        api.quick_share_watches.clone(),
+        api.name,
+        Some(peer.clone()),
+    );
     let connection = zbus::connection::Builder::unix_stream(stream.into_std()?)
         .server(zbus::Guid::generate())
         .p2p()
@@ -124,6 +129,7 @@ async fn client(
         result = quickshare::forward(&connection, api.quick_share_watches, quick_share_events) => result,
         () = connection.closed() => Ok(()),
     };
+    api.quick_share.discover(peer.clone(), false).await;
     api.hub.capabilities_gone(peer).await;
     result
 }

@@ -17,15 +17,14 @@ const BLE_PATH: &str = "/org/andromeda/QuickShare/advertisement";
 /// Android's "a Quick Share receiver is nearby" marker; the random tail makes each advertisement distinct.
 const BLE_PREFIX: [u8; 5] = [0xFC, 0x12, 0x8E, 0x01, 0x42];
 
-/// Registered while alive; dropping it sends the mDNS goodbye.
+/// Registered on `daemon` while alive; dropping it sends the mDNS goodbye.
 pub struct Mdns {
     daemon: ServiceDaemon,
     fullname: String,
 }
 
 impl Mdns {
-    pub fn advertise(own: &Endpoint, port: u16) -> Result<Self> {
-        let daemon = ServiceDaemon::new().map_err(mdns_error)?;
+    pub fn advertise(daemon: &ServiceDaemon, own: &Endpoint, port: u16) -> Result<Self> {
         let host = format!("{}.local.", own.id_str());
         let txt = own.txt_record()?;
         let properties = [("n", txt.as_str())];
@@ -34,7 +33,7 @@ impl Mdns {
             .enable_addr_auto();
         let fullname = info.get_fullname().to_owned();
         daemon.register(info).map_err(mdns_error)?;
-        Ok(Self { daemon, fullname })
+        Ok(Self { daemon: daemon.clone(), fullname })
     }
 }
 
@@ -43,7 +42,6 @@ impl Drop for Mdns {
         if let Err(error) = self.daemon.unregister(&self.fullname) {
             log::debug!("mdns unregister: {error}");
         }
-        drop(self.daemon.shutdown());
     }
 }
 
@@ -89,17 +87,16 @@ pub enum Nearby {
     },
 }
 
-/// Receivers as they appear and leave, for as long as it lives.
+/// Receivers as they appear and leave on `daemon`, for as long as it lives.
 pub struct Browser {
     daemon: ServiceDaemon,
     events: mdns_sd::Receiver<ServiceEvent>,
 }
 
 impl Browser {
-    pub fn start() -> Result<Self> {
-        let daemon = ServiceDaemon::new().map_err(mdns_error)?;
+    pub fn start(daemon: &ServiceDaemon) -> Result<Self> {
         let events = daemon.browse(SERVICE_TYPE).map_err(mdns_error)?;
-        Ok(Self { daemon, events })
+        Ok(Self { daemon: daemon.clone(), events })
     }
 
     pub async fn next(&self) -> Option<Nearby> {
@@ -123,7 +120,7 @@ impl Browser {
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        drop(self.daemon.shutdown());
+        drop(self.daemon.stop_browse(SERVICE_TYPE));
     }
 }
 

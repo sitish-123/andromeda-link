@@ -5,13 +5,16 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use futures_util::StreamExt as _;
 use link_quickshare::advertise::{Ble, Browser, Mdns, Nearby};
 use link_quickshare::endpoint::{DEVICE_LAPTOP, Endpoint};
 use link_quickshare::receive::{self, Offer, Outcome, TextKind};
 use link_quickshare::send::{self, Hostile, Outgoing, SendOutcome};
+use mdns_sd::ServiceDaemon;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
+use tokio::time::Instant;
 use zbus::fdo;
 use zbus::object_server::SignalEmitter;
 
@@ -22,6 +25,8 @@ const PORT: u16 = 4718;
 /// Android gives up on an unanswered offer after about a minute.
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(60);
 const ADAPTER: &str = "/org/bluez/hci0";
+/// An owner that does not call `StartDiscovery` again within this time stops owning discovery.
+const DISCOVERY_LIMIT: Duration = Duration::from_secs(120);
 
 #[derive(Clone)]
 pub enum Event {
@@ -32,10 +37,24 @@ pub enum Event {
 }
 
 enum Command {
-    SetVisible { visible: bool, reply: oneshot::Sender<Result<(), String>> },
-    Decide { id: u64, accept: bool },
-    Discover { on: bool },
-    Send { peer: String, files: Vec<(std::fs::File, String)>, reply: oneshot::Sender<Result<u64, String>> },
+    SetVisible {
+        visible: bool,
+        reply: oneshot::Sender<Result<(), String>>,
+    },
+    Decide {
+        id: u64,
+        accept: bool,
+    },
+    /// `owner` is a bus name or a socket client; `on: false` also comes when the owner leaves.
+    Discover {
+        owner: String,
+        on: bool,
+    },
+    Send {
+        peer: String,
+        files: Vec<(std::fs::File, String)>,
+        reply: oneshot::Sender<Result<u64, String>>,
+    },
 }
 
 /// While the user picks a device: the mDNS browser, and the BLE hint that makes Android phones advertise.
@@ -60,6 +79,8 @@ struct Visible {
 
 pub struct QuickShare {
     own: Endpoint,
+    /// The process's one mDNS responder; absent when it failed to start.
+    mdns: Option<ServiceDaemon>,
     downloads: PathBuf,
     marker: PathBuf,
     visible: Option<Visible>,
@@ -70,6 +91,8 @@ pub struct QuickShare {
     pending: HashMap<u64, oneshot::Sender<bool>>,
     connections: JoinSet<(u64, link_quickshare::Result<Outcome>)>,
     discovery: Option<Discovery>,
+    /// Who wants discovery, and until when; discovery runs while this is not empty.
+    owners: HashMap<String, Instant>,
     peers: HashMap<String, Peer>,
     nearby_tx: watch::Sender<Vec<(String, String)>>,
     sends: JoinSet<(u64, link_quickshare::Result<SendOutcome>)>,
@@ -79,7 +102,11 @@ pub struct QuickShare {
 
 impl QuickShare {
     /// Visibility persists across restarts as a marker file in the state directory.
-    pub fn new(name: &str, state_dir: &Path) -> anyhow::Result<(Self, Handle, Watches, mpsc::Receiver<Event>)> {
+    pub fn new(
+        name: &str,
+        state_dir: &Path,
+        mdns: Option<ServiceDaemon>,
+    ) -> anyhow::Result<(Self, Handle, Watches, mpsc::Receiver<Event>)> {
         let (commands_tx, commands) = mpsc::channel(8);
         let (offers_tx, offers) = mpsc::channel(8);
         let (events, events_rx) = mpsc::channel(16);
@@ -87,6 +114,7 @@ impl QuickShare {
         let (nearby_tx, nearby_rx) = watch::channel(Vec::new());
         let this = Self {
             own: Endpoint::new(name, DEVICE_LAPTOP)?,
+            mdns,
             downloads: downloads_dir(),
             marker: state_dir.join("quickshare-visible"),
             visible: None,
@@ -97,6 +125,7 @@ impl QuickShare {
             pending: HashMap::new(),
             connections: JoinSet::new(),
             discovery: None,
+            owners: HashMap::new(),
             peers: HashMap::new(),
             nearby_tx,
             sends: JoinSet::new(),
@@ -122,11 +151,12 @@ impl QuickShare {
                             let _ = decide.send(accept);
                         }
                     }
-                    Some(Command::Discover { on }) => self.discover(on).await,
+                    Some(Command::Discover { owner, on }) => self.discover(owner, on).await,
                     Some(Command::Send { peer, files, reply }) => drop(reply.send(self.send(&peer, files))),
                     None => return Ok(()),
                 },
                 Some(nearby) = next_nearby(self.discovery.as_ref()) => self.nearby(nearby),
+                () = until(self.owners.values().min().copied()) => self.expire(),
                 Some(joined) = self.sends.join_next() => match joined {
                     Ok((id, outcome)) => {
                         let (status, error) = match outcome {
@@ -168,7 +198,8 @@ impl QuickShare {
                 }
             };
             let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-            let mdns = Mdns::advertise(&self.own, port).map_err(|e| format!("mDNS: {e}"))?;
+            let daemon = self.mdns.as_ref().ok_or("mDNS is not running")?;
+            let mdns = Mdns::advertise(daemon, &self.own, port).map_err(|e| format!("mDNS: {e}"))?;
             // Without the BLE hint Android phones do not look for us, but ones already scanning still find us.
             let ble = Ble::advertise(ADAPTER).await.inspect_err(|e| log::warn!("quick share BLE hint: {e}")).ok();
             log::info!("quick share visible on port {port} as {:?}", self.own.name);
@@ -185,23 +216,40 @@ impl QuickShare {
         Ok(())
     }
 
-    async fn discover(&mut self, on: bool) {
-        if on == self.discovery.is_some() {
-            return;
-        }
+    async fn discover(&mut self, owner: String, on: bool) {
         if !on {
-            self.discovery = None;
-            self.peers.clear();
-            self.publish_nearby();
+            if self.owners.remove(&owner).is_some() && self.owners.is_empty() {
+                self.stop_discovery();
+            }
             return;
         }
-        match Browser::start() {
+        self.owners.insert(owner, Instant::now() + DISCOVERY_LIMIT);
+        if self.discovery.is_some() {
+            return;
+        }
+        let Some(daemon) = &self.mdns else { return log::warn!("quick share discovery: mDNS is not running") };
+        match Browser::start(daemon) {
             Ok(browser) => {
                 let ble = Ble::advertise(ADAPTER).await.inspect_err(|e| log::warn!("quick share BLE hint: {e}")).ok();
                 self.discovery = Some(Discovery { browser, _ble: ble });
             }
             Err(error) => log::warn!("quick share discovery: {error}"),
         }
+    }
+
+    fn expire(&mut self) {
+        let now = Instant::now();
+        self.owners.retain(|_, until| *until > now);
+        if self.owners.is_empty() {
+            log::info!("quick share discovery: time limit passed");
+            self.stop_discovery();
+        }
+    }
+
+    fn stop_discovery(&mut self) {
+        self.discovery = None;
+        self.peers.clear();
+        self.publish_nearby();
     }
 
     fn nearby(&mut self, nearby: Nearby) {
@@ -316,6 +364,13 @@ async fn next_nearby(discovery: Option<&Discovery>) -> Option<Nearby> {
     }
 }
 
+async fn until(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
+    }
+}
+
 async fn accept(visible: Option<&Visible>) -> std::io::Result<(tokio::net::TcpStream, std::net::SocketAddr)> {
     match visible {
         Some(visible) => visible.listener.accept().await,
@@ -343,8 +398,8 @@ impl Handle {
         result.await.map_err(|_| "stopped".to_owned())?
     }
 
-    async fn discover(&self, on: bool) {
-        if self.0.send(Command::Discover { on }).await.is_err() {
+    pub(crate) async fn discover(&self, owner: String, on: bool) {
+        if self.0.send(Command::Discover { owner, on }).await.is_err() {
             log::debug!("quick share stopped");
         }
     }
@@ -366,11 +421,15 @@ pub struct Interface {
     handle: Handle,
     watches: Watches,
     name: String,
+    /// The socket client this copy serves, which owns discovery in place of a bus name.
+    peer: Option<String>,
+    /// Discovery owners whose leaving the bus is watched.
+    watched: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl Interface {
-    pub fn new(handle: Handle, watches: Watches, name: String) -> Self {
-        Self { handle, watches, name }
+    pub fn new(handle: Handle, watches: Watches, name: String, peer: Option<String>) -> Self {
+        Self { handle, watches, name, peer, watched: std::sync::Arc::default() }
     }
 }
 
@@ -384,13 +443,48 @@ impl Interface {
         self.handle.decide(id, false).await;
     }
 
-    /// Looks for nearby receivers, and sends the BLE hint that makes Android phones show themselves, until stopped.
-    async fn start_discovery(&self) {
-        self.handle.discover(true).await;
+    /// Looks for nearby receivers, and sends the BLE hint that makes Android phones show themselves, for 2 minutes.
+    /// Call again to keep looking; it stops early when every caller calls `StopDiscovery` or leaves the bus.
+    async fn start_discovery(
+        &self,
+        #[zbus(header)] header: zbus::message::Header<'_>,
+        #[zbus(connection)] connection: &zbus::Connection,
+    ) -> fdo::Result<()> {
+        if let Some(peer) = &self.peer {
+            self.handle.discover(peer.clone(), true).await;
+            return Ok(());
+        }
+        let owner = header.sender().ok_or_else(|| fdo::Error::Failed("no sender".to_owned()))?.to_owned();
+        // One watcher per caller: a caller that renews keeps the one it has.
+        if !self.watched.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(owner.to_string()) {
+            self.handle.discover(owner.to_string(), true).await;
+            return Ok(());
+        }
+        let bus = fdo::DBusProxy::new(connection).await?;
+        // Subscribed before the owner check, so a caller that leaves meanwhile is not missed.
+        let mut gone = bus.receive_name_owner_changed_with_args(&[(0, owner.as_str())]).await?;
+        self.handle.discover(owner.to_string(), true).await;
+        let (handle, watched) = (self.handle.clone(), self.watched.clone());
+        let present = bus.name_has_owner(owner.as_ref().into()).await.unwrap_or(false);
+        tokio::spawn(async move {
+            if present {
+                while let Some(changed) = gone.next().await {
+                    if changed.args().is_ok_and(|args| args.new_owner().is_none()) {
+                        break;
+                    }
+                }
+            }
+            watched.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(owner.as_str());
+            handle.discover(owner.to_string(), false).await;
+        });
+        Ok(())
     }
 
-    async fn stop_discovery(&self) {
-        self.handle.discover(false).await;
+    async fn stop_discovery(&self, #[zbus(header)] header: zbus::message::Header<'_>) {
+        let owner = self.peer.clone().or_else(|| header.sender().map(ToString::to_string));
+        if let Some(owner) = owner {
+            self.handle.discover(owner, false).await;
+        }
     }
 
     /// `files` are (descriptor, name); returns the send's id for `SendPin` and `SendFinished`.
@@ -452,7 +546,7 @@ impl Interface {
 }
 
 pub async fn serve(bus: &zbus::Connection, handle: Handle, watches: Watches, name: String) -> anyhow::Result<()> {
-    bus.object_server().at(PATH, Interface::new(handle, watches, name)).await?;
+    bus.object_server().at(PATH, Interface::new(handle, watches, name, None)).await?;
     Ok(())
 }
 
@@ -499,5 +593,62 @@ fn kind_str(kind: &TextKind) -> &'static str {
         TextKind::Url => "url",
         TextKind::Address => "address",
         TextKind::Phone => "phone",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    type Nearby = watch::Receiver<Vec<(String, String)>>;
+    const RENEW: Duration = Duration::from_secs(110);
+
+    /// A running Quick Share without mDNS that has found one peer, so a stop shows as an empty `nearby`.
+    fn running() -> anyhow::Result<(Handle, Nearby)> {
+        let state = std::env::temp_dir().join(format!("link-qs-test-{}", std::process::id()));
+        let (mut qs, handle, watches, _events) = QuickShare::new("test", &state, None)?;
+        qs.peers.insert("p".to_owned(), Peer { name: "Phone".to_owned(), addresses: Vec::new() });
+        qs.publish_nearby();
+        tokio::spawn(qs.run());
+        Ok((handle, watches.nearby))
+    }
+
+    async fn stopped(nearby: &mut Nearby, within: Duration) -> anyhow::Result<()> {
+        tokio::time::timeout(within, nearby.wait_for(Vec::is_empty)).await??;
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn discovery_stops_at_the_limit_without_renewal() -> anyhow::Result<()> {
+        let (handle, mut nearby) = running()?;
+        let start = Instant::now();
+        handle.discover(":1.7".to_owned(), true).await;
+        stopped(&mut nearby, DISCOVERY_LIMIT + Duration::from_secs(1)).await?;
+        assert!(start.elapsed() >= DISCOVERY_LIMIT);
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn discovery_stays_on_while_renewed_and_stops_when_the_owner_leaves() -> anyhow::Result<()> {
+        let (handle, mut nearby) = running()?;
+        for _ in 0..3 {
+            handle.discover(":1.7".to_owned(), true).await;
+            tokio::time::sleep(RENEW).await;
+            assert!(!nearby.borrow().is_empty());
+        }
+        handle.discover(":1.7".to_owned(), false).await;
+        stopped(&mut nearby, Duration::from_secs(1)).await
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn discovery_runs_until_the_last_owner_leaves() -> anyhow::Result<()> {
+        let (handle, mut nearby) = running()?;
+        handle.discover(":1.7".to_owned(), true).await;
+        handle.discover("socket-1".to_owned(), true).await;
+        handle.discover(":1.7".to_owned(), false).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(!nearby.borrow().is_empty());
+        handle.discover("socket-1".to_owned(), false).await;
+        stopped(&mut nearby, Duration::from_secs(1)).await
     }
 }

@@ -22,6 +22,7 @@ use link_core::store::{Feature, Peer, Store, StoredCommand, feature_of};
 use link_core::transfer::{ClipPeer, Source, Status as TransferStatus, TransferEvent, TransferHandle};
 use link_core::transport::Puncher;
 use link_core::uri::{PairingUri, QR_SECRET_LEN};
+use mdns_sd::ServiceDaemon;
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::sync::{mpsc, oneshot, watch};
 
@@ -300,6 +301,8 @@ pub struct Hub {
     paths: Paths,
     /// Present only while someone could be looking: a paired device or an open pairing window.
     advertiser: Option<Advertiser>,
+    /// The process's one mDNS responder; absent when it failed to start.
+    mdns: Option<ServiceDaemon>,
     window: Option<Window>,
     windows_opened: u64,
     sessions: HashMap<DeviceId, SessionHandle>,
@@ -396,6 +399,7 @@ impl Hub {
         desktop_media: DesktopMediaHandle,
         transfers: Transfers,
         puncher: Puncher,
+        mdns: Option<ServiceDaemon>,
     ) -> (Self, HubHandle, watch::Receiver<Snapshot>, mpsc::Receiver<Event>) {
         let (commands_tx, commands) = mpsc::channel(32);
         let (session_events_tx, session_events) = mpsc::channel(16);
@@ -410,6 +414,7 @@ impl Hub {
             store,
             paths,
             advertiser: None,
+            mdns,
             window: None,
             windows_opened: 0,
             sessions: HashMap::new(),
@@ -1677,14 +1682,12 @@ impl Hub {
             self.advertiser = None;
             return;
         }
-        if let Some(advertiser) = &self.advertiser {
+        if let Some(advertiser) = &mut self.advertiser {
             return log_mdns(advertiser.set_pairing(pairing));
         }
-        match Advertiser::start(&self.own.device_id(), self.store.port) {
-            Ok(advertiser) => {
-                log_mdns(advertiser.set_pairing(pairing));
-                self.advertiser = Some(advertiser);
-            }
+        let Some(mdns) = &self.mdns else { return };
+        match Advertiser::start(mdns, &self.own.device_id(), self.store.port, pairing) {
+            Ok(advertiser) => self.advertiser = Some(advertiser),
             Err(error) => log::warn!("mdns: {error}"),
         }
     }

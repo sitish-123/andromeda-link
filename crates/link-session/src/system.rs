@@ -78,6 +78,15 @@ trait Shell {
     fn lock_from_phone(&self) -> zbus::Result<()>;
 }
 
+#[zbus::proxy(
+    interface = "org.andromeda.Lock1",
+    default_service = "org.andromeda.Lock1",
+    default_path = "/org/andromeda/Lock1"
+)]
+trait Lock {
+    fn lock(&self, reason: &str) -> zbus::Result<bool>;
+}
+
 /// The fields of `desktop-status` after volume and mute; `None` for what this desktop cannot tell.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
@@ -103,6 +112,8 @@ pub struct System {
     battery: Option<BatteryProxy<'static>>,
     profiles: Option<ProfilesProxy<'static>>,
     shell: Option<ShellProxy<'static>>,
+    /// Kept even while no one owns the name: the lock process can start after us.
+    lock: Option<LockProxy<'static>>,
     backlight: Option<Backlight>,
     changes: Changes,
     brightness: Option<u8>,
@@ -148,6 +159,7 @@ impl System {
             Ok(proxy) if proxy.do_not_disturb().await.is_ok() => Some(proxy),
             _ => None,
         };
+        let lock = LockProxy::new(bus).await.ok();
         if let Some(proxy) = &session {
             changes.push(proxy.receive_locked_hint_changed().await.map(drop).boxed());
             changes.push(proxy.receive_idle_hint_changed().await.map(drop).boxed());
@@ -168,7 +180,7 @@ impl System {
         if let Some(b) = &backlight {
             watch_backlight(&b.dir.join("actual_brightness"), brightness_changed.clone());
         }
-        Self { session, manager, battery, profiles, shell, backlight, changes, brightness, brightness_changed }
+        Self { session, manager, battery, profiles, shell, lock, backlight, changes, brightness, brightness_changed }
     }
 
     /// What phones can ask of this desktop, as `SetSessionCapabilities` lists it.
@@ -241,7 +253,12 @@ impl System {
                 Ok(())
             }
             "lock" => {
-                // The shell keeps biometrics off until a password unlock; logind locks without that.
+                // Lock1 and the shell keep biometrics off until a password unlock; logind locks without that.
+                if let Some(lock) = &self.lock
+                    && matches!(lock.lock("phone").await, Ok(true))
+                {
+                    return Ok(());
+                }
                 if let Some(shell) = &self.shell
                     && shell.lock_from_phone().await.is_ok()
                 {

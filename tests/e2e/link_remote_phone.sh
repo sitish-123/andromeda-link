@@ -16,7 +16,7 @@ OUT=${OUT:-$(pwd)/artifacts/link-remote-phone}
 source "$(dirname "$0")/link_phone_lib.sh"
 DESKTOP=${DESKTOP_ROOT:-$(cd "$ROOT/.." && pwd)}
 ANDROMEDA=$DESKTOP/compositor/build-debug/andromeda
-NOCTALIA=$DESKTOP/shell/build-debug/noctalia
+NOCTALIA=$DESKTOP/shell/build-debug/andromeda-shell
 PORTAL=$DESKTOP/portal/build-debug/xdg-desktop-portal-andromeda
 RELAY_PORT=${RELAY_PORT:-48311}
 

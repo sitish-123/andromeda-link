@@ -5,7 +5,7 @@ Name:           andromeda-link
 Version:        %{linkversion}
 Release:        1%{?dist}
 Summary:        Andromeda Link: phone and desktop continuity
-License:        MIT
+License:        GPL-3.0-or-later
 Requires:       dbus fuse3 gtk4 gstreamer1-plugins-base gstreamer1-plugins-bad-free
 Requires:       qt6-qtbase >= 6.7 qt6-qtdeclarative qt6-qtmultimedia
 Obsoletes:      andromeda-link-app < %{version}-%{release}

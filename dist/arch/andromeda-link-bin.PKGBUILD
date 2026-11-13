@@ -6,7 +6,7 @@ pkgrel=1
 pkgdesc='Andromeda Link: your Android phone and your Linux desktop as one (release build)'
 arch=(x86_64)
 url='https://github.com/Andromeda-Desktop/link'
-license=(MIT)
+license=(GPL-3.0-or-later)
 depends=(glibc gcc-libs dbus fuse3 gtk4 qt6-base qt6-declarative qt6-multimedia gstreamer gst-plugins-base-libs
   gst-plugins-bad gst-plugin-gtk4)
 optdepends=('bluez: Link over Bluetooth when no Wi-Fi reaches the phone'

@@ -5,7 +5,7 @@ pkgver=@VERSION@
 pkgrel=1
 pkgdesc='Andromeda Link: your Android phone and your Linux desktop as one (release build)'
 arch=(x86_64)
-url='https://github.com/sitish-123/andromeda-link'
+url='https://github.com/Andromeda-Desktop/link'
 license=(MIT)
 depends=(glibc gcc-libs dbus fuse3 gtk4 qt6-base qt6-declarative qt6-multimedia gstreamer gst-plugins-base-libs
   gst-plugins-bad gst-plugin-gtk4)

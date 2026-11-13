@@ -161,7 +161,7 @@ object AppUpdate {
         return 0
     }
 
-    private const val LATEST = "https://api.github.com/repos/sitish-123/andromeda-link/releases/latest"
+    private const val LATEST = "https://api.github.com/repos/Andromeda-Desktop/link/releases/latest"
 }
 
 class UpdateReceiver : BroadcastReceiver() {
